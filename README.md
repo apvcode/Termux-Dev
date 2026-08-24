@@ -16,6 +16,10 @@ Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**
 
 [🇬🇧 **English**](#-highlights) &nbsp;•&nbsp; [🇷🇺 **Русский**](#-русский)
 
+<br/><br/>
+
+<img src="assets/preview.png" alt="devx Terminal Interface" width="750" style="border-radius: 8px;" />
+
 </div>
 
 ---
@@ -96,12 +100,6 @@ Launch `devx` in any project folder:
 ```bash
 devx
 ```
-
-<div align="center">
-  <img src="assets/preview.png" alt="devx Terminal Preview" width="720" style="border-radius: 8px;" />
-</div>
-
-<br/>
 
 * On first run, `devx` launches an interactive setup wizard to configure your preferred AI provider and API key.
 * Start directly in **PLAN mode**:
@@ -236,12 +234,6 @@ npm install -g git+https://github.com/apvcode/Termux-Dev.git
 ```bash
 devx
 ```
-
-<div align="center">
-  <img src="assets/preview.png" alt="Интерфейс devx" width="720" style="border-radius: 8px;" />
-</div>
-
-<br/>
 
 * При первом запуске откроется мастер настройки: выберите любимого AI-провайдера и введите API-ключ.
 * Запуск сразу в режиме архитектора:
