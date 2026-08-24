@@ -1,0 +1,892 @@
+[
+  {
+    "value": "302ai",
+    "label": "302.AI",
+    "baseUrl": "https://api.302.ai/v1"
+  },
+  {
+    "value": "abacus",
+    "label": "Abacus",
+    "baseUrl": "https://routellm.abacus.ai/v1"
+  },
+  {
+    "value": "abliteration-ai",
+    "label": "abliteration.ai",
+    "baseUrl": "https://api.abliteration.ai/v1"
+  },
+  {
+    "value": "ai-router",
+    "label": "AI-ROUTER",
+    "baseUrl": "https://api.ai-router.dev/v1"
+  },
+  {
+    "value": "aiand",
+    "label": "ai&",
+    "baseUrl": "https://api.aiand.com/v1"
+  },
+  {
+    "value": "aki-io",
+    "label": "AKI.IO",
+    "baseUrl": "https://aki.io/v1"
+  },
+  {
+    "value": "alibaba",
+    "label": "Alibaba",
+    "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+  },
+  {
+    "value": "alibaba-cn",
+    "label": "Alibaba (China)",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  },
+  {
+    "value": "alibaba-coding-plan",
+    "label": "Alibaba Coding Plan",
+    "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1"
+  },
+  {
+    "value": "alibaba-coding-plan-cn",
+    "label": "Alibaba Coding Plan (China)",
+    "baseUrl": "https://coding.dashscope.aliyuncs.com/v1"
+  },
+  {
+    "value": "alibaba-token-plan",
+    "label": "Alibaba Token Plan",
+    "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+  },
+  {
+    "value": "alibaba-token-plan-cn",
+    "label": "Alibaba Token Plan (China)",
+    "baseUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+  },
+  {
+    "value": "ambient",
+    "label": "Ambient",
+    "baseUrl": "https://api.ambient.xyz/v1"
+  },
+  {
+    "value": "amd",
+    "label": "AMD",
+    "baseUrl": "https://developer.amd.com.cn/radeon/api/v1"
+  },
+  {
+    "value": "anyapi",
+    "label": "AnyAPI",
+    "baseUrl": "https://api.anyapi.ai/v1"
+  },
+  {
+    "value": "arcee",
+    "label": "Arcee",
+    "baseUrl": "https://api.arcee.ai/api/v1"
+  },
+  {
+    "value": "atomic-chat",
+    "label": "Atomic Chat",
+    "baseUrl": "http://127.0.0.1:1337/v1"
+  },
+  {
+    "value": "auriko",
+    "label": "Auriko",
+    "baseUrl": "https://api.auriko.ai/v1"
+  },
+  {
+    "value": "bailing",
+    "label": "Bailing",
+    "baseUrl": "https://api.tbox.cn/api/llm/v1/chat/completions"
+  },
+  {
+    "value": "baseten",
+    "label": "Baseten",
+    "baseUrl": "https://inference.baseten.co/v1"
+  },
+  {
+    "value": "berget",
+    "label": "Berget.AI",
+    "baseUrl": "https://api.berget.ai/v1"
+  },
+  {
+    "value": "blueclaw",
+    "label": "Blue Claw",
+    "baseUrl": "https://openai.blueclaw.network/v1"
+  },
+  {
+    "value": "cerebras",
+    "label": "Cerebras",
+    "baseUrl": "https://api.cerebras.ai/v1"
+  },
+  {
+    "value": "hyper",
+    "label": "Charm Hyper",
+    "baseUrl": "https://hyper.charm.land/v1"
+  },
+  {
+    "value": "chutes",
+    "label": "Chutes",
+    "baseUrl": "https://llm.chutes.ai/v1"
+  },
+  {
+    "value": "clarifai",
+    "label": "Clarifai",
+    "baseUrl": "https://api.clarifai.com/v2/ext/openai/v1"
+  },
+  {
+    "value": "claudinio",
+    "label": "Claudinio",
+    "baseUrl": "https://api.claudin.io/v1"
+  },
+  {
+    "value": "cline-pass",
+    "label": "ClinePass",
+    "baseUrl": "https://api.cline.bot/api/v1"
+  },
+  {
+    "value": "cloudferro-sherlock",
+    "label": "CloudFerro Sherlock",
+    "baseUrl": "https://api-sherlock.cloudferro.com/openai/v1/"
+  },
+  {
+    "value": "cloudflare-workers-ai",
+    "label": "Cloudflare Workers AI",
+    "baseUrl": "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1"
+  },
+  {
+    "value": "coralbricks",
+    "label": "CoralBricks",
+    "baseUrl": "https://inference.coralbricks.ai/v1"
+  },
+  {
+    "value": "cortecs",
+    "label": "Cortecs",
+    "baseUrl": "https://api.cortecs.ai/v1"
+  },
+  {
+    "value": "crof",
+    "label": "CrofAI",
+    "baseUrl": "https://crof.ai/v1"
+  },
+  {
+    "value": "crossmodel",
+    "label": "CrossModel",
+    "baseUrl": "https://api.crossmodel.ai/v1"
+  },
+  {
+    "value": "crusoe",
+    "label": "Crusoe",
+    "baseUrl": "https://api.inference.crusoecloud.com/v1"
+  },
+  {
+    "value": "drun",
+    "label": "D.Run (China)",
+    "baseUrl": "https://chat.d.run/v1"
+  },
+  {
+    "value": "daoxe",
+    "label": "DaoXE",
+    "baseUrl": "https://daoxe.com/v1"
+  },
+  {
+    "value": "databricks",
+    "label": "Databricks",
+    "baseUrl": "https://${DATABRICKS_HOST}/ai-gateway/mlflow/v1"
+  },
+  {
+    "value": "deepseek",
+    "label": "DeepSeek",
+    "baseUrl": "https://api.deepseek.com"
+  },
+  {
+    "value": "llmgateway",
+    "label": "DevPass (LLM Gateway)",
+    "baseUrl": "https://api.llmgateway.io/v1"
+  },
+  {
+    "value": "digitalocean",
+    "label": "DigitalOcean",
+    "baseUrl": "https://inference.do-ai.run/v1"
+  },
+  {
+    "value": "dinference",
+    "label": "DInference",
+    "baseUrl": "https://api.dinference.com/v1"
+  },
+  {
+    "value": "ebcloud",
+    "label": "EBCloud",
+    "baseUrl": "https://maas-api.ebcloud.com/v1"
+  },
+  {
+    "value": "echo",
+    "label": "Echo",
+    "baseUrl": "https://echo.tracerml.ai/v1"
+  },
+  {
+    "value": "edenai",
+    "label": "Eden AI",
+    "baseUrl": "https://api.edenai.run/v3"
+  },
+  {
+    "value": "empiriolabs",
+    "label": "EmpirioLabs AI",
+    "baseUrl": "https://api.empiriolabs.ai/v1"
+  },
+  {
+    "value": "evroc",
+    "label": "evroc",
+    "baseUrl": "https://models.think.evroc.com/v1"
+  },
+  {
+    "value": "fastrouter",
+    "label": "FastRouter",
+    "baseUrl": "https://go.fastrouter.ai/api/v1"
+  },
+  {
+    "value": "fireworks-ai",
+    "label": "Fireworks AI",
+    "baseUrl": "https://api.fireworks.ai/inference/v1/"
+  },
+  {
+    "value": "freemodel",
+    "label": "FreeModel",
+    "baseUrl": "https://cc.freemodel.dev/v1"
+  },
+  {
+    "value": "friendli",
+    "label": "Friendli",
+    "baseUrl": "https://api.friendli.ai/serverless/v1"
+  },
+  {
+    "value": "frogbot",
+    "label": "FrogBot",
+    "baseUrl": "https://app.frogbot.ai/api/v1"
+  },
+  {
+    "value": "github-copilot",
+    "label": "GitHub Copilot",
+    "baseUrl": "https://api.githubcopilot.com"
+  },
+  {
+    "value": "gmicloud",
+    "label": "GMI Cloud",
+    "baseUrl": "https://api.gmi-serving.com/v1"
+  },
+  {
+    "value": "google",
+    "label": "Google",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/"
+  },
+  {
+    "value": "greenpt",
+    "label": "GreenPT",
+    "baseUrl": "https://api.greenpt.ai/v1"
+  },
+  {
+    "value": "groq",
+    "label": "Groq",
+    "baseUrl": "https://api.groq.com/openai/v1"
+  },
+  {
+    "value": "helicone",
+    "label": "Helicone",
+    "baseUrl": "https://ai-gateway.helicone.ai/v1"
+  },
+  {
+    "value": "hetzner",
+    "label": "Hetzner",
+    "baseUrl": "https://inference.hetzner.com/api/v1"
+  },
+  {
+    "value": "hpc-ai",
+    "label": "HPC-AI",
+    "baseUrl": "https://api.hpc-ai.com/inference/v1"
+  },
+  {
+    "value": "huggingface",
+    "label": "Hugging Face",
+    "baseUrl": "https://router.huggingface.co/v1"
+  },
+  {
+    "value": "iflowcn",
+    "label": "iFlow",
+    "baseUrl": "https://apis.iflow.cn/v1"
+  },
+  {
+    "value": "impossibl",
+    "label": "Impossibl",
+    "baseUrl": "https://api.impossibl.com/v1"
+  },
+  {
+    "value": "inception",
+    "label": "Inception",
+    "baseUrl": "https://api.inceptionlabs.ai/v1/"
+  },
+  {
+    "value": "inceptron",
+    "label": "Inceptron",
+    "baseUrl": "https://api.inceptron.io/v1"
+  },
+  {
+    "value": "inference",
+    "label": "Inference",
+    "baseUrl": "https://inference.net/v1"
+  },
+  {
+    "value": "inferx",
+    "label": "InferX",
+    "baseUrl": "https://model.inferx.net/endpoints/v1"
+  },
+  {
+    "value": "infomaniak",
+    "label": "Infomaniak",
+    "baseUrl": "https://api.infomaniak.com/2/ai/${INFOMANIAK_PRODUCT_ID}/openai/v1"
+  },
+  {
+    "value": "io-net",
+    "label": "IO.NET",
+    "baseUrl": "https://api.intelligence.io.solutions/api/v1"
+  },
+  {
+    "value": "jalapeno",
+    "label": "Jalapeno Cloud",
+    "baseUrl": "https://api.jalapeno-cloud.ai/v1"
+  },
+  {
+    "value": "jiekou",
+    "label": "Jiekou.AI",
+    "baseUrl": "https://api.jiekou.ai/openai"
+  },
+  {
+    "value": "kenari",
+    "label": "Kenari",
+    "baseUrl": "https://kenari.id/v1"
+  },
+  {
+    "value": "kilo",
+    "label": "Kilo Gateway",
+    "baseUrl": "https://api.kilo.ai/api/gateway"
+  },
+  {
+    "value": "kimi-for-coding",
+    "label": "Kimi For Coding",
+    "baseUrl": "https://api.kimi.com/coding/v1"
+  },
+  {
+    "value": "kosmik",
+    "label": "Kosmik Compute",
+    "baseUrl": "https://api.koscompute.com/v1"
+  },
+  {
+    "value": "kuae-cloud-coding-plan",
+    "label": "KUAE Cloud Coding Plan",
+    "baseUrl": "https://coding-plan-endpoint.kuaecloud.net/v1"
+  },
+  {
+    "value": "lilac",
+    "label": "Lilac",
+    "baseUrl": "https://api.getlilac.com/v1"
+  },
+  {
+    "value": "llama",
+    "label": "Llama",
+    "baseUrl": "https://api.llama.com/compat/v1/"
+  },
+  {
+    "value": "llmgateway-providers",
+    "label": "LLM Gateway",
+    "baseUrl": "https://api.llmgateway.io/v1"
+  },
+  {
+    "value": "llmtr",
+    "label": "LLMTR",
+    "baseUrl": "https://llmtr.com/v1"
+  },
+  {
+    "value": "lmstudio",
+    "label": "LM Studio (Local)",
+    "baseUrl": "http://127.0.0.1:1234/v1"
+  },
+  {
+    "value": "lmstudio",
+    "label": "LMStudio",
+    "baseUrl": "http://127.0.0.1:1234/v1"
+  },
+  {
+    "value": "longcat",
+    "label": "LongCat",
+    "baseUrl": "https://api.longcat.chat/openai"
+  },
+  {
+    "value": "lucidquery",
+    "label": "LucidQuery",
+    "baseUrl": "https://api.lucidquery.com/v1"
+  },
+  {
+    "value": "lynkr",
+    "label": "Lynkr",
+    "baseUrl": "http://127.0.0.1:8081/v1"
+  },
+  {
+    "value": "meganova",
+    "label": "Meganova",
+    "baseUrl": "https://api.meganova.ai/v1"
+  },
+  {
+    "value": "merge-gateway",
+    "label": "Merge Gateway",
+    "baseUrl": "https://api-gateway.merge.dev/v1/ai-sdk"
+  },
+  {
+    "value": "meta",
+    "label": "Meta",
+    "baseUrl": "https://api.meta.ai/v1"
+  },
+  {
+    "value": "minimax",
+    "label": "MiniMax (minimax.io)",
+    "baseUrl": "https://api.minimax.io/anthropic/v1"
+  },
+  {
+    "value": "minimax-cn",
+    "label": "MiniMax (minimaxi.com)",
+    "baseUrl": "https://api.minimaxi.com/anthropic/v1"
+  },
+  {
+    "value": "minimax-coding-plan",
+    "label": "MiniMax Token Plan (minimax.io)",
+    "baseUrl": "https://api.minimax.io/anthropic/v1"
+  },
+  {
+    "value": "minimax-cn-coding-plan",
+    "label": "MiniMax Token Plan (minimaxi.com)",
+    "baseUrl": "https://api.minimaxi.com/anthropic/v1"
+  },
+  {
+    "value": "mistral",
+    "label": "Mistral",
+    "baseUrl": "https://api.mistral.ai/v1"
+  },
+  {
+    "value": "mixlayer",
+    "label": "Mixlayer",
+    "baseUrl": "https://models.mixlayer.ai/v1"
+  },
+  {
+    "value": "moark",
+    "label": "Moark",
+    "baseUrl": "https://moark.com/v1"
+  },
+  {
+    "value": "modal",
+    "label": "Modal",
+    "baseUrl": "https://inference.us-west.modal.direct/v1"
+  },
+  {
+    "value": "model-oracle-ai",
+    "label": "Model Oracle AI",
+    "baseUrl": "https://api.modeloracle.com/api/v1"
+  },
+  {
+    "value": "modelis",
+    "label": "Modelis",
+    "baseUrl": "https://modelishub.com/v1"
+  },
+  {
+    "value": "modelscope",
+    "label": "ModelScope",
+    "baseUrl": "https://api-inference.modelscope.cn/v1"
+  },
+  {
+    "value": "moonshotai",
+    "label": "Moonshot AI",
+    "baseUrl": "https://api.moonshot.ai/v1"
+  },
+  {
+    "value": "moonshotai-cn",
+    "label": "Moonshot AI (China)",
+    "baseUrl": "https://api.moonshot.cn/v1"
+  },
+  {
+    "value": "morph",
+    "label": "Morph",
+    "baseUrl": "https://api.morphllm.com/v1"
+  },
+  {
+    "value": "nano-gpt",
+    "label": "NanoGPT",
+    "baseUrl": "https://nano-gpt.com/api/v1"
+  },
+  {
+    "value": "nearai",
+    "label": "NEAR AI Cloud",
+    "baseUrl": "https://cloud-api.near.ai/v1"
+  },
+  {
+    "value": "nebius",
+    "label": "Nebius Token Factory",
+    "baseUrl": "https://api.tokenfactory.nebius.com/v1"
+  },
+  {
+    "value": "neon",
+    "label": "Neon",
+    "baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1"
+  },
+  {
+    "value": "neuralwatt",
+    "label": "Neuralwatt",
+    "baseUrl": "https://api.neuralwatt.com/v1"
+  },
+  {
+    "value": "nova",
+    "label": "Nova",
+    "baseUrl": "https://api.nova.amazon.com/v1"
+  },
+  {
+    "value": "novita-ai",
+    "label": "NovitaAI",
+    "baseUrl": "https://api.novita.ai/openai"
+  },
+  {
+    "value": "nvidia",
+    "label": "Nvidia",
+    "baseUrl": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "value": "ofox",
+    "label": "Ofox",
+    "baseUrl": "https://api.ofox.ai/v1"
+  },
+  {
+    "value": "ollama",
+    "label": "Ollama (Local)",
+    "baseUrl": "http://127.0.0.1:11434/v1"
+  },
+  {
+    "value": "ollama-cloud",
+    "label": "Ollama Cloud",
+    "baseUrl": "https://ollama.com/v1"
+  },
+  {
+    "value": "openai",
+    "label": "OpenAI",
+    "baseUrl": "https://api.openai.com/v1"
+  },
+  {
+    "value": "opencode-go",
+    "label": "OpenCode Go",
+    "baseUrl": "https://opencode.ai/zen/go/v1"
+  },
+  {
+    "value": "opencode",
+    "label": "OpenCode Zen",
+    "baseUrl": "https://opencode.ai/zen/v1"
+  },
+  {
+    "value": "openrouter",
+    "label": "OpenRouter",
+    "baseUrl": "https://openrouter.ai/api/v1"
+  },
+  {
+    "value": "opper",
+    "label": "Opper",
+    "baseUrl": "https://api.opper.ai/v3/compat"
+  },
+  {
+    "value": "orcarouter",
+    "label": "OrcaRouter",
+    "baseUrl": "https://api.orcarouter.ai/v1"
+  },
+  {
+    "value": "ovhcloud",
+    "label": "OVHcloud AI Endpoints",
+    "baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1"
+  },
+  {
+    "value": "perplexity",
+    "label": "Perplexity",
+    "baseUrl": "https://api.perplexity.ai"
+  },
+  {
+    "value": "perplexity-agent",
+    "label": "Perplexity Agent",
+    "baseUrl": "https://api.perplexity.ai/v1"
+  },
+  {
+    "value": "pioneer",
+    "label": "Pioneer",
+    "baseUrl": "https://api.pioneer.ai/v1"
+  },
+  {
+    "value": "poe",
+    "label": "Poe",
+    "baseUrl": "https://api.poe.com/v1"
+  },
+  {
+    "value": "poolside",
+    "label": "Poolside",
+    "baseUrl": "https://inference.poolside.ai/v1"
+  },
+  {
+    "value": "privatemode-ai",
+    "label": "Privatemode AI",
+    "baseUrl": "http://localhost:8080/v1"
+  },
+  {
+    "value": "qihang-ai",
+    "label": "QiHang",
+    "baseUrl": "https://api.qhaigc.net/v1"
+  },
+  {
+    "value": "qiniu-ai",
+    "label": "Qiniu",
+    "baseUrl": "https://api.qnaigc.com/v1"
+  },
+  {
+    "value": "regolo-ai",
+    "label": "Regolo AI",
+    "baseUrl": "https://api.regolo.ai/v1"
+  },
+  {
+    "value": "requesty",
+    "label": "Requesty",
+    "baseUrl": "https://router.requesty.ai/v1"
+  },
+  {
+    "value": "routing-run",
+    "label": "routing.run",
+    "baseUrl": "https://api.routing.run/v1"
+  },
+  {
+    "value": "runinfra",
+    "label": "RunInfra",
+    "baseUrl": "https://api.runinfra.ai/v1"
+  },
+  {
+    "value": "sakana",
+    "label": "Sakana AI",
+    "baseUrl": "https://api.sakana.ai/v1"
+  },
+  {
+    "value": "sarvam",
+    "label": "Sarvam AI",
+    "baseUrl": "https://api.sarvam.ai/v1"
+  },
+  {
+    "value": "scaleway",
+    "label": "Scaleway",
+    "baseUrl": "https://api.scaleway.ai/v1"
+  },
+  {
+    "value": "scnet-token-plan",
+    "label": "SCNet Token Plan",
+    "baseUrl": "https://api.scnet.cn/api/llm/v1"
+  },
+  {
+    "value": "scx-ai",
+    "label": "SCX.ai",
+    "baseUrl": "https://api.scx.ai/v1"
+  },
+  {
+    "value": "siliconflow",
+    "label": "SiliconFlow",
+    "baseUrl": "https://api.siliconflow.com/v1"
+  },
+  {
+    "value": "siliconflow-cn",
+    "label": "SiliconFlow (China)",
+    "baseUrl": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "value": "snowflake-cortex",
+    "label": "Snowflake Cortex",
+    "baseUrl": "https://${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/cortex/v1"
+  },
+  {
+    "value": "stackit",
+    "label": "STACKIT",
+    "baseUrl": "https://api.openai-compat.model-serving.eu01.onstackit.cloud/v1"
+  },
+  {
+    "value": "stepfun",
+    "label": "StepFun (China)",
+    "baseUrl": "https://api.stepfun.com/v1"
+  },
+  {
+    "value": "stepfun-ai",
+    "label": "StepFun (Global)",
+    "baseUrl": "https://api.stepfun.ai/v1"
+  },
+  {
+    "value": "stepfun-step-plan",
+    "label": "StepFun Step Plan (China)",
+    "baseUrl": "https://api.stepfun.com/step_plan/v1"
+  },
+  {
+    "value": "stepfun-ai-step-plan",
+    "label": "StepFun Step Plan (Global)",
+    "baseUrl": "https://api.stepfun.ai/step_plan/v1"
+  },
+  {
+    "value": "subconscious",
+    "label": "Subconscious",
+    "baseUrl": "https://api.subconscious.dev/v1"
+  },
+  {
+    "value": "submodel",
+    "label": "submodel",
+    "baseUrl": "https://llm.submodel.ai/v1"
+  },
+  {
+    "value": "synthetic",
+    "label": "Synthetic",
+    "baseUrl": "https://api.synthetic.new/openai/v1"
+  },
+  {
+    "value": "tencent-coding-plan",
+    "label": "Tencent Coding Plan (China)",
+    "baseUrl": "https://api.lkeap.cloud.tencent.com/coding/v3"
+  },
+  {
+    "value": "tencent-token-plan",
+    "label": "Tencent Token Plan",
+    "baseUrl": "https://api.lkeap.cloud.tencent.com/plan/v3"
+  },
+  {
+    "value": "tencent-tokenhub",
+    "label": "Tencent TokenHub",
+    "baseUrl": "https://tokenhub.tencentmaas.com/v1"
+  },
+  {
+    "value": "tensorx",
+    "label": "TensorX",
+    "baseUrl": "https://api.tensorx.ai/v1"
+  },
+  {
+    "value": "the-grid-ai",
+    "label": "The Grid AI",
+    "baseUrl": "https://api.thegrid.ai/v1"
+  },
+  {
+    "value": "thinkingmachines",
+    "label": "Thinking Machines",
+    "baseUrl": "https://tinker.thinkingmachines.dev/services/tinker-prod/anthropic/api/v1"
+  },
+  {
+    "value": "tinfoil",
+    "label": "Tinfoil",
+    "baseUrl": "https://inference.tinfoil.sh/v1"
+  },
+  {
+    "value": "trustedrouter",
+    "label": "TrustedRouter",
+    "baseUrl": "https://api.trustedrouter.com/v1"
+  },
+  {
+    "value": "umans-ai",
+    "label": "Umans AI",
+    "baseUrl": "https://api.code.umans.ai/v1"
+  },
+  {
+    "value": "umans-ai-coding-plan",
+    "label": "Umans AI Coding Plan",
+    "baseUrl": "https://api.code.umans.ai/v1"
+  },
+  {
+    "value": "unorouter",
+    "label": "UnoRouter",
+    "baseUrl": "https://api.unorouter.com/v1"
+  },
+  {
+    "value": "upstage",
+    "label": "Upstage",
+    "baseUrl": "https://api.upstage.ai/v1/solar"
+  },
+  {
+    "value": "vivgrid",
+    "label": "Vivgrid",
+    "baseUrl": "https://api.vivgrid.com/v1"
+  },
+  {
+    "value": "vultr",
+    "label": "Vultr",
+    "baseUrl": "https://api.vultrinference.com/v1"
+  },
+  {
+    "value": "wafer.ai",
+    "label": "Wafer",
+    "baseUrl": "https://pass.wafer.ai/v1"
+  },
+  {
+    "value": "wandb",
+    "label": "Weights & Biases",
+    "baseUrl": "https://api.inference.wandb.ai/v1"
+  },
+  {
+    "value": "xai",
+    "label": "xAI",
+    "baseUrl": "https://api.x.ai/v1"
+  },
+  {
+    "value": "xiaomi",
+    "label": "Xiaomi",
+    "baseUrl": "https://api.xiaomimimo.com/v1"
+  },
+  {
+    "value": "xiaomi-token-plan-cn",
+    "label": "Xiaomi Token Plan (China)",
+    "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1"
+  },
+  {
+    "value": "xiaomi-token-plan-ams",
+    "label": "Xiaomi Token Plan (Europe)",
+    "baseUrl": "https://token-plan-ams.xiaomimimo.com/v1"
+  },
+  {
+    "value": "xiaomi-token-plan-sgp",
+    "label": "Xiaomi Token Plan (Singapore)",
+    "baseUrl": "https://token-plan-sgp.xiaomimimo.com/v1"
+  },
+  {
+    "value": "xpersona",
+    "label": "Xpersona",
+    "baseUrl": "https://www.xpersona.co/v1"
+  },
+  {
+    "value": "zai",
+    "label": "Z.AI",
+    "baseUrl": "https://api.z.ai/api/paas/v4"
+  },
+  {
+    "value": "zai-coding-plan",
+    "label": "Z.AI Coding Plan",
+    "baseUrl": "https://api.z.ai/api/coding/paas/v4"
+  },
+  {
+    "value": "zeldoc",
+    "label": "Zeldoc",
+    "baseUrl": "https://api.zeldoc.ai/v1"
+  },
+  {
+    "value": "zenifra",
+    "label": "Zenifra",
+    "baseUrl": "https://ai.zenifra.com/v1"
+  },
+  {
+    "value": "zenmux",
+    "label": "ZenMux",
+    "baseUrl": "https://zenmux.ai/api/v1"
+  },
+  {
+    "value": "zhipuai",
+    "label": "Zhipu AI",
+    "baseUrl": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "value": "zhipuai-coding-plan",
+    "label": "Zhipu AI Coding Plan",
+    "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4"
+  },
+  {
+    "value": "custom",
+    "label": "Custom (Any OpenAI-compatible API)",
+    "baseUrl": ""
+  }
+]

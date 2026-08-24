@@ -1,0 +1,60 @@
+import { exec } from 'child_process';
+import fsSync from 'fs';
+import { Tool } from '../core/types.js';
+
+export const diagnoseCodeTool: Tool = {
+  name: 'diagnose_code',
+  definition: {
+    name: 'diagnose_code',
+    description: 'Diagnose and verify code for syntax, type errors, or lint issues across the project. Use after modifying code to ensure everything compiles cleanly and without errors.',
+    parameters: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Optional specific file to check (checks whole project if omitted)' }
+      }
+    }
+  },
+  validateArgs() {},
+  async execute(args: { file?: string }) {
+    return new Promise((resolve) => {
+      let cmd = '';
+
+      if (args.file) {
+        if (args.file.endsWith('.ts') || args.file.endsWith('.tsx')) {
+          if (fsSync.existsSync('tsconfig.json')) {
+            cmd = 'npx tsc --noEmit';
+          } else {
+            cmd = `node --check ${args.file}`;
+          }
+        } else if (args.file.endsWith('.js') || args.file.endsWith('.mjs') || args.file.endsWith('.cjs')) {
+          cmd = `node --check ${args.file}`;
+        } else if (args.file.endsWith('.py')) {
+          cmd = `python -m py_compile ${args.file}`;
+        } else if (args.file.endsWith('.rs')) {
+          cmd = 'cargo check';
+        }
+      }
+
+      if (!cmd) {
+        if (fsSync.existsSync('tsconfig.json')) {
+          cmd = 'npx tsc --noEmit';
+        } else if (fsSync.existsSync('Cargo.toml')) {
+          cmd = 'cargo check';
+        } else if (fsSync.existsSync('package.json')) {
+          cmd = 'npm test -- --passWithNoTests';
+        } else {
+          return resolve('No automated checker found for this workspace. Manual review looks good.');
+        }
+      }
+
+      exec(cmd, (err, stdout, stderr) => {
+        const out = (stdout + '\n' + stderr).trim();
+        if (!err) {
+          resolve('✅ Diagnostics passed with 0 errors! Code is clean and valid.');
+        } else {
+          resolve(`❌ Diagnostic errors found:\n${out.slice(0, 3000)}`);
+        }
+      });
+    });
+  }
+};

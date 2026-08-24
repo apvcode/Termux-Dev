@@ -1,0 +1,55 @@
+{
+  "name": "devx",
+  "version": "1.0.0",
+  "description": "Ultra-fast, terminal-native AI coding assistant and agent built for Android Termux, Windows, macOS, and Linux.",
+  "main": "dist/cli/index.js",
+  "type": "module",
+  "bin": {
+    "devx": "./bin/devx.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "start": "node ./bin/devx.js",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-assistant",
+    "vibe-coding",
+    "termux",
+    "openrouter",
+    "llm",
+    "developer-tools",
+    "autonomous-agent"
+  ],
+  "author": "ApvCode",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apvcode/Termux-Dev.git"
+  },
+  "bugs": {
+    "url": "https://github.com/apvcode/Termux-Dev/issues"
+  },
+  "homepage": "https://github.com/apvcode/Termux-Dev#readme",
+  "dependencies": {
+    "@clack/prompts": "^1.7.0",
+    "@inquirer/prompts": "^8.6.0",
+    "commander": "^12.0.0",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/marked-terminal": "^6.1.1",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
