@@ -1,12 +1,8 @@
 <div align="center">
 
-```text
-  ____  _______     ____  __
- |  _ \| ____\ \   / /\ \/ /
- | | | |  _|  \ \ / /  \  / 
- | |_| | |___  \ V /   /  \ 
- |____/|_____|  \_/   /_/\_\   v1.0.0
-```
+<img src="assets/banner.svg" alt="DEVX" width="800" />
+
+<br/><br/>
 
 **Ultra-fast, autonomous AI pair-programmer & vibe-coding terminal agent.**  
 Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**.
