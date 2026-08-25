@@ -397,7 +397,7 @@ function drawLogo() {
       pc.cyan('  █▀▀▄ █▀▀▀ █   █ █   █'),
       pc.cyan('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
       pc.cyan('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-      '  ' + pc.dim('AI Mobile Assistant') + ' ' + pc.cyan(pc.bold('v1.0.1')),
+      '  ' + pc.cyan(pc.bold('v1.0.2')),
       ''
     ];
     for (const line of logo) {
@@ -411,7 +411,7 @@ function drawLogo() {
       indent + pc.cyan('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
       indent + pc.cyan('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
       indent + pc.cyan('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-      indent + pc.dim('⚡ Termux AI Coding Assistant') + ' ' + pc.cyan(pc.bold('v1.0.1')),
+      indent + pc.cyan(pc.bold('v1.0.2')),
       ''
     ];
     for (const line of logo) {
@@ -626,7 +626,7 @@ async function handleSettings(config: any): Promise<any> {
       const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
 
       const choice = await select({
-        message: `${pc.bold('⚙️  Settings')} ${pc.dim('(devx v1.0.1 • by ApvCode)')}`,
+        message: `${pc.bold('⚙️  Settings')} ${pc.dim('(devx v1.0.2 • by ApvCode)')}`,
         choices: [
           {
             name: `${config.pureBlackTheme !== false ? pc.green('🎨 Pure Black Background: ON') : pc.yellow('🎨 Pure Black Background: OFF')}`,
@@ -662,7 +662,7 @@ async function handleSettings(config: any): Promise<any> {
             description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
           },
           {
-            name: `${pc.cyan('✨ About devx')} ${pc.dim('(v1.0.1 by ApvCode)')}`,
+            name: `${pc.cyan('✨ About devx')} ${pc.dim('(v1.0.2 by ApvCode)')}`,
             value: 'about',
             description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
           },
@@ -676,7 +676,7 @@ async function handleSettings(config: any): Promise<any> {
 
       if (choice === 'about') {
         p.note(
-          `⚡ devx v1.0.1 — Terminal-Native AI Coding Agent\n` +
+          `⚡ devx v1.0.2 — Terminal-Native AI Coding Agent\n` +
           `👤 Author: ApvCode (https://github.com/apvcode)\n` +
           `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
           `📜 License: MIT License (2026)\n` +
