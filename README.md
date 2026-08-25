@@ -56,34 +56,32 @@ Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**
 - **Node.js**: `v20.0.0` or higher
 - **npm**, **pnpm**, or **yarn**
 
-### Quick Install (Windows / macOS / Linux)
+### ⚡ Fast Global Install (Recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/apvcode/Termux-Dev.git
-cd Termux-Dev
-
-# Install dependencies (auto-builds project) and link
-npm install
-chmod +x bin/*
-npm link
+npm install -g termux-dev
 ```
 
 ### 📱 Android (Termux) Setup
 
 ```bash
-# Update packages & install NodeJS + Git
-pkg update && pkg install -y nodejs-lts git
+# 1. Update packages & install NodeJS
+pkg update && pkg install -y nodejs-lts
 
-# Clone, install, and link
+# 2. Install devx globally via npm
+npm install -g termux-dev
+
+# 3. Launch devx anywhere!
+devx
+```
+
+### 🛠️ Build from Source (Developers)
+
+```bash
 git clone https://github.com/apvcode/Termux-Dev.git
 cd Termux-Dev
 npm install
-chmod +x bin/*
 npm link
-
-# Launch devx anywhere!
-devx
 ```
 
 
@@ -186,34 +184,32 @@ If you find **devx** useful, please consider giving it a ⭐️ star on [GitHub]
 - **Node.js**: `v20.0.0` или выше
 - **npm**, **pnpm** или **yarn**
 
-### Быстрая установка на ПК (Windows / macOS / Linux)
+### ⚡ Быстрая глобальная установка (Рекомендуется)
 
 ```bash
-# Клонируем репозиторий
-git clone https://github.com/apvcode/Termux-Dev.git
-cd Termux-Dev
-
-# Устанавливаем зависимости (автоматически собирает проект) и линкуем
-npm install
-chmod +x bin/*
-npm link
+npm install -g termux-dev
 ```
 
 ### 📱 Установка на Android (Termux)
 
 ```bash
-# Обновляем пакеты и ставим NodeJS + Git
-pkg update && pkg install -y nodejs-lts git
+# 1. Обновляем пакеты и ставим NodeJS
+pkg update && pkg install -y nodejs-lts
 
-# Клонируем, устанавливаем и линкуем
+# 2. Устанавливаем devx глобально через npm
+npm install -g termux-dev
+
+# 3. Запускаем devx в любой папке!
+devx
+```
+
+### 🛠️ Сборка из исходников (Для разработчиков)
+
+```bash
 git clone https://github.com/apvcode/Termux-Dev.git
 cd Termux-Dev
 npm install
-chmod +x bin/*
 npm link
-
-# Запускаем devx в любой папке!
-devx
 ```
 
 
