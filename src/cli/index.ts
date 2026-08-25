@@ -387,16 +387,36 @@ function clearTerminalScreen() {
 }
 
 function drawLogo() {
-  const logo = [
-    '',
-    pc.cyan('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
-    pc.cyan('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
-    pc.cyan('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ ') + ' ' + pc.bold(pc.cyan('v1.0.1')),
-    ''
-  ];
+  const cols = process.stdout.columns || 80;
   clearTerminalScreen();
-  for (const line of logo) {
-    console.log(' '.repeat(4) + line);
+
+  if (cols < 56) {
+    // Ultra-clean compact ASCII for small mobile screens (width: ~26 chars)
+    const logo = [
+      '',
+      pc.cyan('  █▀▀▄ █▀▀▀ █   █ █   █'),
+      pc.cyan('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
+      pc.cyan('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
+      '  ' + pc.dim('AI Mobile Assistant') + ' ' + pc.cyan(pc.bold('v1.0.1')),
+      ''
+    ];
+    for (const line of logo) {
+      console.log(line);
+    }
+  } else {
+    // Full TERMUX-DEV banner (width: 53 chars)
+    const indent = cols < 68 ? ' ' : '   ';
+    const logo = [
+      '',
+      indent + pc.cyan('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
+      indent + pc.cyan('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
+      indent + pc.cyan('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
+      indent + pc.dim('⚡ Termux AI Coding Assistant') + ' ' + pc.cyan(pc.bold('v1.0.1')),
+      ''
+    ];
+    for (const line of logo) {
+      console.log(line);
+    }
   }
   console.log();
 }
@@ -522,10 +542,31 @@ export async function main() {
       return `${n}`;
     };
 
-    const costStr = totalSessionCost > 0 ? ` | Cost: $${totalSessionCost.toFixed(4)}` : ' | Cost: $0.0000';
-    const tokenStats = `Context: ${formatTokens(currentTokens)} / ${formatTokens(maxTokens)} (${usagePercent}%)${costStr}`;
+    const costStr = totalSessionCost > 0 ? `Cost: $${totalSessionCost.toFixed(4)}` : 'Cost: $0.0000';
+    const tokenStats = `Context: ${formatTokens(currentTokens)} / ${formatTokens(maxTokens)} (${usagePercent}%) • ${costStr}`;
 
-    p.intro(pc.bgCyan(pc.black(` devx | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model} `)) + '  ' + tokenStats);
+    const cols = process.stdout.columns || 80;
+    const modeName = planMode ? 'PLAN' : 'AGENT';
+
+    // Shorten model name if too long on narrow mobile screens
+    let displayModel = config.model;
+    if (cols < 75 && displayModel.length > 20) {
+      const parts = displayModel.split('/');
+      displayModel = parts.length > 1 ? parts.slice(1).join('/') : displayModel;
+      if (displayModel.length > 20) {
+        displayModel = displayModel.slice(0, 17) + '...';
+      }
+    }
+
+    const badge = pc.bgCyan(pc.black(` devx | ${modeName} | ${displayModel} `));
+
+    if (cols < 75) {
+      // 2-line layout for mobile screens: perfectly aligned with clack box borders
+      p.intro(`${badge}\n${pc.dim('│')}  ${pc.dim(tokenStats)}`);
+    } else {
+      // 1-line layout for wider desktop screens
+      p.intro(`${badge}  ${pc.dim(tokenStats)}`);
+    }
 
     let answer = '';
 
