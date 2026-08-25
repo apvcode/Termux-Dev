@@ -334,7 +334,7 @@ async function loadConfig(): Promise<any> {
     const data = await fs.readFile(CONFIG_PATH, 'utf8');
     const parsed = JSON.parse(data);
     if (!parsed.model || !parsed.baseUrl) throw new Error('Invalid config');
-    parsed.maxContextTokens = getModelContextLimit(parsed.model);
+    parsed.maxContextTokens = parsed.maxContextTokens || getModelContextLimit(parsed.model);
     parsed.apiKeys = parsed.apiKeys || {};
     parsed.baseUrls = parsed.baseUrls || {};
     if (parsed.provider && parsed.apiKey) {
@@ -362,23 +362,39 @@ function resetTerminalTheme() {
   }
 }
 
+let activeAbortHandler: (() => void) | null = null;
+
 process.on('exit', () => {
   resetTerminalTheme();
 });
+
 process.on('SIGINT', () => {
-  resetTerminalTheme();
-  process.exit(0);
+  if (activeAbortHandler) {
+    activeAbortHandler();
+  } else {
+    resetTerminalTheme();
+    process.exit(0);
+  }
 });
+
+function clearTerminalScreen() {
+  if (process.stdout.isTTY) {
+    // \x1b[2J: clear screen, \x1b[3J: clear scrollback buffer (crucial for Termux/xterm), \x1b[H: cursor to home
+    process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+  } else {
+    console.clear();
+  }
+}
 
 function drawLogo() {
   const logo = [
     '',
     pc.cyan('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
     pc.cyan('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
-    pc.cyan('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ ') + ' ' + pc.bold(pc.cyan('v1.0.0')),
+    pc.cyan('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ ') + ' ' + pc.bold(pc.cyan('v1.0.1')),
     ''
   ];
-  console.clear();
+  clearTerminalScreen();
   for (const line of logo) {
     console.log(' '.repeat(4) + line);
   }
@@ -569,7 +585,7 @@ async function handleSettings(config: any): Promise<any> {
       const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
 
       const choice = await select({
-        message: pc.bold('⚙️  Settings'),
+        message: `${pc.bold('⚙️  Settings')} ${pc.dim('(devx v1.0.1 • by ApvCode)')}`,
         choices: [
           {
             name: `${config.pureBlackTheme !== false ? pc.green('🎨 Pure Black Background: ON') : pc.yellow('🎨 Pure Black Background: OFF')}`,
@@ -605,12 +621,29 @@ async function handleSettings(config: any): Promise<any> {
             description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
           },
           {
+            name: `${pc.cyan('✨ About devx')} ${pc.dim('(v1.0.1 by ApvCode)')}`,
+            value: 'about',
+            description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
+          },
+          {
             name: '⬅️ Back / Save',
             value: 'back',
             description: 'Return to chat'
           }
         ]
       });
+
+      if (choice === 'about') {
+        p.note(
+          `⚡ devx v1.0.1 — Terminal-Native AI Coding Agent\n` +
+          `👤 Author: ApvCode (https://github.com/apvcode)\n` +
+          `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
+          `📜 License: MIT License (2026)\n` +
+          `Built for Android Termux, Windows, macOS, and Linux.`,
+          'About devx'
+        );
+        continue;
+      }
 
       if (choice === 'toggle_black_theme') {
         config.pureBlackTheme = config.pureBlackTheme === false ? true : false;
@@ -1295,6 +1328,8 @@ async function handleSettings(config: any): Promise<any> {
       }
     };
 
+    activeAbortHandler = stopGeneration;
+
     process.on('SIGINT', onSigInt);
     if (process.stdin.isTTY) {
       try {
@@ -1461,6 +1496,7 @@ async function handleSettings(config: any): Promise<any> {
         p.log.error(pc.bold(pc.red(`❌ ${err.message}`)));
       }
     } finally {
+      activeAbortHandler = null;
       process.removeListener('SIGINT', onSigInt);
       if (process.stdin.isTTY) {
         process.stdin.removeListener('data', onRawData);

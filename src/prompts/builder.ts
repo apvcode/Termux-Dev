@@ -27,8 +27,8 @@ export async function buildSystemPrompt(planMode: boolean): Promise<string> {
     prompt += `   - **🎯 Цель и архитектурный обзор**\n`;
     prompt += `   - **📁 Пошаговый список изменений по файлам (какие файлы создаём/правим и какую логику реализуем в них, БЕЗ написания полного кода)**\n`;
     prompt += `   - **🧪 План тестирования и проверки**\n`;
-    prompt += `6. CALL 'plan_ready' TOOL: When your architectural plan is complete and ready for execution, you MUST call the 'plan_ready' tool with the summary, target files list, and roadmap steps. Do NOT ask the user to type "выполняй" manually — devx automatically presents the user with an interactive [🚀 Go / ✏️ Other] selection!\n`;
-    prompt += `7. REMEMBER: When the user confirms with [🚀 Go], you will receive "Go!" in AGENT mode to execute the plan.\n`;
+    prompt += `6. CALL 'plan_ready' TOOL: When your architectural plan is finalized and ready for execution, you MUST call the 'plan_ready' tool with the summary, target files list, and roadmap steps. Do NOT ask the user to type trigger words (like "начинай", "делай", "выполняй") — devx automatically presents the user with an interactive [🚀 Go / ✏️ Other] selection!\n`;
+    prompt += `7. EXECUTION TRIGGER: When the user confirms with [🚀 Go], devx switches to AGENT mode and sends "Go!" to begin implementing the approved plan.\n`;
   } else {
     prompt += `MODE: AGENT (CODER / EXECUTOR MODE)\n`;
     prompt += `You are in AGENT mode. You have full access to bash, file creation, editing, package installation, diagnostics, and search tools.\n`;

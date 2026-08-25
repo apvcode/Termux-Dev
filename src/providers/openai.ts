@@ -11,19 +11,33 @@ export class OpenAIProvider implements LLMProvider {
   ) {}
 
   private buildPayload(request: LLMRequest, stream: boolean) {
+    const totalMsgs = request.messages.length;
+    let lastImageMsgIdx = -1;
+    for (let i = totalMsgs - 1; i >= 0; i--) {
+      if (request.messages[i].images && request.messages[i].images!.length > 0) {
+        lastImageMsgIdx = i;
+        break;
+      }
+    }
+
     const payload: any = {
       model: this.model,
       stream,
-      messages: request.messages.map(m => {
+      messages: request.messages.map((m, idx) => {
         let content: any = m.content || "";
         if (m.images && m.images.length > 0) {
-          content = [
-            { type: 'text', text: m.content || "" },
-            ...m.images.map(img => ({
-              type: 'image_url',
-              image_url: { url: img.dataUrl }
-            }))
-          ];
+          if (idx === lastImageMsgIdx) {
+            content = [
+              { type: 'text', text: m.content || "" },
+              ...m.images.map(img => ({
+                type: 'image_url',
+                image_url: { url: img.dataUrl }
+              }))
+            ];
+          } else {
+            const imgRef = m.images.map(img => `[Attached Image: ${img.path}]`).join(' ');
+            content = m.content ? `${m.content}\n${imgRef}` : imgRef;
+          }
         }
         const msg: any = { role: m.role, content };
         if (m.name) msg.name = m.name;
