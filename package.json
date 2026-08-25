@@ -15,7 +15,6 @@
   ],
   "scripts": {
     "build": "tsc",
-    "postinstall": "chmod +x bin/devx.js 2>/dev/null || true",
     "start": "node ./bin/devx.js",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build"
