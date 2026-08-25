@@ -102,75 +102,92 @@ export async function checkForUpdates(timeoutMs = 10000) {
         };
     }
 }
+async function isGitRepository(dir) {
+    try {
+        await fs.stat(path.join(dir, '.git'));
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 export async function performSelfUpdate(latestVersion) {
     const __filename = fileURLToPath(import.meta.url);
     const projectRoot = path.resolve(path.dirname(__filename), '../../');
+    const isGit = await isGitRepository(projectRoot);
     console.log('\n' + pc.bold(pc.cyan('─── 🚀 Starting devx Update ──────────────────────────')));
-    const steps = [
-        {
-            title: '📦 Pulling latest updates from GitHub repository...',
-            action: () => {
-                try {
-                    execSync('git pull origin main --quiet', { cwd: projectRoot, stdio: 'pipe' });
-                }
-                catch {
-                    // If not git clone or detached, try global git install or fetch
-                    try {
-                        execSync('git pull --quiet', { cwd: projectRoot, stdio: 'pipe' });
-                    }
-                    catch {
-                        execSync(`npm install -g git+${GITHUB_REPO_URL}.git --quiet`, { stdio: 'pipe' });
-                    }
-                }
-            }
-        },
-        {
-            title: '🔨 Building and compiling TypeScript sources...',
-            action: () => {
-                execSync('npm install --quiet', { cwd: projectRoot, stdio: 'pipe' });
-                execSync('npm run build --quiet', { cwd: projectRoot, stdio: 'pipe' });
-            }
-        },
-        {
-            title: '🔑 Ensuring binary execution permissions & linking...',
-            action: () => {
-                try {
-                    execSync('chmod +x bin/* 2>/dev/null || true', { cwd: projectRoot, stdio: 'pipe' });
-                }
-                catch { }
-                try {
-                    execSync('npm link --quiet', { cwd: projectRoot, stdio: 'pipe' });
-                }
-                catch { }
-            }
-        }
-    ];
-    for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
-        process.stdout.write(`  ${pc.cyan('⚡')} [${i + 1}/${steps.length}] ${pc.white(step.title)}\n`);
-        // Animation spinner for each step
+    if (!isGit) {
+        // 1. Installed via global npm package: termux-dev
+        process.stdout.write(`  ${pc.cyan('⚡')} [1/1] ${pc.white(`Updating termux-dev via npm (v${latestVersion})...`)}\n`);
         const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let fIdx = 0;
         const interval = setInterval(() => {
-            process.stdout.write(`\r  ${pc.cyan(frames[fIdx++ % frames.length])} ${pc.dim(step.title)} `);
+            process.stdout.write(`\r  ${pc.cyan(frames[fIdx++ % frames.length])} ${pc.dim(`npm install -g termux-dev@latest`)} `);
         }, 80);
         try {
-            await new Promise(resolve => setTimeout(resolve, 300));
-            step.action();
+            execSync('npm install -g termux-dev@latest', { stdio: 'pipe' });
             clearInterval(interval);
-            process.stdout.write(`\r  ${pc.green('✔')} ${pc.bold(pc.white(step.title))}\n`);
+            process.stdout.write(`\r  ${pc.green('✔')} ${pc.bold(pc.white(`Successfully updated termux-dev to v${latestVersion} via npm!`))}\n`);
         }
         catch (err) {
             clearInterval(interval);
-            process.stdout.write(`\r  ${pc.red('✖')} ${pc.red(step.title)} - ${err.message}\n`);
-            console.log(pc.red(`\nUpdate failed during step ${i + 1}: ${err.message}`));
+            process.stdout.write(`\r  ${pc.red('✖')} ${pc.red(`Update failed: ${err.message}`)}\n`);
+            console.log(pc.yellow(`\n💡 To update manually, run: ${pc.bold('npm install -g termux-dev')}`));
             return false;
+        }
+    }
+    else {
+        // 2. Installed via git clone (Developer mode)
+        const steps = [
+            {
+                title: '📦 Pulling latest updates from GitHub repository...',
+                action: () => {
+                    execSync('git pull origin main', { cwd: projectRoot, stdio: 'pipe' });
+                }
+            },
+            {
+                title: '🔨 Building and compiling TypeScript sources...',
+                action: () => {
+                    execSync('npm install', { cwd: projectRoot, stdio: 'pipe' });
+                    execSync('npm run build', { cwd: projectRoot, stdio: 'pipe' });
+                }
+            },
+            {
+                title: '🔑 Ensuring binary execution permissions & linking...',
+                action: () => {
+                    try {
+                        execSync('npm link', { cwd: projectRoot, stdio: 'pipe' });
+                    }
+                    catch { }
+                }
+            }
+        ];
+        for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            process.stdout.write(`  ${pc.cyan('⚡')} [${i + 1}/${steps.length}] ${pc.white(step.title)}\n`);
+            const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+            let fIdx = 0;
+            const interval = setInterval(() => {
+                process.stdout.write(`\r  ${pc.cyan(frames[fIdx++ % frames.length])} ${pc.dim(step.title)} `);
+            }, 80);
+            try {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                step.action();
+                clearInterval(interval);
+                process.stdout.write(`\r  ${pc.green('✔')} ${pc.bold(pc.white(step.title))}\n`);
+            }
+            catch (err) {
+                clearInterval(interval);
+                process.stdout.write(`\r  ${pc.red('✖')} ${pc.red(step.title)} - ${err.message}\n`);
+                console.log(pc.red(`\nUpdate failed during step ${i + 1}: ${err.message}`));
+                console.log(pc.yellow(`\n💡 To update manually, run: ${pc.bold('npm install -g termux-dev')}`));
+                return false;
+            }
         }
     }
     console.log(pc.bold(pc.green(`\n✅ Successfully updated to v${latestVersion}! Restarting devx...\n`)));
     console.log(pc.bold(pc.cyan('──────────────────────────────────────────────────────\n')));
     await new Promise(r => setTimeout(r, 1000));
-    // Spawn new devx process and exit current
     try {
         const child = spawn(process.argv[0], process.argv.slice(1), {
             stdio: 'inherit',
