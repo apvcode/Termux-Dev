@@ -12,6 +12,8 @@ const MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
   '.mjs': 'application/javascript; charset=utf-8',
+  '.ts': 'text/plain; charset=utf-8',
+  '.tsx': 'text/plain; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -24,6 +26,8 @@ const MIME_TYPES: Record<string, string> = {
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
   '.wasm': 'application/wasm',
+  '.pdf': 'application/pdf',
+  '.md': 'text/markdown; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8'
 };
 
@@ -52,11 +56,97 @@ export function getServerPort(): number {
 
 export function stopServer(): boolean {
   if (activeServer) {
-    activeServer.close();
+    try {
+      activeServer.close();
+    } catch {}
     activeServer = null;
     return true;
   }
   return false;
+}
+
+function renderDirectoryHtml(dirPath: string, relPath: string, files: fsSync.Dirent[], port: number): string {
+  const currentRel = relPath === '/' ? '' : relPath;
+  
+  const items = files
+    .filter(f => !f.name.startsWith('.') && f.name !== 'node_modules')
+    .sort((a, b) => {
+      if (a.isDirectory() && !b.isDirectory()) return -1;
+      if (!a.isDirectory() && b.isDirectory()) return 1;
+      return a.name.localeCompare(b.name);
+    })
+    .map(f => {
+      const isDir = f.isDirectory();
+      const href = `${currentRel}/${encodeURIComponent(f.name)}${isDir ? '/' : ''}`;
+      const ext = path.extname(f.name).toLowerCase();
+      let icon = isDir ? '📁' : '📄';
+      let badge = '';
+
+      if (ext === '.html' || ext === '.htm') {
+        icon = '🌐';
+        badge = '<span class="badge">HTML</span>';
+      } else if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].includes(ext)) {
+        icon = '🖼️';
+      } else if (['.js', '.ts', '.tsx', '.jsx', '.json'].includes(ext)) {
+        icon = '⚡';
+      } else if (ext === '.css') {
+        icon = '🎨';
+      }
+
+      return `
+        <li>
+          <a class="file-item" href="${href}">
+            <span class="icon">${icon}</span>
+            <span class="name">${f.name}</span>
+            ${badge}
+            <span class="type">${isDir ? 'Directory' : ext || 'File'}</span>
+          </a>
+        </li>
+      `;
+    })
+    .join('');
+
+  const parentLink = currentRel && currentRel !== '/'
+    ? `<li><a class="file-item" href="${path.dirname(currentRel) === '/' ? '/' : path.dirname(currentRel) + '/'}"><span class="icon">⬆️</span><span class="name">.. (Parent Directory)</span></a></li>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>devx Live Preview &bull; ${relPath}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { background: #0a0a0c; color: #e1e4e8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; margin: 0; padding: 24px 16px; }
+    .card { background: #111116; border: 1px solid #22222c; border-radius: 12px; max-width: 800px; margin: 0 auto; padding: 24px; box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
+    h1 { color: #00f2fe; margin: 0 0 8px 0; font-size: 22px; display: flex; align-items: center; gap: 8px; }
+    .info { color: #8b949e; font-size: 14px; margin-bottom: 20px; word-break: break-all; }
+    .info code { background: #1a1a24; padding: 2px 6px; border-radius: 4px; color: #f0f6fc; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    .file-item { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid #1a1a22; text-decoration: none; color: #f0f6fc; border-radius: 6px; transition: all 0.15s; }
+    .file-item:hover { background: #1a1a26; transform: translateX(3px); }
+    .icon { margin-right: 12px; font-size: 18px; }
+    .name { flex: 1; font-weight: 500; font-size: 14px; word-break: break-all; }
+    .type { color: #6e7681; font-size: 12px; margin-left: 12px; }
+    .badge { background: rgba(0, 242, 254, 0.15); color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; margin-left: 8px; font-weight: bold; }
+    .footer { margin-top: 24px; text-align: center; color: #484f58; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>⚡ devx Live Preview</h1>
+    <div class="info">
+      Path: <code>${relPath}</code> &bull; Port: <code>${port}</code>
+    </div>
+    <ul>
+      ${parentLink}
+      ${items || '<li style="padding: 20px; text-align: center; color: #6e7681;">No visible files in this directory</li>'}
+    </ul>
+    <div class="footer">devx v1.1.2 &bull; Terminal-Native AI Assistant</div>
+  </div>
+</body>
+</html>`;
 }
 
 export async function startServer(preferredPort = 3000): Promise<{ port: number; localUrl: string; networkUrl: string }> {
@@ -69,83 +159,119 @@ export async function startServer(preferredPort = 3000): Promise<{ port: number;
   return new Promise((resolve, reject) => {
     const server = http.createServer(async (req, res) => {
       try {
-        let reqPath = decodeURIComponent(req.url?.split('?')[0] || '/');
-        if (reqPath === '/') {
-          reqPath = '/index.html';
-        }
+        let rawPath = req.url?.split('?')[0] || '/';
+        let reqPath = decodeURIComponent(rawPath);
 
-        const filePath = path.join(process.cwd(), reqPath);
+        const cwd = process.cwd();
+        let targetPath = path.resolve(cwd, '.' + reqPath);
 
         // Security check: ensure path is within cwd
-        if (!filePath.startsWith(process.cwd())) {
+        const rel = path.relative(cwd, targetPath);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
           res.writeHead(403, { 'Content-Type': 'text/plain' });
           res.end('Forbidden');
           return;
         }
 
-        if (!fsSync.existsSync(filePath)) {
-          // If html file requested without extension
-          const withHtml = `${filePath}.html`;
+        // 1. Root / Directory Request Handling
+        if (fsSync.existsSync(targetPath)) {
+          const stat = await fs.stat(targetPath);
+          if (stat.isDirectory()) {
+            // Check for index.html in directory
+            const possibleIndexes = [
+              path.join(targetPath, 'index.html'),
+              path.join(targetPath, 'index.htm'),
+              path.join(targetPath, 'public/index.html'),
+              path.join(targetPath, 'dist/index.html'),
+              path.join(targetPath, 'build/index.html')
+            ];
+
+            for (const idxPath of possibleIndexes) {
+              if (fsSync.existsSync(idxPath)) {
+                const content = await fs.readFile(idxPath);
+                res.writeHead(200, {
+                  'Content-Type': 'text/html; charset=utf-8',
+                  'Access-Control-Allow-Origin': '*'
+                });
+                res.end(content);
+                return;
+              }
+            }
+
+            // If no index.html, render sleek directory explorer
+            const dirents = await fs.readdir(targetPath, { withFileTypes: true });
+            const dirHtml = renderDirectoryHtml(targetPath, reqPath, dirents, activePort);
+            res.writeHead(200, {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Access-Control-Allow-Origin': '*'
+            });
+            res.end(dirHtml);
+            return;
+          }
+        }
+
+        // 2. Fallback check for missing .html extension
+        if (!fsSync.existsSync(targetPath)) {
+          const withHtml = `${targetPath}.html`;
           if (fsSync.existsSync(withHtml)) {
-            const content = await fs.readFile(withHtml);
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(content);
-            return;
+            targetPath = withHtml;
           }
+        }
 
-          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-          res.end(`404 Not Found: ${reqPath}`);
+        // 3. Serve File
+        if (fsSync.existsSync(targetPath)) {
+          const ext = path.extname(targetPath).toLowerCase();
+          const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+          const content = await fs.readFile(targetPath);
+
+          res.writeHead(200, {
+            'Content-Type': contentType,
+            'Access-Control-Allow-Origin': '*'
+          });
+          res.end(content);
           return;
         }
 
-        const stat = await fs.stat(filePath);
-        if (stat.isDirectory()) {
-          const indexPath = path.join(filePath, 'index.html');
-          if (fsSync.existsSync(indexPath)) {
-            const content = await fs.readFile(indexPath);
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(content);
-            return;
-          }
-          res.writeHead(403, { 'Content-Type': 'text/plain' });
-          res.end('Directory listing disabled');
+        // 4. SPA Fallback: check if root index.html exists
+        const rootIndex = path.join(cwd, 'index.html');
+        if (fsSync.existsSync(rootIndex)) {
+          const content = await fs.readFile(rootIndex);
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Access-Control-Allow-Origin': '*'
+          });
+          res.end(content);
           return;
         }
 
-        const ext = path.extname(filePath).toLowerCase();
-        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-        const content = await fs.readFile(filePath);
-
-        res.writeHead(200, {
-          'Content-Type': contentType,
-          'Access-Control-Allow-Origin': '*'
-        });
-        res.end(content);
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(`404 Not Found: ${reqPath}`);
       } catch (err: any) {
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end(`Internal Server Error: ${err.message}`);
       }
     });
 
     server.on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
-        server.listen(activePort + 1);
         activePort++;
+        server.listen(activePort, '0.0.0.0');
       } else {
         reject(err);
       }
     });
 
-    server.listen(activePort, () => {
+    server.listen(activePort, '0.0.0.0', () => {
       activeServer = server;
       const localIp = getLocalIp();
       const localUrl = `http://localhost:${activePort}`;
       const networkUrl = `http://${localIp}:${activePort}`;
 
-      // If in Android Termux, try to open in browser
+      // If on Android Termux, attempt to open browser
       if (process.env.PREFIX?.includes('com.termux')) {
         try {
-          spawn('termux-open-url', [localUrl], { stdio: 'ignore' });
+          const opener = spawn('termux-open-url', [localUrl], { stdio: 'ignore', detached: true });
+          opener.unref();
         } catch {}
       }
 

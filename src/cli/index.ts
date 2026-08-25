@@ -398,7 +398,7 @@ function drawLogo() {
       pc.cyan('  █▀▀▄ █▀▀▀ █   █ █   █'),
       pc.cyan('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
       pc.cyan('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-      '  ' + pc.cyan(pc.bold('v1.1.1')),
+      '  ' + pc.cyan(pc.bold('v1.1.2')),
       ''
     ];
     for (const line of logo) {
@@ -412,7 +412,7 @@ function drawLogo() {
       indent + pc.cyan('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
       indent + pc.cyan('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
       indent + pc.cyan('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-      indent + pc.cyan(pc.bold('v1.1.1')),
+      indent + pc.cyan(pc.bold('v1.1.2')),
       ''
     ];
     for (const line of logo) {
@@ -431,6 +431,23 @@ function formatSessionTime(timestamp: number): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function formatToolGeneratingLabel(name: string, targetHint?: string): string {
+  const t = name.toLowerCase();
+  const target = targetHint ? ` ${targetHint}` : '';
+  if (t === 'read_file' || t === 'read') return `→ Read${target || '...'}`;
+  if (t === 'write_file' || t === 'write') return `→ Write${target || '...'}`;
+  if (t === 'edit_file' || t === 'patch') return `→ Edit${target || '...'}`;
+  if (t === 'delete_file' || t === 'remove_file' || t === 'rm') return `→ Delete${target || '...'}`;
+  if (t === 'bash' || t === 'run_command' || t === 'exec') return `→ Run:${target || '...'}`;
+  if (t === 'search' || t === 'grep_search') return `→ Search${target || '...'}`;
+  if (t === 'list_dir' || t === 'ls') return `→ List${target || '...'}`;
+  if (t === 'todo_list' || t === 'update_todos') return `→ Update Plan & Tasks...`;
+  if (t === 'plan_ready') return `→ Finalize Plan...`;
+  if (t === 'diagnose_code') return `→ Diagnosing code...`;
+  if (t === 'ask_questions') return `→ Clarifying questions...`;
+  return `→ ${name}${target}...`;
 }
 
 async function handleSessionDelete() {
@@ -627,7 +644,7 @@ async function handleSettings(config: any): Promise<any> {
       const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
 
       const choice = await select({
-        message: `${pc.bold('⚙️  Settings')} ${pc.dim('(devx v1.1.1 • by ApvCode)')}`,
+        message: `${pc.bold('⚙️  Settings')} ${pc.dim('(devx v1.1.2 • by ApvCode)')}`,
         choices: [
           {
             name: `${config.pureBlackTheme !== false ? pc.green('🎨 Pure Black Background: ON') : pc.yellow('🎨 Pure Black Background: OFF')}`,
@@ -663,7 +680,7 @@ async function handleSettings(config: any): Promise<any> {
             description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
           },
           {
-            name: `${pc.cyan('✨ About devx')} ${pc.dim('(v1.1.1 by ApvCode)')}`,
+            name: `${pc.cyan('✨ About devx')} ${pc.dim('(v1.1.2 by ApvCode)')}`,
             value: 'about',
             description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
           },
@@ -677,7 +694,7 @@ async function handleSettings(config: any): Promise<any> {
 
       if (choice === 'about') {
         p.note(
-          `⚡ devx v1.1.1 — Terminal-Native AI Coding Agent\n` +
+          `⚡ devx v1.1.2 — Terminal-Native AI Coding Agent\n` +
           `👤 Author: ApvCode (https://github.com/apvcode)\n` +
           `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
           `📜 License: MIT License (2026)\n` +
@@ -1420,14 +1437,14 @@ async function handleSettings(config: any): Promise<any> {
             console.log('\n' + renderMarkdown(event.content) + '\n');
           }
         } else if (event.type === 'tool_generating') {
+          const label = formatToolGeneratingLabel(event.name, event.targetHint);
           if (!spinnerActive) {
             streamer.finish();
             finishThinking(false);
-            s.start(pc.cyan(`⚡ Calling ${event.name}...`));
+            s.start(pc.bold(pc.cyan(label)));
             spinnerActive = true;
           } else {
-            const chars = event.bytes > 1000 ? `${(event.bytes / 1000).toFixed(1)}k chars` : `${event.bytes} chars`;
-            s.message(pc.cyan(`⚡ Generating ${event.name} (${chars})...`));
+            s.message(pc.bold(pc.cyan(label)));
           }
         } else if (event.type === 'tool_start') {
           if (spinnerActive) {

@@ -103,7 +103,7 @@ export class Agent {
               } else if (chunk.type === 'content_delta') {
                 yield { type: 'text_delta', delta: chunk.delta };
               } else if (chunk.type === 'tool_generating') {
-                yield { type: 'tool_generating', name: chunk.name, bytes: chunk.bytes };
+                yield { type: 'tool_generating', name: chunk.name, bytes: chunk.bytes, targetHint: chunk.targetHint };
               } else if (chunk.type === 'done') {
                 response = chunk.response;
               }

@@ -261,10 +261,32 @@ export class OpenAIProvider {
                                     if (tc.function?.arguments)
                                         existing.argsStr += tc.function.arguments;
                                     toolMap.set(idx, existing);
+                                    // Extract live target hint (e.g. path or command being generated)
+                                    let targetHint = undefined;
+                                    const args = existing.argsStr;
+                                    if (args) {
+                                        const pathMatch = args.match(/"(?:path|filePath|targetFile)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
+                                        if (pathMatch && pathMatch[1]) {
+                                            targetHint = pathMatch[1];
+                                        }
+                                        else {
+                                            const cmdMatch = args.match(/"(?:command|cmd)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
+                                            if (cmdMatch && cmdMatch[1]) {
+                                                targetHint = cmdMatch[1].length > 30 ? cmdMatch[1].slice(0, 27) + '...' : cmdMatch[1];
+                                            }
+                                            else {
+                                                const qMatch = args.match(/"(?:query|pattern)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
+                                                if (qMatch && qMatch[1]) {
+                                                    targetHint = `"${qMatch[1]}"`;
+                                                }
+                                            }
+                                        }
+                                    }
                                     yield {
                                         type: 'tool_generating',
                                         name: existing.name || 'tool',
-                                        bytes: existing.argsStr.length
+                                        bytes: existing.argsStr.length,
+                                        targetHint
                                     };
                                 }
                             }

@@ -8,10 +8,11 @@ import { installPackageTool } from './packages.js';
 import { saveMemoryTool } from '../core/memory.js';
 import { planReadyTool, lastPlanReady, resetPlanReady } from './plan.js';
 import { todoListTool, currentTodoList, resetTodoList } from './todo.js';
+import { servePreviewTool } from './server.js';
 import { Tool } from '../core/types.js';
 
 export function getTools(planMode: boolean): Tool[] {
-  const baseTools = [readFileTool, listDirTool, searchTool, askQuestionsTool, webSearchTool, fetchUrlTool, saveMemoryTool, planReadyTool, todoListTool];
+  const baseTools = [readFileTool, listDirTool, searchTool, askQuestionsTool, webSearchTool, fetchUrlTool, saveMemoryTool, planReadyTool, todoListTool, servePreviewTool];
   
   if (planMode) {
     return baseTools;
@@ -20,5 +21,6 @@ export function getTools(planMode: boolean): Tool[] {
   return [...baseTools, writeFileTool, editFileTool, mkdirTool, bashTool, diagnoseCodeTool, installPackageTool];
 }
 
-export { webSearchTool, fetchUrlTool, diagnoseCodeTool, installPackageTool, saveMemoryTool, planReadyTool, lastPlanReady, resetPlanReady, todoListTool, currentTodoList, resetTodoList };
+export { webSearchTool, fetchUrlTool, diagnoseCodeTool, installPackageTool, saveMemoryTool, planReadyTool, lastPlanReady, resetPlanReady, todoListTool, currentTodoList, resetTodoList, servePreviewTool };
+
 
