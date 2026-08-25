@@ -20,6 +20,7 @@ import { ALL_PROVIDERS } from './providers.js';
 import { getModelContextLimit } from '../core/models.js';
 import { SessionManager } from '../core/session.js';
 import { MarkdownStreamer, renderMarkdown } from './markdown.js';
+import { SmoothStreamer } from './smooth.js';
 import { askPrompt } from './prompt.js';
 import { resolveAtMentions } from './files.js';
 import { runStartupUpdateCheck, checkForUpdates, performSelfUpdate } from './updater.js';
@@ -377,7 +378,7 @@ function drawLogo() {
             pc.cyan('  █▀▀▄ █▀▀▀ █   █ █   █'),
             pc.cyan('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
             pc.cyan('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-            '  ' + pc.cyan(pc.bold('v1.0.2')),
+            '  ' + pc.cyan(pc.bold('v1.1.0')),
             ''
         ];
         for (const line of logo) {
@@ -392,7 +393,7 @@ function drawLogo() {
             indent + pc.cyan('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
             indent + pc.cyan('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
             indent + pc.cyan('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-            indent + pc.cyan(pc.bold('v1.0.2')),
+            indent + pc.cyan(pc.bold('v1.1.0')),
             ''
         ];
         for (const line of logo) {
@@ -587,7 +588,7 @@ export async function main() {
                         const maxIter = config.maxIterations || 100;
                         const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
                         const choice = await select({
-                            message: `${pc.bold('⚙️  Settings')} ${pc.dim('(devx v1.0.2 • by ApvCode)')}`,
+                            message: `${pc.bold('⚙️  Settings')} ${pc.dim('(devx v1.1.0 • by ApvCode)')}`,
                             choices: [
                                 {
                                     name: `${config.pureBlackTheme !== false ? pc.green('🎨 Pure Black Background: ON') : pc.yellow('🎨 Pure Black Background: OFF')}`,
@@ -623,7 +624,7 @@ export async function main() {
                                     description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
                                 },
                                 {
-                                    name: `${pc.cyan('✨ About devx')} ${pc.dim('(v1.0.2 by ApvCode)')}`,
+                                    name: `${pc.cyan('✨ About devx')} ${pc.dim('(v1.1.0 by ApvCode)')}`,
                                     value: 'about',
                                     description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
                                 },
@@ -635,7 +636,7 @@ export async function main() {
                             ]
                         });
                         if (choice === 'about') {
-                            p.note(`⚡ devx v1.0.2 — Terminal-Native AI Coding Agent\n` +
+                            p.note(`⚡ devx v1.1.0 — Terminal-Native AI Coding Agent\n` +
                                 `👤 Author: ApvCode (https://github.com/apvcode)\n` +
                                 `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
                                 `📜 License: MIT License (2026)\n` +
@@ -1276,9 +1277,13 @@ export async function main() {
         let thinkingStartTime = 0;
         let textActive = false;
         const streamer = new MarkdownStreamer();
+        const thoughtStreamer = new SmoothStreamer((chunk) => {
+            process.stdout.write(pc.dim(chunk));
+        });
         const finishThinking = (extraNewline = true) => {
             if (!thinkingActive)
                 return;
+            thoughtStreamer.flush();
             const elapsedSec = thinkingStartTime > 0 ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : '0.0';
             const width = Math.min(process.stdout.columns || 40, 52);
             const label = `─── Thought for ${elapsedSec}s `;
@@ -1298,6 +1303,7 @@ export async function main() {
                 s.stop();
                 spinnerActive = false;
             }
+            thoughtStreamer.reset();
             finishThinking(true);
             streamer.finish();
             if (textActive) {
@@ -1338,7 +1344,7 @@ export async function main() {
                         process.stdout.write('\n' + pc.bold(pc.white('› Thought:')) + '\n');
                         thinkingActive = true;
                     }
-                    process.stdout.write(pc.dim(event.delta));
+                    thoughtStreamer.push(event.delta);
                 }
                 else if (event.type === 'text_delta') {
                     if (spinnerActive) {
@@ -1384,8 +1390,8 @@ export async function main() {
                         process.stdout.write('\n');
                         textActive = false;
                     }
-                    console.log(pc.cyan(`\n${event.actionDesc}`));
-                    if (event.name !== 'ask_questions') {
+                    console.log('\n' + pc.bold(pc.white(event.actionDesc)));
+                    if (event.name !== 'ask_questions' && event.name !== 'todo_list') {
                         s.start('Executing...');
                         spinnerActive = true;
                     }
@@ -1396,14 +1402,84 @@ export async function main() {
                         spinnerActive = false;
                     }
                     if (event.result) {
-                        const firstLine = event.result.trim().split('\n')[0];
-                        if (firstLine.includes('+') || firstLine.includes('lines') || firstLine.includes('Successfully')) {
-                            console.log(pc.green(`  └─ ${firstLine}`));
+                        try {
+                            const parsed = JSON.parse(event.result);
+                            if (parsed.type === 'todo_list' && parsed.displayCard) {
+                                process.stdout.write(parsed.displayCard);
+                            }
+                            else if (parsed.action === 'edit' && parsed.diffLines) {
+                                const cols = Math.min(process.stdout.columns || 80, 80);
+                                const borderChar = '─';
+                                const boxWidth = Math.max(20, Math.min(cols - 4, 66));
+                                console.log(pc.dim('┌' + borderChar.repeat(boxWidth) + '┐'));
+                                const maxShown = Math.min(parsed.diffLines.length, 12);
+                                for (let i = 0; i < maxShown; i++) {
+                                    const line = parsed.diffLines[i];
+                                    if (line.includes(' -  ')) {
+                                        console.log(pc.dim('│ ') + pc.red(line));
+                                    }
+                                    else if (line.includes(' +  ')) {
+                                        console.log(pc.dim('│ ') + pc.green(line));
+                                    }
+                                    else {
+                                        console.log(pc.dim('│ ') + pc.white(line));
+                                    }
+                                }
+                                if (parsed.diffLines.length > maxShown) {
+                                    console.log(pc.dim(`│ ... +${parsed.diffLines.length - maxShown} more lines`));
+                                }
+                                console.log(pc.dim('└' + borderChar.repeat(boxWidth) + '┘'));
+                                console.log(pc.green(`  └─ ${parsed.summary}`));
+                            }
+                            else if (parsed.summary) {
+                                console.log(pc.green(`  └─ ${parsed.summary}`));
+                            }
+                            else {
+                                const firstLine = event.result.trim().split('\n')[0];
+                                if (firstLine.includes('+') || firstLine.includes('lines') || firstLine.includes('Successfully')) {
+                                    console.log(pc.green(`  └─ ${firstLine}`));
+                                }
+                            }
+                        }
+                        catch {
+                            const firstLine = event.result.trim().split('\n')[0];
+                            if (firstLine.includes('+') || firstLine.includes('lines') || firstLine.includes('Successfully')) {
+                                console.log(pc.green(`  └─ ${firstLine}`));
+                            }
                         }
                     }
                 }
                 else if (event.type === 'usage') {
                     totalSessionCost += event.usage.cost || 0;
+                }
+                else if (event.type === 'reconnecting') {
+                    if (spinnerActive) {
+                        s.stop();
+                        spinnerActive = false;
+                    }
+                    if (thinkingActive) {
+                        finishThinking(false);
+                    }
+                    if (textActive) {
+                        process.stdout.write('\n');
+                        textActive = false;
+                    }
+                    streamer.reset();
+                    console.log();
+                    console.log(pc.bold(pc.yellow(`⚠️  Интернет-соединение нестабильно (${event.reason})`)));
+                    console.log(pc.cyan(`🔄 Попытка переподключения [${event.attempt}/${event.maxAttempts}] (пауза ${(event.delayMs / 1000).toFixed(1)}с)...`));
+                    s.start(pc.cyan(`Ожидание сети [${event.attempt}/${event.maxAttempts}]...`));
+                    spinnerActive = true;
+                }
+                else if (event.type === 'reconnected') {
+                    if (spinnerActive) {
+                        s.stop();
+                        spinnerActive = false;
+                    }
+                    console.log(pc.bold(pc.green(`✔ Соединение восстановлено! Возобновляем генерацию...`)));
+                    console.log();
+                    s.start('Connecting...');
+                    spinnerActive = true;
                 }
                 else if (event.type === 'error') {
                     if (spinnerActive) {

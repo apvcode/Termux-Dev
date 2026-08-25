@@ -1,33 +1,40 @@
+import { isNetworkOrRetryableError, getHumanReadableNetworkError, waitDelay } from './network.js';
 function getActionDescription(toolName, args) {
     const t = toolName.toLowerCase();
     if (t === 'read_file' || t === 'view_file' || t === 'read') {
-        return `📖 Reading: ${args.path || args.filePath || args.targetFile || ''}`;
+        return `→ Read ${args.path || args.filePath || args.targetFile || ''}`;
     }
     if (t === 'write_file' || t === 'create_file' || t === 'write_to_file' || t === 'write') {
-        return `📝 Writing: ${args.path || args.filePath || args.targetFile || ''}`;
+        return `→ Write ${args.path || args.filePath || args.targetFile || ''}`;
     }
     if (t === 'edit_file' || t === 'replace_file_content' || t === 'patch') {
-        return `✏️ Editing: ${args.path || args.filePath || args.targetFile || ''}`;
+        return `→ Edit ${args.path || args.filePath || args.targetFile || ''}`;
     }
     if (t === 'delete_file' || t === 'remove_file' || t === 'rm') {
-        return `🗑️ Deleting: ${args.path || args.filePath || ''}`;
+        return `→ Delete ${args.path || args.filePath || ''}`;
     }
     if (t === 'make_dir' || t === 'mkdir') {
-        return `📁 Creating directory: ${args.path || args.dirPath || ''}`;
+        return `→ Mkdir ${args.path || args.dirPath || ''}`;
     }
     if (t === 'list_dir' || t === 'list_files' || t === 'find_files' || t === 'ls') {
-        return `📂 Listing: ${args.path || args.dirPath || '.'}`;
+        return `→ List ${args.path || args.dirPath || '.'}`;
     }
     if (t === 'search' || t === 'grep_search' || t === 'grep') {
-        return `🔍 Searching: "${args.query || args.pattern || ''}" in ${args.dir || args.path || '.'}`;
+        return `→ Search "${args.query || args.pattern || ''}" in ${args.dir || args.path || '.'}`;
     }
     if (t === 'ask_questions' || t === 'questions') {
-        return `📋 Asking clarifying questions...`;
+        return `→ Clarify: Asking questions...`;
     }
     if (t === 'bash' || t === 'execute_command' || t === 'run_command' || t === 'exec') {
-        return `⚡ Running command: ${args.command || args.cmd || ''}`;
+        return `→ Run: ${args.command || args.cmd || ''}`;
     }
-    return `🔧 Executing ${toolName}...`;
+    if (t === 'todo_list' || t === 'update_todos') {
+        return `→ Update Plan & Tasks`;
+    }
+    if (t === 'plan_ready') {
+        return `→ Finalize Plan`;
+    }
+    return `→ Executing ${toolName}...`;
 }
 export class Agent {
     config;
@@ -61,36 +68,68 @@ export class Agent {
                 delete request.tools;
             }
             let response;
-            try {
-                if (this.provider.chatStream) {
-                    for await (const chunk of this.provider.chatStream(request)) {
-                        if (signal?.aborted) {
-                            return;
+            let attempt = 0;
+            const maxRetries = 4;
+            while (true) {
+                if (signal?.aborted)
+                    return;
+                try {
+                    if (this.provider.chatStream) {
+                        let receivedAnyChunk = false;
+                        for await (const chunk of this.provider.chatStream(request)) {
+                            if (signal?.aborted) {
+                                return;
+                            }
+                            receivedAnyChunk = true;
+                            if (chunk.type === 'reasoning_delta') {
+                                yield { type: 'reasoning_delta', delta: chunk.delta };
+                            }
+                            else if (chunk.type === 'content_delta') {
+                                yield { type: 'text_delta', delta: chunk.delta };
+                            }
+                            else if (chunk.type === 'tool_generating') {
+                                yield { type: 'tool_generating', name: chunk.name, bytes: chunk.bytes };
+                            }
+                            else if (chunk.type === 'done') {
+                                response = chunk.response;
+                            }
                         }
-                        if (chunk.type === 'reasoning_delta') {
-                            yield { type: 'reasoning_delta', delta: chunk.delta };
-                        }
-                        else if (chunk.type === 'content_delta') {
-                            yield { type: 'text_delta', delta: chunk.delta };
-                        }
-                        else if (chunk.type === 'tool_generating') {
-                            yield { type: 'tool_generating', name: chunk.name, bytes: chunk.bytes };
-                        }
-                        else if (chunk.type === 'done') {
-                            response = chunk.response;
+                        if (response || receivedAnyChunk) {
+                            break;
                         }
                     }
+                    else {
+                        response = await this.provider.chat(request);
+                        break;
+                    }
                 }
-                else {
-                    response = await this.provider.chat(request);
-                }
-            }
-            catch (err) {
-                if (signal?.aborted || err.name === 'AbortError' || err.message?.includes('aborted')) {
+                catch (err) {
+                    if (signal?.aborted || err.name === 'AbortError' || err.message?.includes('aborted')) {
+                        return;
+                    }
+                    const isNetwork = isNetworkOrRetryableError(err);
+                    if (isNetwork && attempt < maxRetries) {
+                        attempt++;
+                        const delayMs = Math.min(1500 * Math.pow(1.5, attempt - 1), 8000);
+                        yield {
+                            type: 'reconnecting',
+                            attempt,
+                            maxAttempts: maxRetries,
+                            delayMs,
+                            reason: getHumanReadableNetworkError(err)
+                        };
+                        await waitDelay(delayMs, signal);
+                        if (signal?.aborted)
+                            return;
+                        yield { type: 'reconnected', attempt };
+                        continue;
+                    }
+                    const errMsg = isNetwork
+                        ? `Ошибка сети: Не удалось восстановить интернет-соединение после ${attempt} попыток (${err.message}).`
+                        : `API Error: ${err.message}`;
+                    yield { type: 'error', message: errMsg, isFatal: true };
                     return;
                 }
-                yield { type: 'error', message: `API Error: ${err.message}`, isFatal: true };
-                return;
             }
             if (signal?.aborted) {
                 return;

@@ -65,12 +65,24 @@ export const writeFileTool = {
             await fs.writeFile(args.path, args.content, 'utf8');
             const newLines = args.content.split('\n').length;
             if (!existed) {
-                return `Successfully created ${args.path} (+${newLines} lines)`;
+                return JSON.stringify({
+                    status: 'success',
+                    action: 'create',
+                    path: args.path,
+                    addedCount: newLines,
+                    summary: `Successfully created ${args.path} (+${newLines} lines)`
+                });
             }
             else {
                 const diff = newLines - oldLines;
                 const diffStr = diff >= 0 ? `+${diff}` : `${diff}`;
-                return `Successfully updated ${args.path} (${diffStr} lines, ${newLines} total)`;
+                return JSON.stringify({
+                    status: 'success',
+                    action: 'write',
+                    path: args.path,
+                    addedCount: newLines,
+                    summary: `Successfully updated ${args.path} (${diffStr} lines, ${newLines} total)`
+                });
             }
         }
         catch (err) {
@@ -118,11 +130,29 @@ export const editFileTool = {
                     throw new Error(`Target text to replace was not found in ${args.path}. Ensure exact indentation and characters match.`);
                 }
             }
+            const targetIndex = content.indexOf(target);
+            const startLine = content.slice(0, targetIndex).split('\n').length;
+            const removedArr = target.split('\n');
+            const addedArr = args.replacement.split('\n');
+            const diffLines = [];
+            removedArr.forEach((l, i) => {
+                diffLines.push(`${startLine + i} -  ${l}`);
+            });
+            addedArr.forEach((l, i) => {
+                diffLines.push(`${startLine + i} +  ${l}`);
+            });
             const newContent = content.replace(target, args.replacement);
             await fs.writeFile(args.path, newContent, 'utf8');
-            const removedLines = target.split('\n').length;
-            const addedLines = args.replacement.split('\n').length;
-            return `Successfully edited ${args.path} (+${addedLines} -${removedLines} lines)`;
+            return JSON.stringify({
+                status: 'success',
+                action: 'edit',
+                path: args.path,
+                startLine,
+                removedCount: removedArr.length,
+                addedCount: addedArr.length,
+                diffLines,
+                summary: `Successfully edited ${args.path} (+${addedArr.length} -${removedArr.length} lines)`
+            });
         }
         catch (err) {
             throw new Error(`Failed to edit file: ${err.message}`);

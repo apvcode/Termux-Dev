@@ -94,7 +94,9 @@ export class OpenAIProvider implements LLMProvider {
           errMsg = parsed.message;
         }
       } catch {}
-      throw new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
+      const err: any = new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
+      err.status = res.status;
+      throw err;
     }
 
     const data = await res.json();
@@ -162,7 +164,9 @@ export class OpenAIProvider implements LLMProvider {
           errMsg = parsed.message;
         }
       } catch {}
-      throw new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
+      const err: any = new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
+      err.status = res.status;
+      throw err;
     }
 
     const reader = res.body?.getReader();

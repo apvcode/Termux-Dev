@@ -91,7 +91,9 @@ export class OpenAIProvider {
                 }
             }
             catch { }
-            throw new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
+            const err = new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
+            err.status = res.status;
+            throw err;
         }
         const data = await res.json();
         if (data.error) {
@@ -152,7 +154,9 @@ export class OpenAIProvider {
                 }
             }
             catch { }
-            throw new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
+            const err = new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
+            err.status = res.status;
+            throw err;
         }
         const reader = res.body?.getReader();
         if (!reader) {

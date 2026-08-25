@@ -30,11 +30,43 @@ export class MarkdownStreamer {
 
   public push(chunk: string) {
     this.buffer += chunk;
-    const lines = this.buffer.split('\n');
-    this.buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      this.processLine(line);
+    // 1. Process completed lines
+    if (this.buffer.includes('\n')) {
+      const lines = this.buffer.split('\n');
+      this.buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        this.processLine(line);
+      }
+    }
+
+    // 2. Stream regular prose words immediately in real-time
+    if (!this.inCodeBlock && !this.inTable && this.buffer.length > 0) {
+      const trimmed = this.buffer.trimStart();
+      const isSpecialLine =
+        trimmed.startsWith('#') ||
+        trimmed.startsWith('|') ||
+        trimmed.startsWith('```') ||
+        trimmed.startsWith('- [') ||
+        trimmed.startsWith('* [') ||
+        trimmed.startsWith('[') ||
+        trimmed.startsWith('→') ||
+        trimmed.startsWith('- ') ||
+        trimmed.startsWith('* ') ||
+        /^\d+\.\s/.test(trimmed) ||
+        trimmed.startsWith('> ') ||
+        trimmed === '---' ||
+        trimmed === '***';
+
+      if (!isSpecialLine) {
+        const lastSpaceIdx = Math.max(this.buffer.lastIndexOf(' '), this.buffer.lastIndexOf('\t'));
+        if (lastSpaceIdx > 0) {
+          const wordsToFlush = this.buffer.slice(0, lastSpaceIdx + 1);
+          this.buffer = this.buffer.slice(lastSpaceIdx + 1);
+          process.stdout.write(this.formatInline(wordsToFlush));
+        }
+      }
     }
   }
 
@@ -75,7 +107,28 @@ export class MarkdownStreamer {
       this.inTable = false;
     }
 
-    // 4. Regular line fast formatting (Headers, Bullets, Bold, Dims)
+    // 4. OpenCode Checklists & Todos ([✓], [ ], [/], [>])
+    const todoMatch = trimmed.match(/^(\s*(?:[-*]\s*)?)\[([ x✓X>/])\]\s*(.*)$/);
+    if (todoMatch) {
+      const mark = todoMatch[2].toLowerCase();
+      const taskText = this.formatInline(todoMatch[3]);
+      if (mark === 'x' || mark === '✓') {
+        process.stdout.write('  ' + pc.green('[✓] ') + pc.dim(taskText) + '\n');
+      } else if (mark === '/' || mark === '>') {
+        process.stdout.write('  ' + pc.bold(pc.green('[ ] ' + taskText)) + '\n');
+      } else {
+        process.stdout.write('  ' + pc.dim('[ ] ') + pc.white(taskText) + '\n');
+      }
+      return;
+    }
+
+    // 5. OpenCode Action arrows (→ Read ..., → Edit ...)
+    if (trimmed.startsWith('→ ')) {
+      process.stdout.write(pc.bold(pc.cyan('→ ')) + pc.white(this.formatInline(trimmed.slice(2))) + '\n');
+      return;
+    }
+
+    // 6. Regular line fast formatting (Headers, Bullets, Bold, Dims)
     if (trimmed.startsWith('# ')) {
       process.stdout.write('\n' + pc.bold(pc.cyan(trimmed.slice(2))) + '\n\n');
     } else if (trimmed.startsWith('## ')) {
@@ -122,6 +175,14 @@ export class MarkdownStreamer {
       }
       this.tableBuffer = [];
     }
+  }
+
+  public reset() {
+    this.buffer = '';
+    this.inCodeBlock = false;
+    this.codeBlockLang = '';
+    this.inTable = false;
+    this.tableBuffer = [];
   }
 
   public finish() {

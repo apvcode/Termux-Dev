@@ -85,6 +85,8 @@ export type AgentEvent =
   | { type: 'tool_generating'; name: string; bytes: number }
   | { type: 'tool_start'; id: string; name: string; argsRaw: string; actionDesc: string }
   | { type: 'tool_end'; id: string; name: string; result: string }
+  | { type: 'reconnecting'; attempt: number; maxAttempts: number; delayMs: number; reason: string }
+  | { type: 'reconnected'; attempt: number }
   | { type: 'error'; message: string; isFatal: boolean }
   | { type: 'system'; message: string }
   | { type: 'usage'; usage: TokenUsage };

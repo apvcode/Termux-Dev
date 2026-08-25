@@ -68,11 +68,23 @@ export const writeFileTool: Tool = {
       const newLines = args.content.split('\n').length;
 
       if (!existed) {
-        return `Successfully created ${args.path} (+${newLines} lines)`;
+        return JSON.stringify({
+          status: 'success',
+          action: 'create',
+          path: args.path,
+          addedCount: newLines,
+          summary: `Successfully created ${args.path} (+${newLines} lines)`
+        });
       } else {
         const diff = newLines - oldLines;
         const diffStr = diff >= 0 ? `+${diff}` : `${diff}`;
-        return `Successfully updated ${args.path} (${diffStr} lines, ${newLines} total)`;
+        return JSON.stringify({
+          status: 'success',
+          action: 'write',
+          path: args.path,
+          addedCount: newLines,
+          summary: `Successfully updated ${args.path} (${diffStr} lines, ${newLines} total)`
+        });
       }
     } catch (err: any) {
       throw new Error(`Failed to write file: ${err.message}`);
@@ -119,11 +131,32 @@ export const editFileTool: Tool = {
         }
       }
 
+      const targetIndex = content.indexOf(target);
+      const startLine = content.slice(0, targetIndex).split('\n').length;
+      const removedArr = target.split('\n');
+      const addedArr = args.replacement.split('\n');
+
+      const diffLines: string[] = [];
+      removedArr.forEach((l: string, i: number) => {
+        diffLines.push(`${startLine + i} -  ${l}`);
+      });
+      addedArr.forEach((l: string, i: number) => {
+        diffLines.push(`${startLine + i} +  ${l}`);
+      });
+
       const newContent = content.replace(target, args.replacement);
       await fs.writeFile(args.path, newContent, 'utf8');
-      const removedLines = target.split('\n').length;
-      const addedLines = args.replacement.split('\n').length;
-      return `Successfully edited ${args.path} (+${addedLines} -${removedLines} lines)`;
+
+      return JSON.stringify({
+        status: 'success',
+        action: 'edit',
+        path: args.path,
+        startLine,
+        removedCount: removedArr.length,
+        addedCount: addedArr.length,
+        diffLines,
+        summary: `Successfully edited ${args.path} (+${addedArr.length} -${removedArr.length} lines)`
+      });
     } catch (err: any) {
       throw new Error(`Failed to edit file: ${err.message}`);
     }
