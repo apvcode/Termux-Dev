@@ -51,45 +51,56 @@ export async function checkForUpdates(timeoutMs = 10000): Promise<UpdateCheckRes
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // 1. Try fetching latest package.json (fastest and never rate-limited)
-    const res = await fetch(REMOTE_PKG_URL, {
+    // 1. Try fetching latest package.json with cache-busting timestamp
+    const cacheBusterUrl = `${REMOTE_PKG_URL}?t=${Date.now()}`;
+    const res = await fetch(cacheBusterUrl, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'devx-updater' }
+      headers: {
+        'User-Agent': 'devx-updater',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
     });
 
     clearTimeout(timer);
 
+    let latestVersion = '';
+    let releaseNotes = '';
+
     if (res.ok) {
       const pkg = await res.json();
-      const latestVersion = (pkg.version || '').replace(/^v/, '').trim();
+      latestVersion = (pkg.version || '').replace(/^v/, '').trim();
+    }
 
-      if (latestVersion && isNewerVersion(latestVersion, currentVersion)) {
-        // Try fetching release description if available
-        let releaseNotes = '';
-        try {
-          const relRes = await fetch(REMOTE_RELEASE_URL, {
-            headers: { 'User-Agent': 'devx-updater' }
-          });
-          if (relRes.ok) {
-            const relData = await relRes.json();
-            releaseNotes = relData.body || '';
-          }
-        } catch {}
-
-        return {
-          updateAvailable: true,
-          currentVersion,
-          latestVersion,
-          releaseNotes
-        };
+    // 2. Also check latest GitHub release tag
+    try {
+      const relRes = await fetch(`${REMOTE_RELEASE_URL}?t=${Date.now()}`, {
+        headers: { 'User-Agent': 'devx-updater' }
+      });
+      if (relRes.ok) {
+        const relData = await relRes.json();
+        const relTag = (relData.tag_name || relData.name || '').replace(/^v/, '').trim();
+        if (relTag && (!latestVersion || isNewerVersion(relTag, latestVersion))) {
+          latestVersion = relTag;
+        }
+        releaseNotes = relData.body || '';
       }
+    } catch {}
 
+    if (latestVersion && isNewerVersion(latestVersion, currentVersion)) {
       return {
-        updateAvailable: false,
+        updateAvailable: true,
         currentVersion,
-        latestVersion: latestVersion || currentVersion
+        latestVersion,
+        releaseNotes
       };
     }
+
+    return {
+      updateAvailable: false,
+      currentVersion,
+      latestVersion: latestVersion || currentVersion
+    };
 
     return {
       updateAvailable: false,
