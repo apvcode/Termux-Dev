@@ -4,9 +4,15 @@
   "description": "Ultra-fast, terminal-native AI coding assistant and agent built for Android Termux, Windows, macOS, and Linux.",
   "main": "dist/cli/index.js",
   "type": "module",
+  "preferGlobal": true,
   "bin": {
     "devx": "./bin/devx.js"
   },
+  "files": [
+    "bin",
+    "dist",
+    "assets"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node ./bin/devx.js",
