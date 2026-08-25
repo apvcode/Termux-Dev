@@ -9,6 +9,7 @@ export const SLASH_COMMANDS = [
   { cmd: '/session', desc: 'Show active session ID, stats, and info' },
   { cmd: '/session del', desc: 'Select and delete saved sessions' },
   { cmd: '/settings', desc: 'Configure permissions & auto-approval' },
+  { cmd: '/update', desc: 'Check and install updates from GitHub' },
   { cmd: '/model', desc: 'Switch model for current provider' },
   { cmd: '/provider', desc: 'Switch AI provider (OpenRouter, Google, etc.)' },
   { cmd: '/plan', desc: 'Switch to PLAN mode (architect & planner)' },
@@ -41,7 +42,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
   return new Promise((resolve) => {
     process.stdin.resume();
     const msg = opts.message ? `${opts.message} ${pc.dim(`(Tab = ${opts.planMode ? 'AGENT' : 'PLAN'})`)}` : `Ask anything... ${pc.dim(`(Tab = ${opts.planMode ? 'AGENT' : 'PLAN'})`)}`;
-    const placeholder = opts.placeholder || 'Fix a TODO, @file, /help, paste image, or press Tab to switch mode';
+    const placeholder = opts.placeholder || 'Describe a task, @file, /help, paste image, or press Tab to switch mode';
 
     let input = opts.initialValue || '';
     let cursorPos = input.length;

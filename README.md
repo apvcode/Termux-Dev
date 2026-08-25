@@ -127,7 +127,8 @@ Type `/` in the prompt to open the autocomplete command palette:
 | **`/session`** | View active session ID, stats, and metadata |
 | **`/resume`** | Browse and resume saved chat sessions |
 | **`/session del`** | Selectively or bulk delete saved sessions |
-| **`/settings`** | Configure YOLO auto-approve, project memory, and theme |
+| **`/settings`** | Configure YOLO auto-approve, project memory, theme, and update checks |
+| **`/update`** | Check and install latest updates from GitHub |
 | **`/model`** | Switch model for the active provider with live search |
 | **`/provider`** | Switch provider (OpenRouter, Gemini, Groq, DeepSeek, Local) |
 | **`/compact`** | Compact and summarize chat context tokens |
@@ -261,7 +262,8 @@ devx
 | **`/session`** | Показать ID, статистику и файл активной сессии |
 | **`/resume`** | Выбрать и восстановить сохранённую сессию с историей |
 | **`/session del`** | Выборочно или полностью удалить сессии |
-| **`/settings`** | Настройки авто-подтверждения, памяти и темы оформления |
+| **`/settings`** | Настройки авто-подтверждения, памяти, темы и проверки обновлений |
+| **`/update`** | Проверить и установить последние обновления с GitHub |
 | **`/model`** | Сменить модель текущего провайдера с живым поиском |
 | **`/provider`** | Сменить AI-провайдера (OpenRouter, Gemini, Groq, DeepSeek, Local) |
 | **`/compact`** | Сжать контекст диалога для экономии токенов |

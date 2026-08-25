@@ -24,6 +24,7 @@ import { SessionManager } from '../core/session.js';
 import { MarkdownStreamer, renderMarkdown } from './markdown.js';
 import { askPrompt } from './prompt.js';
 import { resolveAtMentions } from './files.js';
+import { runStartupUpdateCheck, checkForUpdates, performSelfUpdate } from './updater.js';
 
 const CONFIG_PATH = path.join(os.homedir(), '.devxrc.json');
 
@@ -487,6 +488,7 @@ export async function main() {
   const sessionManager = new SessionManager(config.model, planMode);
 
   drawLogo();
+  await runStartupUpdateCheck(config);
 
   let totalSessionCost = 0;
   let currentDraft = '';
@@ -591,6 +593,13 @@ async function handleSettings(config: any): Promise<any> {
               : 'Start sessions with a clean state without loading project memory'
           },
           {
+            name: `${config.checkUpdates !== false ? pc.green('🔔 Check for Updates on Startup: ON') : pc.yellow('🔔 Check for Updates on Startup: OFF')}`,
+            value: 'toggle_check_updates',
+            description: config.checkUpdates !== false
+              ? 'Automatically check for updates from GitHub repository when launching devx'
+              : 'Disable update checking on startup (run /update manually instead)'
+          },
+          {
             name: `🔄 Max Agent Iterations: ${pc.cyan(maxIterLabel)}`,
             value: 'change_max_iterations',
             description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
@@ -630,6 +639,13 @@ async function handleSettings(config: any): Promise<any> {
         continue;
       }
 
+      if (choice === 'toggle_check_updates') {
+        config.checkUpdates = config.checkUpdates === false ? true : false;
+        await saveConfig(config);
+        p.log.success(`Check for updates on startup: ${config.checkUpdates ? pc.bold(pc.green('ON (Enabled)')) : pc.bold(pc.yellow('OFF (Disabled)'))}`);
+        continue;
+      }
+
       if (choice === 'change_max_iterations') {
         const val = await select({
           message: 'Select maximum iterations limit per prompt:',
@@ -657,13 +673,14 @@ async function handleSettings(config: any): Promise<any> {
   return config;
 }
 
-      const VALID_COMMANDS = ['/new', '/reset', '/resume', '/session', '/sessions', '/history', '/settings', '/model', '/provider', '/providers', '/plan', '/agent', '/config', '/clear', '/exit', '/help'];
+      const VALID_COMMANDS = ['/new', '/reset', '/resume', '/session', '/sessions', '/history', '/settings', '/update', '/model', '/provider', '/providers', '/plan', '/agent', '/config', '/clear', '/exit', '/help'];
       if (!VALID_COMMANDS.includes(cmd)) {
         const SLASH_COMMANDS = [
           { name: '/new          - Start a new clean chat session', value: '/new' },
           { name: '/resume       - Resume a previous chat session', value: '/resume' },
           { name: '/session del  - Select and delete saved sessions', value: '/session del' },
           { name: '/settings     - Configure permissions & auto-approval', value: '/settings' },
+          { name: '/update       - Check and install updates from GitHub', value: '/update' },
           { name: '/model        - Switch model for current provider', value: '/model' },
           { name: '/provider     - Change AI provider (Google, OpenRouter...)', value: '/provider' },
           { name: '/plan         - Switch to PLAN mode (architect)', value: '/plan' },
@@ -705,6 +722,26 @@ async function handleSettings(config: any): Promise<any> {
       if (cmd === '/settings') {
         config = await handleSettings(config);
         drawLogo();
+        continue;
+      }
+
+      if (cmd === '/update') {
+        const s = p.spinner();
+        s.start('Checking for updates from https://github.com/apvcode/Termux-Dev...');
+        const res = await checkForUpdates(10000);
+        s.stop();
+        if (res.updateAvailable) {
+          p.log.info(pc.bold(pc.yellow(`🚀 Update available: v${res.currentVersion} ➔ v${res.latestVersion}`)));
+          const doUpdate = await p.confirm({
+            message: `Do you want to update devx to v${res.latestVersion} now?`,
+            initialValue: true
+          });
+          if (!p.isCancel(doUpdate) && doUpdate) {
+            await performSelfUpdate(res.latestVersion);
+          }
+        } else {
+          p.log.success(pc.green(`devx is up to date! (v${res.currentVersion})`));
+        }
         continue;
       }
 
