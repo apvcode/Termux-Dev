@@ -86,11 +86,6 @@ npm link
 devx
 ```
 
-### ⚡ One-Liner Global Install (via Git)
-
-```bash
-npm install -g git+https://github.com/apvcode/Termux-Dev.git
-```
 
 ---
 
@@ -221,11 +216,6 @@ npm link
 devx
 ```
 
-### ⚡ Установка в одну команду (через Git)
-
-```bash
-npm install -g git+https://github.com/apvcode/Termux-Dev.git
-```
 
 ---
 
