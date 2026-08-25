@@ -1,0 +1,7 @@
+src/
+tsconfig.json
+.github/
+.devx/
+.devxrc.json
+.env*
+*.log
