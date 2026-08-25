@@ -9,7 +9,6 @@
   },
   "scripts": {
     "build": "tsc",
-    "prepare": "tsc",
     "start": "node ./bin/devx.js",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build"

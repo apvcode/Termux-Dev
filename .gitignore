@@ -2,9 +2,6 @@
 node_modules/
 package-lock.json
 
-# Production / Build Output
-dist/
-
 # Local DevX Project Cache & Snapshots
 .devx/
 .devxrc.json
