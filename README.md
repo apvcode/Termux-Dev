@@ -9,7 +9,7 @@ Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml/badge.svg)](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)](https://www.typescriptlang.org)
 [![Platform](https://img.shields.io/badge/Platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-orange.svg)](#)
 
@@ -53,7 +53,7 @@ Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**
 ## 📦 Installation & Setup
 
 ### Prerequisites
-- **Node.js**: `v18.0.0` or higher
+- **Node.js**: `v20.0.0` or higher
 - **npm**, **pnpm**, or **yarn**
 
 ### Quick Install (Windows / macOS / Linux)
@@ -188,7 +188,7 @@ If you find **devx** useful, please consider giving it a ⭐️ star on [GitHub]
 ## 📦 Установка и запуск
 
 ### Требования
-- **Node.js**: `v18.0.0` или выше
+- **Node.js**: `v20.0.0` или выше
 - **npm**, **pnpm** или **yarn**
 
 ### Быстрая установка на ПК (Windows / macOS / Linux)
