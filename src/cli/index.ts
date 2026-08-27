@@ -369,6 +369,10 @@ function resetTerminalTheme() {
 let activeAbortHandler: (() => void) | null = null;
 
 process.on('exit', () => {
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(false);
+  }
+  process.stdout.write('\x1B[?25h');
   resetTerminalTheme();
 });
 
@@ -376,6 +380,11 @@ process.on('SIGINT', () => {
   if (activeAbortHandler) {
     activeAbortHandler();
   } else {
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+    }
+    process.stdout.write('\x1B[?25h'); // restore cursor
     resetTerminalTheme();
     process.exit(0);
   }
@@ -556,11 +565,11 @@ export async function main() {
     });
 
     try {
-      console.clear();
-      const selected = await select({
+      clearTerminalScreen();
+      const selected = await search({
         message: `${pc.bold('🎨 Pick a theme to personalize your workspace:')}`,
-        choices: themeChoices,
-        pageSize: 10
+        source: async () => themeChoices,
+        pageSize: 6
       });
       if (selected) {
         config.theme = selected;
