@@ -143,7 +143,7 @@ function renderDirectoryHtml(dirPath: string, relPath: string, files: fsSync.Dir
       ${parentLink}
       ${items || '<li style="padding: 20px; text-align: center; color: #6e7681;">No visible files in this directory</li>'}
     </ul>
-    <div class="footer">devx v1.1.2 &bull; Terminal-Native AI Assistant</div>
+    <div class="footer">devx v1.2.0 &bull; Terminal-Native AI Assistant</div>
   </div>
 </body>
 </html>`;
@@ -168,6 +168,14 @@ export async function startServer(preferredPort = 3000): Promise<{ port: number;
         // Security check: ensure path is within cwd
         const rel = path.relative(cwd, targetPath);
         if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          res.writeHead(403, { 'Content-Type': 'text/plain' });
+          res.end('Forbidden');
+          return;
+        }
+
+        // Security check: block dotfiles, hidden directories (.env, .git, etc.) and node_modules
+        const segments = reqPath.split(/[\/\\]/).filter(Boolean);
+        if (segments.some(seg => (seg.startsWith('.') && seg !== '.') || seg === 'node_modules')) {
           res.writeHead(403, { 'Content-Type': 'text/plain' });
           res.end('Forbidden');
           return;
@@ -252,8 +260,14 @@ export async function startServer(preferredPort = 3000): Promise<{ port: number;
       }
     });
 
+    let retryCount = 0;
     server.on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
+        retryCount++;
+        if (retryCount > 20) {
+          reject(new Error(`Could not find an open port after 20 attempts (started at ${preferredPort})`));
+          return;
+        }
         activePort++;
         server.listen(activePort, '0.0.0.0');
       } else {

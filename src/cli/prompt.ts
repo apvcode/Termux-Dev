@@ -2,12 +2,14 @@ import readline from 'readline';
 import pc from 'picocolors';
 import { scanProjectFiles } from './files.js';
 import { saveClipboardImage, processPastedFilePath } from './clipboard.js';
+import { getCurrentTheme, listThemes } from './theme.js';
 
 export const SLASH_COMMANDS = [
   { cmd: '/new', desc: 'Start a new clean chat session' },
   { cmd: '/resume', desc: 'Resume a previous chat session' },
   { cmd: '/session', desc: 'Show active session ID, stats, and info' },
   { cmd: '/session del', desc: 'Select and delete saved sessions' },
+  { cmd: '/theme', desc: 'Switch UI theme (Cyan, Purple, Matrix, Amber, etc.)' },
   { cmd: '/settings', desc: 'Configure permissions & auto-approval' },
   { cmd: '/update', desc: 'Check and install updates from GitHub' },
   { cmd: '/model', desc: 'Switch model for current provider' },
@@ -62,8 +64,9 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     const imageAttachments: Array<{ tag: string; fileName: string; filePath: string; sizeStr: string }> = [];
     const usedImageNames = new Set<string>();
 
+    const theme = getCurrentTheme();
     // Header printed once
-    console.log(pc.cyan('◆') + '  ' + pc.bold(msg));
+    console.log(theme.colorFn('◆') + '  ' + pc.bold(msg));
 
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
@@ -81,6 +84,38 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     }
 
     function getDropdownItems(): DropdownItem[] {
+      if (input.startsWith('/theme ') || input.startsWith('/themes ') || input === '/theme') {
+        const afterCmd = input.replace(/^\/(?:theme|themes)\s*/i, '').trim().toLowerCase();
+        const themes = listThemes();
+        const matched = themes.filter(t => 
+          !afterCmd || 
+          t.id.toLowerCase().startsWith(afterCmd) || 
+          t.name.toLowerCase().includes(afterCmd)
+        );
+
+        const list: DropdownItem[] = [];
+        if (!afterCmd || '/theme'.startsWith(input.trim().toLowerCase())) {
+          list.push({
+            label: '/theme',
+            desc: 'Interactive UI theme picker menu',
+            replacement: '/theme',
+            replaceStart: 0,
+            replaceLen: input.length
+          });
+        }
+
+        for (const t of matched) {
+          list.push({
+            label: `/theme ${t.id}`,
+            desc: `${t.emoji} ${t.name} (${t.desc})`,
+            replacement: `/theme ${t.id}`,
+            replaceStart: 0,
+            replaceLen: input.length
+          });
+        }
+        return list;
+      }
+
       if (input.startsWith('/')) {
         const q = input.trim().toLowerCase();
         const filtered = SLASH_COMMANDS.filter(c => c.cmd.toLowerCase().startsWith(q) || q === '/');
@@ -184,9 +219,9 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
           const maxDescLen = Math.max(6, boxWidth - 25);
           const descStr = item.desc.length > maxDescLen ? item.desc.slice(0, maxDescLen - 3) + '...' : item.desc.padEnd(maxDescLen);
 
-          let row = ` ${isSelected ? pc.cyan('›') : ' '} ${isSelected ? pc.bold(pc.cyan(labelStr)) : pc.white(labelStr)} ${pc.gray(descStr)} `;
+          let row = ` ${isSelected ? theme.colorFn('›') : ' '} ${isSelected ? theme.boldFn(labelStr) : pc.white(labelStr)} ${pc.gray(descStr)} `;
           if (isSelected) {
-            row = pc.bgCyan(pc.black(` › ${labelStr} ${descStr} `));
+            row = theme.badgeFn(`› ${labelStr} ${descStr}`);
           }
           dropdownLines.push(pc.dim('│') + '  ' + pc.dim('│') + row + pc.dim('│'));
         }

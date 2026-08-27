@@ -6,7 +6,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { AgentConfig } from '../core/types.js';
 import { History } from '../core/history.js';
 import { Agent } from '../core/loop.js';
@@ -26,6 +26,7 @@ import { SmoothStreamer } from './smooth.js';
 import { askPrompt } from './prompt.js';
 import { resolveAtMentions } from './files.js';
 import { runStartupUpdateCheck, checkForUpdates, performSelfUpdate } from './updater.js';
+import { getTheme, setActiveTheme, getCurrentTheme, listThemes, findTheme, THEMES, ThemeDef } from './theme.js';
 
 const CONFIG_PATH = path.join(os.homedir(), '.devxrc.json');
 
@@ -390,15 +391,16 @@ function clearTerminalScreen() {
 function drawLogo() {
   const cols = process.stdout.columns || 80;
   clearTerminalScreen();
+  const theme = getCurrentTheme();
 
   if (cols < 56) {
     // Ultra-clean compact ASCII for small mobile screens (width: ~26 chars)
     const logo = [
       '',
-      pc.cyan('  █▀▀▄ █▀▀▀ █   █ █   █'),
-      pc.cyan('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
-      pc.cyan('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-      '  ' + pc.cyan(pc.bold('v1.1.2')),
+      theme.colorFn('  █▀▀▄ █▀▀▀ █   █ █   █'),
+      theme.colorFn('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
+      theme.colorFn('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
+      '  ' + theme.boldFn('v1.2.0'),
       ''
     ];
     for (const line of logo) {
@@ -409,10 +411,10 @@ function drawLogo() {
     const indent = cols < 68 ? ' ' : '   ';
     const logo = [
       '',
-      indent + pc.cyan('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
-      indent + pc.cyan('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
-      indent + pc.cyan('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-      indent + pc.cyan(pc.bold('v1.1.2')),
+      indent + theme.colorFn('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
+      indent + theme.colorFn('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
+      indent + theme.colorFn('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
+      indent + theme.boldFn('v1.2.0'),
       ''
     ];
     for (const line of logo) {
@@ -532,6 +534,9 @@ export async function main() {
   let planMode = !!options.plan;
   
   let config = await loadConfig();
+  if (config.theme) {
+    setActiveTheme(config.theme);
+  }
   enableDarkTheme(config.pureBlackTheme !== false);
 
   let history = new History();
@@ -565,6 +570,7 @@ export async function main() {
 
     const cols = process.stdout.columns || 80;
     const modeName = planMode ? 'PLAN' : 'AGENT';
+    const theme = getCurrentTheme();
 
     // Shorten model name if too long on narrow mobile screens
     let displayModel = config.model;
@@ -576,7 +582,7 @@ export async function main() {
       }
     }
 
-    const badge = pc.bgCyan(pc.black(` devx | ${modeName} | ${displayModel} `));
+    const badge = theme.badgeFn(`devx | ${modeName} | ${displayModel}`);
 
     if (cols < 75) {
       // 2-line layout for mobile screens: perfectly aligned with clack box borders
@@ -591,7 +597,7 @@ export async function main() {
     if (autoTriggerPrompt) {
       answer = autoTriggerPrompt;
       autoTriggerPrompt = '';
-      console.log(pc.cyan('◆') + '  ' + pc.bold(pc.white(answer)));
+      console.log(theme.colorFn('◆') + '  ' + pc.bold(pc.white(answer)));
     } else {
       const inputStr = await askPrompt({
         message: 'Ask anything...',
@@ -637,17 +643,47 @@ export async function main() {
       const parts = answer.split(' ');
       let cmd = parts[0];
 
+async function handleThemeSelect(config: any): Promise<void> {
+  const currentTh = getCurrentTheme();
+  const themeChoices = listThemes().map(t => ({
+    name: `${t.emoji} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)} ${t.id === currentTh.id ? pc.green('(Active)') : ''}`,
+    value: t.id,
+    description: `Apply ${t.name} color palette (${t.hex}) to banners, prompts, and actions`
+  }));
+
+  try {
+    const selected = await select({
+      message: `${pc.bold('🎨 Select UI Theme / Выберите цветовую тему:')}`,
+      choices: themeChoices
+    });
+
+    if (selected) {
+      config.theme = selected;
+      await saveConfig(config);
+      const th = setActiveTheme(selected);
+      drawLogo();
+      p.log.success(th.boldFn(`🎨 Theme switched to ${th.emoji} ${th.name}!`));
+    }
+  } catch {}
+}
+
 async function handleSettings(config: any): Promise<any> {
   while (true) {
     try {
       const maxIter = config.maxIterations || 100;
       const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
+      const currentTh = getCurrentTheme();
 
       const choice = await select({
-        message: `${pc.bold('⚙️  Settings')} ${pc.dim('(devx v1.1.2 • by ApvCode)')}`,
+        message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.2.0 • theme: ${currentTh.name})`)}`,
         choices: [
           {
-            name: `${config.pureBlackTheme !== false ? pc.green('🎨 Pure Black Background: ON') : pc.yellow('🎨 Pure Black Background: OFF')}`,
+            name: `🎨 Color Theme: ${currentTh.emoji} ${currentTh.name}`,
+            value: 'change_theme',
+            description: `Switch UI accent colors (${currentTh.desc})`
+          },
+          {
+            name: `${config.pureBlackTheme !== false ? pc.green('🖤 Pure Black Background: ON') : pc.yellow('🖤 Pure Black Background: OFF')}`,
             value: 'toggle_black_theme',
             description: config.pureBlackTheme !== false
               ? 'Apply deep OLED obsidian black background (#0a0a0c) like OpenCode'
@@ -675,12 +711,12 @@ async function handleSettings(config: any): Promise<any> {
               : 'Disable update checking on startup (run /update manually instead)'
           },
           {
-            name: `🔄 Max Agent Iterations: ${pc.cyan(maxIterLabel)}`,
+            name: `🔄 Max Agent Iterations: ${currentTh.colorFn(maxIterLabel)}`,
             value: 'change_max_iterations',
             description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
           },
           {
-            name: `${pc.cyan('✨ About devx')} ${pc.dim('(v1.1.2 by ApvCode)')}`,
+            name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.2.0 by ApvCode)')}`,
             value: 'about',
             description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
           },
@@ -692,9 +728,15 @@ async function handleSettings(config: any): Promise<any> {
         ]
       });
 
+      if (choice === 'change_theme') {
+        await handleThemeSelect(config);
+        continue;
+      }
+
       if (choice === 'about') {
         p.note(
-          `⚡ devx v1.1.2 — Terminal-Native AI Coding Agent\n` +
+          `⚡ devx v1.2.0 — Terminal-Native AI Coding Agent\n` +
+          `🎨 Theme: ${currentTh.emoji} ${currentTh.name}\n` +
           `👤 Author: ApvCode (https://github.com/apvcode)\n` +
           `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
           `📜 License: MIT License (2026)\n` +
@@ -727,14 +769,14 @@ async function handleSettings(config: any): Promise<any> {
       if (choice === 'toggle_memory') {
         config.enableMemory = config.enableMemory === false ? true : false;
         await saveConfig(config);
-        p.log.success(`Project memory: ${config.enableMemory ? pc.bold(pc.green('ON (Enabled)')) : pc.bold(pc.yellow('OFF (Disabled)'))}`);
+        p.log.success(`Project memory bank: ${config.enableMemory !== false ? pc.bold(pc.green('ON (Persistent .devx/memory.md)')) : pc.bold(pc.yellow('OFF'))}`);
         continue;
       }
 
       if (choice === 'toggle_check_updates') {
         config.checkUpdates = config.checkUpdates === false ? true : false;
         await saveConfig(config);
-        p.log.success(`Check for updates on startup: ${config.checkUpdates ? pc.bold(pc.green('ON (Enabled)')) : pc.bold(pc.yellow('OFF (Disabled)'))}`);
+        p.log.success(`Check for updates: ${config.checkUpdates !== false ? pc.bold(pc.green('ON (Checked on startup)')) : pc.bold(pc.yellow('OFF (Manual only)'))}`);
         continue;
       }
 
@@ -765,18 +807,33 @@ async function handleSettings(config: any): Promise<any> {
   return config;
 }
 
-      const VALID_COMMANDS = ['/new', '/reset', '/resume', '/session', '/sessions', '/history', '/settings', '/update', '/model', '/provider', '/providers', '/plan', '/agent', '/config', '/clear', '/exit', '/help'];
+      const VALID_COMMANDS = [
+        '/new', '/reset', '/resume', '/session', '/sessions', '/history',
+        '/theme', '/themes',
+        '/settings', '/update', '/model', '/provider', '/providers',
+        '/plan', '/agent', '/image', '/serve', '/memory', '/undo',
+        '/diff', '/commit', '/status', '/compact', '/init',
+        '/config', '/clear', '/exit', '/quit', '/help'
+      ];
       if (!VALID_COMMANDS.includes(cmd)) {
         const SLASH_COMMANDS = [
           { name: '/new          - Start a new clean chat session', value: '/new' },
           { name: '/resume       - Resume a previous chat session', value: '/resume' },
           { name: '/session del  - Select and delete saved sessions', value: '/session del' },
+          { name: '/theme        - Switch UI color theme', value: '/theme' },
           { name: '/settings     - Configure permissions & auto-approval', value: '/settings' },
           { name: '/update       - Check and install updates from GitHub', value: '/update' },
           { name: '/model        - Switch model for current provider', value: '/model' },
           { name: '/provider     - Change AI provider (Google, OpenRouter...)', value: '/provider' },
           { name: '/plan         - Switch to PLAN mode (architect)', value: '/plan' },
           { name: '/agent        - Switch to AGENT mode (coder)', value: '/agent' },
+          { name: '/serve        - Start local web server for web preview', value: '/serve' },
+          { name: '/memory       - View or edit project memory bank', value: '/memory' },
+          { name: '/undo         - Revert last file changes made by AI', value: '/undo' },
+          { name: '/diff         - Show git diff of modified files', value: '/diff' },
+          { name: '/commit       - AI-generated git commit message', value: '/commit' },
+          { name: '/status       - Show git repository status', value: '/status' },
+          { name: '/compact      - Compact conversation context', value: '/compact' },
           { name: '/config       - View current configuration', value: '/config' },
           { name: '/clear        - Clear message history', value: '/clear' },
           { name: '/help         - Show commands overview', value: '/help' },
@@ -1105,8 +1162,8 @@ async function handleSettings(config: any): Promise<any> {
           });
 
           if (!p.isCancel(confirmed) && confirmed) {
-            execSync('git add -A', { stdio: 'ignore' });
-            execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`, { stdio: 'ignore' });
+            execFileSync('git', ['add', '-A'], { stdio: 'ignore' });
+            execFileSync('git', ['commit', '-m', commitMsg], { stdio: 'ignore' });
             p.log.success(pc.bold(pc.green(`✅ Committed: ${commitMsg}`)));
           } else {
             p.log.info('Commit cancelled.');
@@ -1203,6 +1260,25 @@ async function handleSettings(config: any): Promise<any> {
           } catch (err: any) {
             p.log.error(`Failed to start web server: ${err.message}`);
           }
+        }
+        continue;
+      }
+      if (cmd === '/theme' || cmd === '/themes') {
+        const themeArg = answer.replace(/^\/(?:theme|themes)\s*/i, '').trim();
+        if (themeArg) {
+          const matched = findTheme(themeArg);
+          if (matched) {
+            config.theme = matched.id;
+            await saveConfig(config);
+            const th = setActiveTheme(matched.id);
+            drawLogo();
+            p.log.success(th.boldFn(`🎨 Theme switched to ${th.emoji} ${th.name}!`));
+          } else {
+            const themes = listThemes();
+            p.log.warn(`Unknown theme: "${themeArg}". Available themes: ${themes.map(t => `${t.emoji} ${t.id}`).join(', ')}`);
+          }
+        } else {
+          await handleThemeSelect(config);
         }
         continue;
       }
@@ -1437,14 +1513,15 @@ async function handleSettings(config: any): Promise<any> {
             console.log('\n' + renderMarkdown(event.content) + '\n');
           }
         } else if (event.type === 'tool_generating') {
+          const theme = getCurrentTheme();
           const label = formatToolGeneratingLabel(event.name, event.targetHint);
           if (!spinnerActive) {
             streamer.finish();
             finishThinking(false);
-            s.start(pc.bold(pc.cyan(label)));
+            s.start(theme.boldFn(label));
             spinnerActive = true;
           } else {
-            s.message(pc.bold(pc.cyan(label)));
+            s.message(theme.boldFn(label));
           }
         } else if (event.type === 'tool_start') {
           if (spinnerActive) {
@@ -1473,26 +1550,55 @@ async function handleSettings(config: any): Promise<any> {
               if (parsed.type === 'todo_list' && parsed.displayCard) {
                 process.stdout.write(parsed.displayCard);
               } else if (parsed.action === 'edit' && parsed.diffLines) {
+                const theme = getCurrentTheme();
                 const cols = Math.min(process.stdout.columns || 80, 80);
-                const borderChar = '─';
-                const boxWidth = Math.max(20, Math.min(cols - 4, 66));
-                console.log(pc.dim('┌' + borderChar.repeat(boxWidth) + '┐'));
-                const maxShown = Math.min(parsed.diffLines.length, 12);
+                const boxWidth = Math.max(30, Math.min(cols - 4, 76));
+                
+                const fileName = typeof parsed.path === 'string' ? parsed.path.split(/[\/\\]/).pop() || 'file' : 'file';
+                const fillCount = Math.max(2, boxWidth - 5 - fileName.length);
+                
+                console.log(theme.colorFn('┌─ ') + pc.bold(fileName) + ' ' + theme.colorFn('─'.repeat(fillCount) + '┐'));
+                
+                const maxShown = Math.min(parsed.diffLines.length, 30);
                 for (let i = 0; i < maxShown; i++) {
                   const line = parsed.diffLines[i];
-                  if (line.includes(' -  ')) {
-                    console.log(pc.dim('│ ') + pc.red(line));
-                  } else if (line.includes(' +  ')) {
-                    console.log(pc.dim('│ ') + pc.green(line));
+                  const match = line.match(/^(\d+)(\s+[+\- ]\s+)(.*)$/);
+                  if (match) {
+                    const lineNum = match[1].padStart(4, ' ');
+                    const symbol = match[2];
+                    const contentStr = match[3] || '';
+                    
+                    const prefix = symbol.includes('-') ? '-' : symbol.includes('+') ? '+' : ' ';
+                    
+                    const maxCodeLen = Math.max(10, boxWidth - 11);
+                    const paddedCode = contentStr.length > maxCodeLen 
+                      ? contentStr.substring(0, maxCodeLen - 1) + '…' 
+                      : contentStr.padEnd(maxCodeLen, ' ');
+                    
+                    const innerRow = ` ${lineNum} ${prefix} ${paddedCode} `;
+                    
+                    if (prefix === '-') {
+                      console.log(theme.colorFn('│') + theme.diffRemoveBg(innerRow) + theme.colorFn('│'));
+                    } else if (prefix === '+') {
+                      console.log(theme.colorFn('│') + theme.diffAddBg(innerRow) + theme.colorFn('│'));
+                    } else {
+                      console.log(theme.colorFn('│') + pc.dim(innerRow) + theme.colorFn('│'));
+                    }
                   } else {
-                    console.log(pc.dim('│ ') + pc.white(line));
+                    const maxLen = Math.max(10, boxWidth - 4);
+                    const padded = line.length > maxLen ? line.substring(0, maxLen - 1) + '…' : line.padEnd(maxLen, ' ');
+                    console.log(theme.colorFn('│ ') + pc.white(padded) + theme.colorFn(' │'));
                   }
                 }
+                
                 if (parsed.diffLines.length > maxShown) {
-                  console.log(pc.dim(`│ ... +${parsed.diffLines.length - maxShown} more lines`));
+                  const dots = `... +${parsed.diffLines.length - maxShown} more lines`;
+                  const maxLen = Math.max(10, boxWidth - 4);
+                  const paddedDots = dots.length > maxLen ? dots.substring(0, maxLen - 1) + '…' : dots.padEnd(maxLen, ' ');
+                  console.log(theme.colorFn('│ ') + pc.dim(paddedDots) + theme.colorFn(' │'));
                 }
-                console.log(pc.dim('└' + borderChar.repeat(boxWidth) + '┘'));
-                console.log(pc.green(`  └─ ${parsed.summary}`));
+                console.log(theme.colorFn('└' + '─'.repeat(boxWidth - 2) + '┘'));
+                console.log(theme.boldFn(`  └─ ${parsed.summary}`));
               } else if (parsed.summary) {
                 console.log(pc.green(`  └─ ${parsed.summary}`));
               } else {

@@ -36,12 +36,8 @@ export class SnapshotManager {
                 });
             }
         }
-        catch {
-            this.currentTurn.files.set(resolved, {
-                filePath: resolved,
-                existed: false,
-                content: null
-            });
+        catch (err) {
+            throw new Error(`Cannot safely snapshot file ${resolved} before edit: ${err.message}`);
         }
     }
     finishTurn() {

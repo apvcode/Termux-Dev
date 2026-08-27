@@ -63,13 +63,20 @@ export const writeFileTool = {
             }
             catch { }
             await fs.writeFile(args.path, args.content, 'utf8');
-            const newLines = args.content.split('\n').length;
+            const contentLines = args.content.split('\n');
+            const newLines = contentLines.length;
+            const diffLines = [];
+            const showLines = Math.min(contentLines.length, 6);
+            for (let i = 0; i < showLines; i++) {
+                diffLines.push(`${i + 1} +  ${contentLines[i]}`);
+            }
             if (!existed) {
                 return JSON.stringify({
                     status: 'success',
-                    action: 'create',
+                    action: 'edit',
                     path: args.path,
                     addedCount: newLines,
+                    diffLines,
                     summary: `Successfully created ${args.path} (+${newLines} lines)`
                 });
             }
@@ -78,9 +85,10 @@ export const writeFileTool = {
                 const diffStr = diff >= 0 ? `+${diff}` : `${diff}`;
                 return JSON.stringify({
                     status: 'success',
-                    action: 'write',
+                    action: 'edit',
                     path: args.path,
                     addedCount: newLines,
+                    diffLines,
                     summary: `Successfully updated ${args.path} (${diffStr} lines, ${newLines} total)`
                 });
             }
@@ -131,16 +139,20 @@ export const editFileTool = {
                 }
             }
             const targetIndex = content.indexOf(target);
+            const allLines = content.split('\n');
             const startLine = content.slice(0, targetIndex).split('\n').length;
             const removedArr = target.split('\n');
+            const endLine = startLine + removedArr.length - 1;
+            const contextBefore = allLines.slice(Math.max(0, startLine - 3), startLine - 1);
+            const contextAfter = allLines.slice(endLine, Math.min(allLines.length, endLine + 2));
             const addedArr = args.replacement.split('\n');
             const diffLines = [];
-            removedArr.forEach((l, i) => {
-                diffLines.push(`${startLine + i} -  ${l}`);
-            });
-            addedArr.forEach((l, i) => {
-                diffLines.push(`${startLine + i} +  ${l}`);
-            });
+            let lineCounter = startLine - contextBefore.length;
+            contextBefore.forEach((l) => diffLines.push(`${lineCounter++}    ${l}`));
+            removedArr.forEach((l) => diffLines.push(`${lineCounter++} -  ${l}`));
+            let addCounter = startLine;
+            addedArr.forEach((l) => diffLines.push(`${addCounter++} +  ${l}`));
+            contextAfter.forEach((l) => diffLines.push(`${addCounter++}    ${l}`));
             const newContent = content.replace(target, args.replacement);
             await fs.writeFile(args.path, newContent, 'utf8');
             return JSON.stringify({
