@@ -411,7 +411,7 @@ function drawLogo() {
       theme.colorFn('  █▀▀▄ █▀▀▀ █   █ █   █'),
       theme.colorFn('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
       theme.colorFn('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-      '  ' + theme.boldFn('v1.2.0'),
+      '  ' + theme.boldFn('v1.2.2'),
       ''
     ];
     for (const line of logo) {
@@ -425,7 +425,7 @@ function drawLogo() {
       indent + theme.colorFn('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
       indent + theme.colorFn('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
       indent + theme.colorFn('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-      indent + theme.boldFn('v1.2.0'),
+      indent + theme.boldFn('v1.2.2'),
       ''
     ];
     for (const line of logo) {
@@ -721,7 +721,7 @@ async function handleSettings(config: any): Promise<any> {
       const currentTh = getCurrentTheme();
 
       const choice = await select({
-        message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.2.0 • theme: ${currentTh.name})`)}`,
+        message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.2.2 • theme: ${currentTh.name})`)}`,
         choices: [
           {
             name: `🎨 Color Theme: ${currentTh.emoji} ${currentTh.name}`,
@@ -762,7 +762,7 @@ async function handleSettings(config: any): Promise<any> {
             description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
           },
           {
-            name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.2.0 by ApvCode)')}`,
+            name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.2.2 by ApvCode)')}`,
             value: 'about',
             description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
           },
@@ -781,7 +781,7 @@ async function handleSettings(config: any): Promise<any> {
 
       if (choice === 'about') {
         p.note(
-          `⚡ devx v1.2.0 — Terminal-Native AI Coding Agent\n` +
+          `⚡ devx v1.2.2 — Terminal-Native AI Coding Agent\n` +
           `🎨 Theme: ${currentTh.emoji} ${currentTh.name}\n` +
           `👤 Author: ApvCode (https://github.com/apvcode)\n` +
           `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
