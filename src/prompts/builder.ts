@@ -43,8 +43,9 @@ export async function buildSystemPrompt(planMode: boolean): Promise<string> {
     prompt += `- Whenever you modify or create files, use the 'diagnose_code' tool to check for any syntax or type errors.\n`;
     prompt += `- If any error is found, automatically fix it with 'edit_file' until all diagnostics pass cleanly.\n`;
     prompt += `- If you need dependencies, use 'install_package' to install them cleanly.\n`;
+    prompt += `- Whenever you create or modify web applications, sites, HTML/CSS/JS, canvas games, or React/Vite frontend apps, automatically call the 'serve_preview' tool with action='start' to start the local preview server and display the mobile QR-code for the user!\n`;
     prompt += `- Use 'save_memory' to remember important architectural decisions, user preferences, or project rules.\n`;
-    prompt += `Always explain your actions briefly before using tools.\n`;
+    prompt += `- Always explain your actions briefly before using tools.\n`;
   }
 
   // Load Project Memory Bank

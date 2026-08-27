@@ -4,6 +4,9 @@ import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
+import pc from 'picocolors';
+import qrcode from 'qrcode-terminal';
+import { getTheme } from './theme.js';
 const MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
     '.htm': 'text/html; charset=utf-8',
@@ -263,6 +266,7 @@ export async function startServer(preferredPort = 3000) {
             if (process.env.PREFIX?.includes('com.termux')) {
                 try {
                     const opener = spawn('termux-open-url', [localUrl], { stdio: 'ignore', detached: true });
+                    opener.on('error', () => { });
                     opener.unref();
                 }
                 catch { }
@@ -270,4 +274,42 @@ export async function startServer(preferredPort = 3000) {
             resolve({ port: activePort, localUrl, networkUrl });
         });
     });
+}
+export function getQrCodeString(text) {
+    return new Promise((resolve) => {
+        try {
+            qrcode.generate(text, { small: true }, (qr) => {
+                resolve(qr);
+            });
+        }
+        catch {
+            resolve('');
+        }
+    });
+}
+export async function displayServerBanner(localUrl, networkUrl) {
+    const th = getTheme();
+    const qr = await getQrCodeString(networkUrl);
+    const cols = Math.min(process.stdout.columns || 80, 80);
+    const cardWidth = Math.max(36, Math.min(cols - 4, 66));
+    const innerWidth = cardWidth - 2;
+    const title = ' 🌐 Live Web Preview ';
+    const topFill = Math.max(2, cardWidth - 3 - title.length);
+    console.log('\n' + th.colorFn('┌─') + pc.bold(title) + th.colorFn('─'.repeat(topFill) + '┐'));
+    const printRow = (content) => {
+        const visibleLength = content.replace(/\u001b\[[0-9;]*m/g, '').length;
+        const padding = Math.max(0, innerWidth - visibleLength);
+        console.log(th.colorFn('│') + content + ' '.repeat(padding) + th.colorFn('│'));
+    };
+    printRow(`  ${pc.bold('Local:')}   ${pc.cyan(localUrl)}`);
+    printRow(`  ${pc.bold('Network:')} ${pc.green(networkUrl)}`);
+    printRow(' ');
+    printRow(`  ${pc.bold('📱 Mobile QR:')}`);
+    if (qr) {
+        const qrLines = qr.trim().split('\n');
+        for (const ql of qrLines) {
+            printRow(`  ${ql}`);
+        }
+    }
+    console.log(th.colorFn('└' + '─'.repeat(innerWidth) + '┘\n'));
 }

@@ -1,11 +1,11 @@
 import { Tool } from '../core/types.js';
-import { startServer, stopServer, isServerRunning, getServerPort } from '../cli/server.js';
+import { startServer, stopServer, isServerRunning, getServerPort, displayServerBanner } from '../cli/server.js';
 
 export const servePreviewTool: Tool = {
   name: 'serve_preview',
   definition: {
     name: 'serve_preview',
-    description: 'Start or stop the built-in local live web preview server to view HTML/web apps in the browser.',
+    description: 'Start or stop the built-in local live web preview server to view HTML/web apps in the browser with instant QR-code.',
     parameters: {
       type: 'object',
       properties: {
@@ -41,7 +41,8 @@ export const servePreviewTool: Tool = {
     const preferredPort = args.port || 3000;
     try {
       const { port, localUrl, networkUrl } = await startServer(preferredPort);
-      return `Web Server is now live!\n• Local URL: ${localUrl}\n• Network URL: ${networkUrl}\nOpened in browser automatically.`;
+      await displayServerBanner(localUrl, networkUrl);
+      return `Web Server is now live!\n• Local URL: ${localUrl}\n• Network URL: ${networkUrl}\nOpened in browser automatically with mobile QR-code displayed in terminal.`;
     } catch (err: any) {
       throw new Error(`Failed to start web server: ${err.message}`);
     }

@@ -10,10 +10,10 @@ import { planReadyTool, lastPlanReady, resetPlanReady } from './plan.js';
 import { todoListTool, currentTodoList, resetTodoList } from './todo.js';
 import { servePreviewTool } from './server.js';
 export function getTools(planMode) {
-    const baseTools = [readFileTool, listDirTool, searchTool, askQuestionsTool, webSearchTool, fetchUrlTool, saveMemoryTool, planReadyTool, todoListTool, servePreviewTool];
+    const baseTools = [readFileTool, listDirTool, searchTool, askQuestionsTool, webSearchTool, fetchUrlTool, saveMemoryTool, planReadyTool, todoListTool];
     if (planMode) {
         return baseTools;
     }
-    return [...baseTools, writeFileTool, editFileTool, mkdirTool, bashTool, diagnoseCodeTool, installPackageTool];
+    return [...baseTools, writeFileTool, editFileTool, mkdirTool, bashTool, diagnoseCodeTool, installPackageTool, servePreviewTool];
 }
 export { webSearchTool, fetchUrlTool, diagnoseCodeTool, installPackageTool, saveMemoryTool, planReadyTool, lastPlanReady, resetPlanReady, todoListTool, currentTodoList, resetTodoList, servePreviewTool };

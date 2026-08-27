@@ -8,6 +8,7 @@ export const SLASH_COMMANDS = [
     { cmd: '/session', desc: 'Show active session ID, stats, and info' },
     { cmd: '/session del', desc: 'Select and delete saved sessions' },
     { cmd: '/theme', desc: 'Switch UI theme (Cyan, Purple, Matrix, Amber, etc.)' },
+    { cmd: '/doctor', desc: 'Run system & environment health diagnostics' },
     { cmd: '/settings', desc: 'Configure permissions & auto-approval' },
     { cmd: '/update', desc: 'Check and install updates from GitHub' },
     { cmd: '/model', desc: 'Switch model for current provider' },

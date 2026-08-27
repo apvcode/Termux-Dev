@@ -15,7 +15,9 @@ import { getTools, lastPlanReady, resetPlanReady } from '../tools/index.js';
 import { CLIConsoleGuard } from '../permissions/guard.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
 import { MemoryManager } from '../core/memory.js';
-import { startServer, stopServer } from './server.js';
+import { startServer, stopServer, displayServerBanner } from './server.js';
+import { notifyDevice } from '../core/notify.js';
+import { runDoctor } from './doctor.js';
 import { ALL_PROVIDERS } from './providers.js';
 import { getModelContextLimit } from '../core/models.js';
 import { SessionManager } from '../core/session.js';
@@ -770,7 +772,7 @@ export async function main() {
                 '/theme', '/themes',
                 '/settings', '/update', '/model', '/provider', '/providers',
                 '/plan', '/agent', '/image', '/serve', '/memory', '/undo',
-                '/diff', '/commit', '/status', '/compact', '/init',
+                '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
                 '/config', '/clear', '/exit', '/quit', '/help'
             ];
             if (!VALID_COMMANDS.includes(cmd)) {
@@ -779,6 +781,7 @@ export async function main() {
                     { name: '/resume       - Resume a previous chat session', value: '/resume' },
                     { name: '/session del  - Select and delete saved sessions', value: '/session del' },
                     { name: '/theme        - Switch UI color theme', value: '/theme' },
+                    { name: '/doctor       - Run system & environment health diagnostics', value: '/doctor' },
                     { name: '/settings     - Configure permissions & auto-approval', value: '/settings' },
                     { name: '/update       - Check and install updates from GitHub', value: '/update' },
                     { name: '/model        - Switch model for current provider', value: '/model' },
@@ -1205,6 +1208,10 @@ export async function main() {
                 }
                 continue;
             }
+            if (cmd === '/doctor') {
+                await runDoctor(config);
+                continue;
+            }
             if (cmd === '/serve') {
                 const sub = parts[1]?.toLowerCase();
                 if (sub === 'stop') {
@@ -1219,10 +1226,7 @@ export async function main() {
                     const customPort = parseInt(parts[1], 10) || 3000;
                     try {
                         const { port, localUrl, networkUrl } = await startServer(customPort);
-                        p.log.success(pc.bold(pc.green(`🌐 Web Server running on port ${port}!`)));
-                        console.log(pc.cyan(`  • Local:   ${localUrl}`));
-                        console.log(pc.cyan(`  • Network: ${networkUrl}`));
-                        console.log(pc.dim('  (Use /serve stop to stop the server)\n'));
+                        await displayServerBanner(localUrl, networkUrl);
                     }
                     catch (err) {
                         p.log.error(`Failed to start web server: ${err.message}`);
@@ -1432,6 +1436,8 @@ export async function main() {
             }
             catch { }
         }
+        const turnStartTime = Date.now();
+        let toolsExecutedCount = 0;
         try {
             for await (const event of agent.run(abortController.signal)) {
                 if (aborted)
@@ -1500,6 +1506,7 @@ export async function main() {
                     }
                 }
                 else if (event.type === 'tool_end') {
+                    toolsExecutedCount++;
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
@@ -1633,6 +1640,12 @@ export async function main() {
                 process.stdout.write('\n');
             }
             globalSnapshotManager.finishTurn();
+            const turnElapsedMs = Date.now() - turnStartTime;
+            const shouldNotify = (turnElapsedMs >= 15000) || (toolsExecutedCount > 0) || (planMode && lastPlanReady !== null);
+            if (shouldNotify && !aborted) {
+                const secs = Math.round(turnElapsedMs / 1000);
+                notifyDevice('devx', `Task completed in ${secs}s!`);
+            }
             // Auto-save session
             await sessionManager.save(history.getMessages(), totalSessionCost, config.model, planMode);
             // Check if plan was finalized in PLAN mode
