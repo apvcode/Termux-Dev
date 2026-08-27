@@ -536,6 +536,41 @@ export async function main() {
   let planMode = !!options.plan;
   
   let config = await loadConfig();
+
+  if (!config.onboarded) {
+    const cols = Math.min(process.stdout.columns || 40, 42);
+    const fill = Math.max(2, cols - 16);
+    const topBorder = '┌─ preview.ts ' + '─'.repeat(fill) + '┐';
+    const bottomBorder = '└' + '─'.repeat(cols - 2) + '┘';
+
+    const themeChoices = listThemes().map(t => {
+      const addLine = t.diffAddBg(` + 1 | const theme = "${t.id}";`.padEnd(cols - 2));
+      const remLine = t.diffRemoveBg(` - 2 | const theme = "none";`.padEnd(cols - 2));
+      const preview = `${t.colorFn(topBorder)}\n${addLine}\n${remLine}\n${t.colorFn(bottomBorder)}\n\n${pc.dim('💡 You can change this anytime with /theme')}`;
+
+      return {
+        name: `${t.emoji} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)}`,
+        value: t.id,
+        description: preview
+      };
+    });
+
+    try {
+      console.clear();
+      const selected = await select({
+        message: `${pc.bold('🎨 Pick a theme to personalize your workspace:')}`,
+        choices: themeChoices,
+        pageSize: 10
+      });
+      if (selected) {
+        config.theme = selected;
+      }
+    } catch {}
+    
+    config.onboarded = true;
+    await saveConfig(config);
+  }
+
   if (config.theme) {
     setActiveTheme(config.theme);
   }
