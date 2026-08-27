@@ -1,5 +1,6 @@
 import { LLMProvider, LLMRequest, LLMResponse } from '../core/types.js';
 import { calculateCost } from '../core/pricing.js';
+import { UsageTracker } from '../core/usage.js';
 
 export class OpenAIProvider implements LLMProvider {
   id = 'openai-compatible';
@@ -68,6 +69,7 @@ export class OpenAIProvider implements LLMProvider {
   async chat(request: LLMRequest): Promise<LLMResponse> {
     const url = `${this.baseUrl}/chat/completions`;
     const payload = this.buildPayload(request, false);
+    const bodyStr = JSON.stringify(payload);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -76,15 +78,18 @@ export class OpenAIProvider implements LLMProvider {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
     }
 
+    UsageTracker.getInstance().recordRequest(Buffer.byteLength(bodyStr, 'utf8'));
+
     const res = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload),
+      body: bodyStr,
       signal: request.signal
     });
 
     if (!res.ok) {
       const errText = await res.text();
+      UsageTracker.getInstance().recordResponseChunk(Buffer.byteLength(errText, 'utf8'));
       let errMsg = errText;
       try {
         const parsed = JSON.parse(errText);
@@ -99,7 +104,15 @@ export class OpenAIProvider implements LLMProvider {
       throw err;
     }
 
-    const data = await res.json();
+    const rawResText = await res.text();
+    UsageTracker.getInstance().recordResponseChunk(Buffer.byteLength(rawResText, 'utf8'));
+    let data: any = {};
+    try {
+      data = JSON.parse(rawResText);
+    } catch {
+      throw new Error(`Invalid JSON response from provider`);
+    }
+
     if (data.error) {
       const msg = data.error.message || data.error.code || JSON.stringify(data.error);
       throw new Error(`Provider Error: ${msg}`);
@@ -122,6 +135,7 @@ export class OpenAIProvider implements LLMProvider {
         totalTokens,
         cost
       };
+      UsageTracker.getInstance().recordTokens(promptTokens, completionTokens, cost);
     }
 
     return {
@@ -138,6 +152,7 @@ export class OpenAIProvider implements LLMProvider {
   async *chatStream(request: LLMRequest): AsyncGenerator<any, LLMResponse, unknown> {
     const url = `${this.baseUrl}/chat/completions`;
     const payload = this.buildPayload(request, true);
+    const bodyStr = JSON.stringify(payload);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -146,15 +161,18 @@ export class OpenAIProvider implements LLMProvider {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
     }
 
+    UsageTracker.getInstance().recordRequest(Buffer.byteLength(bodyStr, 'utf8'));
+
     const res = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload),
+      body: bodyStr,
       signal: request.signal
     });
 
     if (!res.ok) {
       const errText = await res.text();
+      UsageTracker.getInstance().recordResponseChunk(Buffer.byteLength(errText, 'utf8'));
       let errMsg = errText;
       try {
         const parsed = JSON.parse(errText);
@@ -195,6 +213,9 @@ export class OpenAIProvider implements LLMProvider {
         if (request.signal?.aborted) break;
         const { done, value } = await reader.read();
         if (done || request.signal?.aborted) break;
+        if (value) {
+          UsageTracker.getInstance().recordResponseChunk(value.byteLength);
+        }
         buffer += decoder.decode(value, { stream: true });
         
         const lines = buffer.split('\n');
@@ -343,6 +364,7 @@ export class OpenAIProvider implements LLMProvider {
       totalTokens,
       cost
     };
+    UsageTracker.getInstance().recordTokens(promptTokens, completionTokens, cost);
 
     const finalResponse: LLMResponse = {
       content: accumulatedContent || null,

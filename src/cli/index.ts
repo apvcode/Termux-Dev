@@ -29,6 +29,10 @@ import { askPrompt } from './prompt.js';
 import { resolveAtMentions } from './files.js';
 import { runStartupUpdateCheck, checkForUpdates, performSelfUpdate } from './updater.js';
 import { getTheme, setActiveTheme, getCurrentTheme, listThemes, findTheme, THEMES, ThemeDef } from './theme.js';
+import { runHeadlessMode } from './headless.js';
+import { CustomCommandManager } from '../core/commands.js';
+import { UsageTracker } from '../core/usage.js';
+import { SessionExporter } from './export.js';
 
 const CONFIG_PATH = path.join(os.homedir(), '.devxrc.json');
 
@@ -333,21 +337,107 @@ async function runOnboarding(): Promise<any> {
   return res;
 }
 
-async function loadConfig(): Promise<any> {
+async function loadConfig(interactive: boolean = true): Promise<any> {
+  let globalConfig: any = {};
   try {
     const data = await fs.readFile(CONFIG_PATH, 'utf8');
-    const parsed = JSON.parse(data);
-    if (!parsed.model || !parsed.baseUrl) throw new Error('Invalid config');
-    parsed.maxContextTokens = parsed.maxContextTokens || getModelContextLimit(parsed.model);
-    parsed.apiKeys = parsed.apiKeys || {};
-    parsed.baseUrls = parsed.baseUrls || {};
-    if (parsed.provider && parsed.apiKey) {
-      parsed.apiKeys[parsed.provider] = parsed.apiKey;
+    globalConfig = JSON.parse(data);
+    if (!globalConfig.model || !globalConfig.baseUrl) throw new Error('Invalid config');
+    globalConfig.maxContextTokens = globalConfig.maxContextTokens || getModelContextLimit(globalConfig.model);
+    globalConfig.apiKeys = globalConfig.apiKeys || {};
+    globalConfig.baseUrls = globalConfig.baseUrls || {};
+    globalConfig.trustedProjects = globalConfig.trustedProjects || {};
+    if (globalConfig.provider && globalConfig.apiKey) {
+      globalConfig.apiKeys[globalConfig.provider] = globalConfig.apiKey;
     }
-    return parsed;
   } catch {
-    return await runOnboarding();
+    if (interactive) {
+      globalConfig = await runOnboarding();
+    } else {
+      throw new Error('No configuration found in ~/.devxrc.json. Please run devx interactively first to set up your AI provider.');
+    }
   }
+
+  // Check for local project config (.devx.json or .devxrc.json)
+  const localConfigPaths = [
+    path.join(process.cwd(), '.devx.json'),
+    path.join(process.cwd(), '.devxrc.json')
+  ];
+
+  let localConfig: any = null;
+  for (const lp of localConfigPaths) {
+    try {
+      if (fsSync.existsSync(lp)) {
+        const raw = await fs.readFile(lp, 'utf8');
+        localConfig = JSON.parse(raw);
+        break;
+      }
+    } catch {}
+  }
+
+  const effectiveConfig = { ...globalConfig };
+
+  if (localConfig && typeof localConfig === 'object') {
+    const cwd = process.cwd();
+    const hasElevatedPermissions = localConfig.autoApprove === true || (Array.isArray(localConfig.bashAllowlist) && localConfig.bashAllowlist.length > 0);
+
+    let isTrusted = globalConfig.trustedProjects?.[cwd];
+
+    if (hasElevatedPermissions && isTrusted === undefined) {
+      if (interactive) {
+        console.log('');
+        p.log.warn(pc.bold(pc.yellow(`🛡️  [PROJECT TRUST] Local configuration (.devx.json) requests elevated permissions:`)));
+        if (localConfig.autoApprove === true) {
+          console.log(pc.yellow(`   • Auto-approval (YOLO mode): enabled`));
+        }
+        if (localConfig.bashAllowlist) {
+          console.log(pc.yellow(`   • Bash allowlist: ${localConfig.bashAllowlist.join(', ')}`));
+        }
+        console.log(pc.dim(`   Repository: ${cwd}`));
+
+        const answer = await p.confirm({
+          message: 'Do you trust this repository and allow its elevated permissions?',
+          initialValue: false
+        });
+
+        isTrusted = answer === true;
+        globalConfig.trustedProjects = globalConfig.trustedProjects || {};
+        globalConfig.trustedProjects[cwd] = isTrusted;
+        await saveConfig(globalConfig);
+
+        if (isTrusted) {
+          p.log.success(pc.green('Repository marked as trusted. Elevated permissions applied.'));
+        } else {
+          p.log.info(pc.cyan('Repository not trusted. Elevated permissions ignored.'));
+        }
+      } else {
+        isTrusted = false; // Never auto-trust in non-interactive headless mode
+      }
+    }
+
+    // Apply safe configuration overrides
+    if (localConfig.model) effectiveConfig.model = localConfig.model;
+    if (localConfig.provider) effectiveConfig.provider = localConfig.provider;
+    if (localConfig.apiKey) effectiveConfig.apiKey = localConfig.apiKey;
+    if (localConfig.baseUrl) effectiveConfig.baseUrl = localConfig.baseUrl;
+    if (localConfig.maxIterations) effectiveConfig.maxIterations = localConfig.maxIterations;
+    if (localConfig.maxContextTokens) effectiveConfig.maxContextTokens = localConfig.maxContextTokens;
+    if (localConfig.dataSaverLimitMB) effectiveConfig.dataSaverLimitMB = localConfig.dataSaverLimitMB;
+    if (localConfig.pureBlackTheme !== undefined) effectiveConfig.pureBlackTheme = localConfig.pureBlackTheme;
+
+    // Apply elevated permissions only if explicitly trusted
+    if (isTrusted) {
+      if (localConfig.autoApprove !== undefined) effectiveConfig.autoApprove = localConfig.autoApprove;
+      if (Array.isArray(localConfig.bashAllowlist)) effectiveConfig.bashAllowlist = localConfig.bashAllowlist;
+    }
+  }
+
+  // Configure Data Saver threshold
+  if (effectiveConfig.dataSaverLimitMB) {
+    UsageTracker.getInstance().setLimit(effectiveConfig.dataSaverLimitMB);
+  }
+
+  return effectiveConfig;
 }
 
 function enableDarkTheme(enabled = true) {
@@ -411,7 +501,7 @@ function drawLogo() {
       theme.colorFn('  █▀▀▄ █▀▀▀ █   █ █   █'),
       theme.colorFn('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
       theme.colorFn('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-      '  ' + theme.boldFn('v1.2.2'),
+      '  ' + theme.boldFn('v1.3.0'),
       ''
     ];
     for (const line of logo) {
@@ -425,7 +515,7 @@ function drawLogo() {
       indent + theme.colorFn('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
       indent + theme.colorFn('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
       indent + theme.colorFn('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-      indent + theme.boldFn('v1.2.2'),
+      indent + theme.boldFn('v1.3.0'),
       ''
     ];
     for (const line of logo) {
@@ -537,14 +627,42 @@ export async function main() {
   const program = new Command();
   program
     .name('devx')
-    .description('CLI tool for vibe-coding')
-    .option('--plan', 'Start in plan mode')
+    .description('Terminal-native AI coding assistant and vibe-coding agent')
+    .version('1.3.0')
+    .option('-p, --prompt <task>', 'Run one-shot task non-interactively (headless mode)')
+    .option('-y, --yolo', 'Automatically approve all tool executions without confirmation')
+    .option('-m, --model <model>', 'Specify AI model to use for this execution')
+    .option('-q, --quiet', 'Quiet output in headless mode (suppress banners and tool logs)')
+    .option('--json', 'Output structured JSON in headless mode')
+    .option('--plan', 'Start in plan mode (architect & planner)')
     .parse(process.argv);
 
   const options = program.opts();
-  let planMode = !!options.plan;
-  
-  let config = await loadConfig();
+  const planModeInitial = !!options.plan;
+  const isHeadless = !!options.prompt;
+
+  let config = await loadConfig(!isHeadless);
+
+  if (options.model) {
+    config.model = options.model;
+    config.maxContextTokens = getModelContextLimit(options.model);
+  }
+  if (options.yolo) {
+    config.autoApprove = true;
+  }
+
+  // If -p / --prompt is provided, execute one-shot headless mode and exit!
+  if (isHeadless) {
+    const exitCode = await runHeadlessMode(options.prompt, config, {
+      planMode: planModeInitial,
+      yolo: !!options.yolo,
+      quiet: !!options.quiet,
+      json: !!options.json
+    });
+    process.exit(exitCode);
+  }
+
+  let planMode = planModeInitial;
 
   if (!config.onboarded) {
     const cols = Math.min(process.stdout.columns || 40, 42);
@@ -721,7 +839,7 @@ async function handleSettings(config: any): Promise<any> {
       const currentTh = getCurrentTheme();
 
       const choice = await select({
-        message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.2.2 • theme: ${currentTh.name})`)}`,
+        message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.3.0 • theme: ${currentTh.name})`)}`,
         choices: [
           {
             name: `🎨 Color Theme: ${currentTh.emoji} ${currentTh.name}`,
@@ -762,7 +880,7 @@ async function handleSettings(config: any): Promise<any> {
             description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
           },
           {
-            name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.2.2 by ApvCode)')}`,
+            name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.3.0 by ApvCode)')}`,
             value: 'about',
             description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
           },
@@ -781,7 +899,7 @@ async function handleSettings(config: any): Promise<any> {
 
       if (choice === 'about') {
         p.note(
-          `⚡ devx v1.2.2 — Terminal-Native AI Coding Agent\n` +
+          `⚡ devx v1.3.0 — Terminal-Native AI Coding Agent\n` +
           `🎨 Theme: ${currentTh.emoji} ${currentTh.name}\n` +
           `👤 Author: ApvCode (https://github.com/apvcode)\n` +
           `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
@@ -853,65 +971,83 @@ async function handleSettings(config: any): Promise<any> {
   return config;
 }
 
-      const VALID_COMMANDS = [
-        '/new', '/reset', '/resume', '/session', '/sessions', '/history',
-        '/theme', '/themes',
-        '/settings', '/update', '/model', '/provider', '/providers',
-        '/plan', '/agent', '/image', '/serve', '/memory', '/undo',
-        '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
-        '/config', '/clear', '/exit', '/quit', '/help'
-      ];
-      if (!VALID_COMMANDS.includes(cmd)) {
-        const SLASH_COMMANDS = [
-          { name: '/new          - Start a new clean chat session', value: '/new' },
-          { name: '/resume       - Resume a previous chat session', value: '/resume' },
-          { name: '/session del  - Select and delete saved sessions', value: '/session del' },
-          { name: '/theme        - Switch UI color theme', value: '/theme' },
-          { name: '/doctor       - Run system & environment health diagnostics', value: '/doctor' },
-          { name: '/settings     - Configure permissions & auto-approval', value: '/settings' },
-          { name: '/update       - Check and install updates from GitHub', value: '/update' },
-          { name: '/model        - Switch model for current provider', value: '/model' },
-          { name: '/provider     - Change AI provider (Google, OpenRouter...)', value: '/provider' },
-          { name: '/plan         - Switch to PLAN mode (architect)', value: '/plan' },
-          { name: '/agent        - Switch to AGENT mode (coder)', value: '/agent' },
-          { name: '/serve        - Start local web server for web preview', value: '/serve' },
-          { name: '/memory       - View or edit project memory bank', value: '/memory' },
-          { name: '/undo         - Revert last file changes made by AI', value: '/undo' },
-          { name: '/diff         - Show git diff of modified files', value: '/diff' },
-          { name: '/commit       - AI-generated git commit message', value: '/commit' },
-          { name: '/status       - Show git repository status', value: '/status' },
-          { name: '/compact      - Compact conversation context', value: '/compact' },
-          { name: '/config       - View current configuration', value: '/config' },
-          { name: '/clear        - Clear message history', value: '/clear' },
-          { name: '/help         - Show commands overview', value: '/help' },
-          { name: '/exit         - Exit devx', value: '/exit' },
+      // 1. Check for custom slash commands (.devx/commands/*.md)
+      const customCmd = await CustomCommandManager.findCommand(cmd);
+      if (customCmd) {
+        const cmdArgs = answer.slice(cmd.length).trim();
+        const expandedPrompt = CustomCommandManager.expandTemplate(customCmd.promptTemplate, cmdArgs);
+        answer = expandedPrompt;
+        p.log.info(pc.cyan(`⚡ Executing custom command: ${pc.bold(customCmd.cmd)} (${customCmd.desc})`));
+      } else {
+        const VALID_COMMANDS = [
+          '/new', '/reset', '/resume', '/session', '/sessions', '/history',
+          '/theme', '/themes', '/usage', '/export',
+          '/settings', '/update', '/model', '/provider', '/providers',
+          '/plan', '/agent', '/image', '/serve', '/memory', '/undo',
+          '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
+          '/config', '/clear', '/exit', '/quit', '/help'
         ];
+        if (!VALID_COMMANDS.includes(cmd)) {
+          const customList = await CustomCommandManager.listCommands();
+          const customSlashItems = customList.map(c => ({
+            name: `${c.cmd.padEnd(14)} - ${c.desc}`,
+            value: c.cmd
+          }));
 
-        try {
-          const picked = await search({
-            message: 'Commands (type to search or select):',
-            source: async (term) => {
-              const q = (term || '').trim().toLowerCase();
-              const list = [
-                { name: pc.yellow('⬅️  Cancel'), value: '__cancel__' },
-                ...SLASH_COMMANDS
-              ];
-              if (!q) return list;
-              return list.filter(item => item.name.toLowerCase().includes(q) || item.value.toLowerCase().includes(q));
-            },
-            pageSize: 12
-          });
+          const SLASH_COMMANDS = [
+            { name: '/new          - Start a new clean chat session', value: '/new' },
+            { name: '/resume       - Resume a previous chat session', value: '/resume' },
+            { name: '/session del  - Select and delete saved sessions', value: '/session del' },
+            { name: '/usage        - Show network bandwidth, data saver & token cost', value: '/usage' },
+            { name: '/export       - Export session conversation to Markdown', value: '/export' },
+            { name: '/theme        - Switch UI color theme', value: '/theme' },
+            { name: '/doctor       - Run system & environment health diagnostics', value: '/doctor' },
+            { name: '/settings     - Configure permissions & auto-approval', value: '/settings' },
+            { name: '/update       - Check and install updates from GitHub', value: '/update' },
+            { name: '/model        - Switch model for current provider', value: '/model' },
+            { name: '/provider     - Change AI provider (Google, OpenRouter...)', value: '/provider' },
+            { name: '/plan         - Switch to PLAN mode (architect)', value: '/plan' },
+            { name: '/agent        - Switch to AGENT mode (coder)', value: '/agent' },
+            { name: '/serve        - Start local web server for web preview', value: '/serve' },
+            { name: '/memory       - View or edit project memory bank', value: '/memory' },
+            { name: '/undo         - Revert last file changes made by AI', value: '/undo' },
+            { name: '/diff         - Show git diff of modified files', value: '/diff' },
+            { name: '/commit       - AI-generated git commit message', value: '/commit' },
+            { name: '/status       - Show git repository status', value: '/status' },
+            { name: '/compact      - Compact conversation context', value: '/compact' },
+            { name: '/config       - View current configuration', value: '/config' },
+            { name: '/clear        - Clear message history', value: '/clear' },
+            { name: '/help         - Show commands overview', value: '/help' },
+            { name: '/exit         - Exit devx', value: '/exit' },
+            ...customSlashItems
+          ];
 
-          if (!picked || picked === '__cancel__') {
+          try {
+            const picked = await search({
+              message: 'Commands (type to search or select):',
+              source: async (term) => {
+                const q = (term || '').trim().toLowerCase();
+                const list = [
+                  { name: pc.yellow('⬅️  Cancel'), value: '__cancel__' },
+                  ...SLASH_COMMANDS
+                ];
+                if (!q) return list;
+                return list.filter(item => item.name.toLowerCase().includes(q) || item.value.toLowerCase().includes(q));
+              },
+              pageSize: 12
+            });
+
+            if (!picked || picked === '__cancel__') {
+              continue;
+            }
+            if (picked === '/session del') {
+              await handleSessionDelete();
+              continue;
+            }
+            cmd = picked;
+          } catch {
             continue;
           }
-          if (picked === '/session del') {
-            await handleSessionDelete();
-            continue;
-          }
-          cmd = picked;
-        } catch {
-          continue;
         }
       }
 
@@ -1354,8 +1490,31 @@ async function handleSettings(config: any): Promise<any> {
         }
         continue;
       }
+      if (cmd === '/usage') {
+        const card = UsageTracker.getInstance().renderUsageCard();
+        console.log('\n' + card);
+        continue;
+      }
+      if (cmd === '/export') {
+        const targetName = parts.slice(1).join(' ').trim();
+        const res = await SessionExporter.exportToMarkdown(history.getMessages(), config.model, targetName || undefined);
+        if (res.success) {
+          p.log.success(pc.bold(pc.green(`📄 Session exported to: ${res.filePath}`)));
+        } else {
+          p.log.error(`Failed to export session: ${res.error}`);
+        }
+        continue;
+      }
       if (cmd === '/config') {
-        p.note(JSON.stringify(config, null, 2), 'Configuration');
+        const masked = { ...config };
+        if (masked.apiKey) masked.apiKey = maskApiKey(masked.apiKey);
+        if (masked.apiKeys) {
+          masked.apiKeys = { ...masked.apiKeys };
+          for (const k of Object.keys(masked.apiKeys)) {
+            masked.apiKeys[k] = maskApiKey(masked.apiKeys[k]);
+          }
+        }
+        p.note(JSON.stringify(masked, null, 2), 'Configuration (Secrets Masked)');
         continue;
       }
       if (cmd === '/model') {
@@ -1454,10 +1613,12 @@ async function handleSettings(config: any): Promise<any> {
 
     const provider = createProvider(config);
     const tools = getTools(planMode);
-    const guard = new CLIConsoleGuard(config.autoApprove);
+    const guard = new CLIConsoleGuard(config.autoApprove, config.bashAllowlist || []);
     const agentConfig: AgentConfig = {
       maxContextTokens: config.maxContextTokens || 100000,
-      maxIterations: config.maxIterations || 100
+      maxIterations: config.maxIterations || 100,
+      autoApprove: config.autoApprove,
+      bashAllowlist: config.bashAllowlist
     };
 
     const agent = new Agent(agentConfig, provider, tools, history, guard);

@@ -139,7 +139,7 @@ function renderDirectoryHtml(dirPath, relPath, files, port) {
       ${parentLink}
       ${items || '<li style="padding: 20px; text-align: center; color: #6e7681;">No visible files in this directory</li>'}
     </ul>
-    <div class="footer">devx v1.2.2 &bull; Terminal-Native AI Assistant</div>
+    <div class="footer">devx v1.3.0 &bull; Terminal-Native AI Assistant</div>
   </div>
 </body>
 </html>`;

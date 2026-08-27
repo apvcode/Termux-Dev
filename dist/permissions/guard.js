@@ -34,14 +34,34 @@ function isDangerousBashCommand(commandStr) {
         lower.includes('> /dev/sda') ||
         lower.includes('format c:'));
 }
+/**
+ * Checks if a command contains chaining, redirection, or subshell operators.
+ * Allowlist matches MUST be clean, single commands without hidden side-effects.
+ */
+function hasComplexChainingOrRedirection(commandStr) {
+    if (!commandStr)
+        return false;
+    return (commandStr.includes('&&') ||
+        commandStr.includes('||') ||
+        commandStr.includes(';') ||
+        commandStr.includes('|') ||
+        commandStr.includes('>') ||
+        commandStr.includes('<') ||
+        commandStr.includes('`') ||
+        commandStr.includes('$(') ||
+        commandStr.includes('\n') ||
+        commandStr.includes('\r'));
+}
 export class CLIConsoleGuard {
     autoApprove;
-    constructor(autoApprove = false) {
+    bashAllowlist;
+    constructor(autoApprove = false, bashAllowlist = []) {
         this.autoApprove = autoApprove;
+        this.bashAllowlist = bashAllowlist;
     }
     check(toolName, args) {
         const t = (toolName || '').toLowerCase();
-        const cmd = args?.command || args?.cmd || '';
+        const cmd = (args?.command || args?.cmd || '').trim();
         // Critical safety net: even in YOLO mode, warn and confirm destructive system commands
         if (this.autoApprove) {
             if (t === 'bash' && isDangerousBashCommand(cmd)) {
@@ -49,9 +69,19 @@ export class CLIConsoleGuard {
             }
             return false;
         }
-        // 1. Shell commands always require confirmation in safe mode
-        if (t === 'bash' || t === 'exec' || t === 'run_command') {
-            return true;
+        // Check Bash Allowlist: only allow if command is NOT dangerous AND does not use chaining/redirection
+        if ((t === 'bash' || t === 'exec' || t === 'run_command') && cmd) {
+            if (!isDangerousBashCommand(cmd) && !hasComplexChainingOrRedirection(cmd)) {
+                const isAllowed = this.bashAllowlist.some(pattern => {
+                    const p = pattern.trim().toLowerCase();
+                    const lowerCmd = cmd.toLowerCase();
+                    return lowerCmd === p || lowerCmd.startsWith(p + ' ');
+                });
+                if (isAllowed) {
+                    return false; // Automatically allowed!
+                }
+            }
+            return true; // Requires user confirmation
         }
         // 2. Package installations require confirmation
         if (t === 'install_package' || t === 'packages') {

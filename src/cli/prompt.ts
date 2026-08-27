@@ -3,12 +3,15 @@ import pc from 'picocolors';
 import { scanProjectFiles } from './files.js';
 import { saveClipboardImage, processPastedFilePath } from './clipboard.js';
 import { getCurrentTheme, listThemes } from './theme.js';
+import { CustomCommandManager } from '../core/commands.js';
 
 export const SLASH_COMMANDS = [
   { cmd: '/new', desc: 'Start a new clean chat session' },
   { cmd: '/resume', desc: 'Resume a previous chat session' },
   { cmd: '/session', desc: 'Show active session ID, stats, and info' },
   { cmd: '/session del', desc: 'Select and delete saved sessions' },
+  { cmd: '/usage', desc: 'Show network bandwidth, data saver & token cost' },
+  { cmd: '/export', desc: 'Export session conversation to Markdown' },
   { cmd: '/theme', desc: 'Switch UI theme (Cyan, Purple, Matrix, Amber, etc.)' },
   { cmd: '/doctor', desc: 'Run system & environment health diagnostics' },
   { cmd: '/settings', desc: 'Configure permissions & auto-approval' },
@@ -55,10 +58,15 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     let historyIndex = GLOBAL_PROMPT_HISTORY.length;
     let tempDraft = '';
     let availableFiles: string[] = [];
+    let customCommandsList: Array<{ cmd: string; desc: string }> = [];
 
-    // Preload project files for fast @ autocomplete
+    // Preload project files and custom slash commands
     scanProjectFiles().then(files => {
       availableFiles = files;
+    }).catch(() => {});
+
+    CustomCommandManager.listCommands().then(cmds => {
+      customCommandsList = cmds.map(c => ({ cmd: c.cmd, desc: c.desc }));
     }).catch(() => {});
 
     const pastes: { id: number; tag: string; content: string; linesCount: number }[] = [];
@@ -119,7 +127,15 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
 
       if (input.startsWith('/')) {
         const q = input.trim().toLowerCase();
-        const filtered = SLASH_COMMANDS.filter(c => c.cmd.toLowerCase().startsWith(q) || q === '/');
+        const baseList: { cmd: string; desc: string }[] = [...SLASH_COMMANDS];
+        
+        for (const cc of customCommandsList) {
+          if (!baseList.some(b => b.cmd === cc.cmd)) {
+            baseList.push({ cmd: cc.cmd, desc: cc.desc });
+          }
+        }
+
+        const filtered = baseList.filter(c => c.cmd.toLowerCase().startsWith(q) || q === '/');
         return filtered.map(c => ({
           label: c.cmd,
           desc: c.desc,

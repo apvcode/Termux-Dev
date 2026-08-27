@@ -1,4 +1,5 @@
 import { calculateCost } from '../core/pricing.js';
+import { UsageTracker } from '../core/usage.js';
 export class OpenAIProvider {
     baseUrl;
     apiKey;
@@ -66,20 +67,23 @@ export class OpenAIProvider {
     async chat(request) {
         const url = `${this.baseUrl}/chat/completions`;
         const payload = this.buildPayload(request, false);
+        const bodyStr = JSON.stringify(payload);
         const headers = {
             'Content-Type': 'application/json',
         };
         if (this.apiKey) {
             headers['Authorization'] = `Bearer ${this.apiKey}`;
         }
+        UsageTracker.getInstance().recordRequest(Buffer.byteLength(bodyStr, 'utf8'));
         const res = await fetch(url, {
             method: 'POST',
             headers,
-            body: JSON.stringify(payload),
+            body: bodyStr,
             signal: request.signal
         });
         if (!res.ok) {
             const errText = await res.text();
+            UsageTracker.getInstance().recordResponseChunk(Buffer.byteLength(errText, 'utf8'));
             let errMsg = errText;
             try {
                 const parsed = JSON.parse(errText);
@@ -95,7 +99,15 @@ export class OpenAIProvider {
             err.status = res.status;
             throw err;
         }
-        const data = await res.json();
+        const rawResText = await res.text();
+        UsageTracker.getInstance().recordResponseChunk(Buffer.byteLength(rawResText, 'utf8'));
+        let data = {};
+        try {
+            data = JSON.parse(rawResText);
+        }
+        catch {
+            throw new Error(`Invalid JSON response from provider`);
+        }
         if (data.error) {
             const msg = data.error.message || data.error.code || JSON.stringify(data.error);
             throw new Error(`Provider Error: ${msg}`);
@@ -115,6 +127,7 @@ export class OpenAIProvider {
                 totalTokens,
                 cost
             };
+            UsageTracker.getInstance().recordTokens(promptTokens, completionTokens, cost);
         }
         return {
             content: choice.content || null,
@@ -129,20 +142,23 @@ export class OpenAIProvider {
     async *chatStream(request) {
         const url = `${this.baseUrl}/chat/completions`;
         const payload = this.buildPayload(request, true);
+        const bodyStr = JSON.stringify(payload);
         const headers = {
             'Content-Type': 'application/json',
         };
         if (this.apiKey) {
             headers['Authorization'] = `Bearer ${this.apiKey}`;
         }
+        UsageTracker.getInstance().recordRequest(Buffer.byteLength(bodyStr, 'utf8'));
         const res = await fetch(url, {
             method: 'POST',
             headers,
-            body: JSON.stringify(payload),
+            body: bodyStr,
             signal: request.signal
         });
         if (!res.ok) {
             const errText = await res.text();
+            UsageTracker.getInstance().recordResponseChunk(Buffer.byteLength(errText, 'utf8'));
             let errMsg = errText;
             try {
                 const parsed = JSON.parse(errText);
@@ -184,6 +200,9 @@ export class OpenAIProvider {
                 const { done, value } = await reader.read();
                 if (done || request.signal?.aborted)
                     break;
+                if (value) {
+                    UsageTracker.getInstance().recordResponseChunk(value.byteLength);
+                }
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || '';
@@ -333,6 +352,7 @@ export class OpenAIProvider {
             totalTokens,
             cost
         };
+        UsageTracker.getInstance().recordTokens(promptTokens, completionTokens, cost);
         const finalResponse = {
             content: accumulatedContent || null,
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,

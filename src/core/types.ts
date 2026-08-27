@@ -71,6 +71,15 @@ export interface AgentConfig {
   apiKey?: string;
   baseUrl?: string;
   planMode?: boolean;
+  autoApprove?: boolean;
+  bashAllowlist?: string[];
+  trustedProjects?: Record<string, boolean>;
+  dataSaverLimitMB?: number;
+  pureBlackTheme?: boolean;
+  theme?: string;
+  onboarded?: boolean;
+  apiKeys?: Record<string, string>;
+  baseUrls?: Record<string, string>;
 }
 
 export interface PermissionGuard {

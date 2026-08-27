@@ -101,6 +101,11 @@ devx
   ```bash
   devx --plan
   ```
+* Run in **Headless One-Shot Mode** (scripts, CI/CD, Termux:Widget):
+  ```bash
+  devx -p "review latest git diff and find security bugs"
+  devx -p "fix build errors" --yolo
+  ```
 
 ---
 
@@ -112,6 +117,10 @@ Type `/` in the prompt to open the autocomplete command palette:
 | :--- | :--- |
 | **`/plan`** | Switch to **PLAN** mode (architect & requirements planner) |
 | **`/agent`** | Switch to **AGENT** mode (coder & autonomous executor) |
+| **`/usage`** | View live network bandwidth (KB/MB), token costs, and API request counts |
+| **`/export`** | Export session conversation to a clean GitHub-Flavored Markdown transcript |
+| **`/theme`** | Switch UI color theme (Cyan, Purple, Matrix, Amber, Crimson, Monochrome) |
+| **`/doctor`** | Run environment health diagnostics (Node, Termux, Compilers, API keys) |
 | **`/image`** | Paste image from clipboard as `[1.png 203kb]` |
 | **`/serve [port]`** | Start local HTTP server for web/game preview (`/serve stop` to halt) |
 | **`/memory`** | View, add (`/memory add <fact>`), or clear project memory bank |
@@ -229,6 +238,11 @@ devx
   ```bash
   devx --plan
   ```
+* Запуск в **Headless One-Shot режиме** (скрипты, CI/CD, Termux:Widget):
+  ```bash
+  devx -p "проверь последний git diff и найди баги"
+  devx -p "исправь ошибки сборки" --yolo
+  ```
 
 ---
 
@@ -240,6 +254,10 @@ devx
 | :--- | :--- |
 | **`/plan`** | Переключиться в режим архитектора (**PLAN**) |
 | **`/agent`** | Переключиться в режим исполнителя (**AGENT**) |
+| **`/usage`** | Показать сетевой трафик (КБ/МБ), токены, число запросов и расходы ($) |
+| **`/export`** | Экспортировать сессию диалога в чистый GitHub Markdown файл |
+| **`/theme`** | Сменить цветовую тему (Cyan, Purple, Matrix, Amber, Crimson, Monochrome) |
+| **`/doctor`** | Запустить системную диагностику (Node, Termux, Компиляторы, Ключи) |
 | **`/image`** | Вставить картинку из буфера обмена как `[1.png 203kb]` |
 | **`/serve [порт]`** | Запустить локальный веб-сервер (`/serve stop` для остановки) |
 | **`/memory`** | Посмотреть, добавить (`/memory add <факт>`) или очистить банк памяти |

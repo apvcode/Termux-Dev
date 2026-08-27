@@ -73,5 +73,14 @@ export async function buildSystemPrompt(planMode: boolean): Promise<string> {
   } catch (e) {
   }
 
+  // Load Compact Repo Map (AST structure & exported symbols)
+  try {
+    const { RepoMapGenerator } = await import('../core/repomap.js');
+    const repoMap = await RepoMapGenerator.generate(process.cwd(), 50);
+    if (repoMap.trim()) {
+      prompt += `\n--- Codebase Map & Exported Symbols ---\n${repoMap}\n----------------------------------------\n`;
+    }
+  } catch {}
+
   return prompt;
 }
