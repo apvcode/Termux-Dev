@@ -85,6 +85,20 @@ npm install
 npm link
 ```
 
+### 🗑️ Complete Uninstallation
+
+To completely remove `devx` along with all configuration, saved sessions, and data:
+
+```bash
+# 1. Uninstall the global npm package
+npm uninstall -g termux-dev
+
+# 2. Remove configuration and session history (Linux / macOS / Termux)
+rm -rf ~/.devx ~/.devxrc.json
+
+# (Windows PowerShell)
+Remove-Item -Recurse -Force "$HOME\.devx", "$HOME\.devxrc.json" -ErrorAction SilentlyContinue
+```
 
 ---
 
@@ -222,6 +236,20 @@ npm install
 npm link
 ```
 
+### 🗑️ Полное удаление
+
+Чтобы полностью удалить `devx` вместе с конфигурацией, историей сессий и сохранёнными данными:
+
+```bash
+# 1. Удаляем глобальный npm-пакет
+npm uninstall -g termux-dev
+
+# 2. Удаляем конфиг и историю сессий (Linux / macOS / Termux)
+rm -rf ~/.devx ~/.devxrc.json
+
+# (Windows PowerShell)
+Remove-Item -Recurse -Force "$HOME\.devx", "$HOME\.devxrc.json" -ErrorAction SilentlyContinue
+```
 
 ---
 
