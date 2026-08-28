@@ -191,18 +191,29 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       return result;
     }
 
+function stripAnsi(str: string): string {
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+}
+
     function render() {
       if (disposed) return;
 
       const items = getDropdownItems();
       const dropdownLines: string[] = [];
 
+      const cols = Math.max(28, process.stdout.columns || 80);
+      const rows = Math.max(8, process.stdout.rows || 24);
+
       if (items.length > 0) {
         if (selectedIndex >= items.length) selectedIndex = 0;
         if (selectedIndex < 0) selectedIndex = items.length - 1;
 
-        const boxWidth = Math.min((process.stdout.columns || 80) - 6, 60);
-        const pageSize = Math.min(5, Math.max(3, Math.floor(((process.stdout.rows || 24) - 4) / 2)));
+        // Ensure inner box width strictly fits: innerBoxWidth + 5 <= cols - 2
+        const innerBoxWidth = Math.max(16, Math.min(cols - 8, 54));
+        const isNarrowOrShort = rows <= 16 || cols < 50;
+        const pageSize = isNarrowOrShort
+          ? Math.max(2, Math.min(3, rows - 5))
+          : Math.min(5, Math.max(3, Math.floor((rows - 4) / 2)));
         const total = items.length;
 
         let startIndex = 0;
@@ -216,16 +227,16 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         const hasMoreUp = startIndex > 0;
         const hasMoreDown = endIndex < total;
 
-        let topBorderStr = '─'.repeat(boxWidth);
+        let topBorderStr = '─'.repeat(innerBoxWidth);
         if (hasMoreUp) {
-          const mid = Math.max(0, Math.floor(boxWidth / 2) - 2);
-          topBorderStr = '─'.repeat(mid) + ' ▲ ' + '─'.repeat(Math.max(0, boxWidth - mid - 3));
+          const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
+          topBorderStr = '─'.repeat(mid) + ' ▲ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
         }
 
-        let botBorderStr = '─'.repeat(boxWidth);
+        let botBorderStr = '─'.repeat(innerBoxWidth);
         if (hasMoreDown) {
-          const mid = Math.max(0, Math.floor(boxWidth / 2) - 2);
-          botBorderStr = '─'.repeat(mid) + ' ▼ ' + '─'.repeat(Math.max(0, boxWidth - mid - 3));
+          const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
+          botBorderStr = '─'.repeat(mid) + ' ▼ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
         }
 
         dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╭' + topBorderStr + '╮'));
@@ -233,14 +244,36 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         for (let i = startIndex; i < endIndex; i++) {
           const item = items[i];
           const isSelected = i === selectedIndex;
-          const labelStr = item.label.length > 20 ? item.label.slice(0, 19) + '…' : item.label.padEnd(20);
-          const maxDescLen = Math.max(6, boxWidth - 25);
-          const descStr = item.desc.length > maxDescLen ? item.desc.slice(0, maxDescLen - 3) + '...' : item.desc.padEnd(maxDescLen);
+          const pointer = isSelected ? '› ' : '  ';
+          const availWidth = innerBoxWidth - 2;
 
-          let row = ` ${isSelected ? theme.colorFn('›') : ' '} ${isSelected ? theme.boldFn(labelStr) : pc.white(labelStr)} ${pc.gray(descStr)} `;
-          if (isSelected) {
-            row = theme.badgeFn(`› ${labelStr} ${descStr}`);
+          let row = '';
+          if (availWidth < 20) {
+            // Very narrow mobile screen: show command name only
+            const labelStr = item.label.length > availWidth ? item.label.slice(0, availWidth - 1) + '…' : item.label.padEnd(availWidth);
+            const plain = pointer + labelStr;
+            row = isSelected ? theme.badgeFn(plain) : (pointer + theme.boldFn(labelStr));
+          } else {
+            // Show command name and truncated description
+            const labelMax = Math.min(15, Math.floor(availWidth * 0.45));
+            const labelStr = item.label.length > labelMax ? item.label.slice(0, labelMax - 1) + '…' : item.label.padEnd(labelMax);
+            const descMax = availWidth - labelMax - 1;
+            const descStr = item.desc.length > descMax ? item.desc.slice(0, descMax - 1) + '…' : item.desc.padEnd(descMax);
+            const plain = `${pointer}${labelStr} ${descStr}`;
+            
+            if (isSelected) {
+              row = theme.badgeFn(plain);
+            } else {
+              row = `${pointer}${theme.boldFn(labelStr)} ${pc.gray(descStr)}`;
+            }
           }
+
+          // Safety guarantee: exact visible width must match innerBoxWidth
+          const currentLen = stripAnsi(row).length;
+          if (currentLen < innerBoxWidth) {
+            row += ' '.repeat(innerBoxWidth - currentLen);
+          }
+
           dropdownLines.push(pc.dim('│') + '  ' + pc.dim('│') + row + pc.dim('│'));
         }
 
@@ -250,7 +283,9 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       // 1. Draw/update input line (line 0)
       let inputDisplay = pc.dim('│') + '  ';
       if (input.length === 0) {
-        inputDisplay += pc.dim(placeholder);
+        const maxPlace = Math.max(12, cols - 8);
+        const displayPlace = placeholder.length > maxPlace ? placeholder.slice(0, maxPlace - 1) + '…' : placeholder;
+        inputDisplay += pc.dim(displayPlace);
       } else {
         inputDisplay += formatInputWithBadges(input);
       }
