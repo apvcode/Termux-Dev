@@ -13,15 +13,19 @@ export interface UsageSummary {
   dataSaverLimitMB?: number;
 }
 
+function stripAnsi(str: string): string {
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+}
+
 export class UsageTracker {
   private static instance: UsageTracker;
 
-  private requestsCount: number = 0;
-  private bytesSent: number = 0;
-  private bytesReceived: number = 0;
-  private promptTokens: number = 0;
-  private completionTokens: number = 0;
-  private totalCost: number = 0;
+  private bytesSent = 0;
+  private bytesReceived = 0;
+  private requestsCount = 0;
+  private promptTokens = 0;
+  private completionTokens = 0;
+  private totalCost = 0;
   private dataSaverLimitMB?: number;
   private warnedThreshold: boolean = false;
 
@@ -38,27 +42,27 @@ export class UsageTracker {
     this.dataSaverLimitMB = limitMB;
   }
 
-  recordRequest(bytes: number) {
-    this.requestsCount++;
-    this.bytesSent += Math.max(0, bytes);
+  recordRequest(payloadBytes: number) {
+    this.bytesSent += payloadBytes;
+    this.requestsCount += 1;
   }
 
-  recordResponseChunk(bytes: number) {
-    this.bytesReceived += Math.max(0, bytes);
+  recordResponseChunk(chunkBytes: number) {
+    this.bytesReceived += chunkBytes;
   }
 
-  recordTokens(prompt: number, completion: number, cost: number = 0) {
-    this.promptTokens += Math.max(0, prompt);
-    this.completionTokens += Math.max(0, completion);
-    this.totalCost += Math.max(0, cost);
+  recordTokens(promptTokens: number, completionTokens: number, cost: number) {
+    this.promptTokens += promptTokens;
+    this.completionTokens += completionTokens;
+    this.totalCost += cost;
   }
 
   getSummary(): UsageSummary {
     return {
-      requestsCount: this.requestsCount,
       bytesSent: this.bytesSent,
       bytesReceived: this.bytesReceived,
       totalBytes: this.bytesSent + this.bytesReceived,
+      requestsCount: this.requestsCount,
       promptTokens: this.promptTokens,
       completionTokens: this.completionTokens,
       totalTokens: this.promptTokens + this.completionTokens,
@@ -68,15 +72,13 @@ export class UsageTracker {
   }
 
   static formatBytes(bytes: number): string {
-    if (bytes <= 0) return '0 B';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
   static formatTokens(n: number): string {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+    if (n >= 1000000) return `${(n / 1000000).toFixed(2)}M`;
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
     return `${n}`;
   }
@@ -85,11 +87,12 @@ export class UsageTracker {
     const theme = getCurrentTheme();
     const summary = this.getSummary();
     const cols = Math.min(process.stdout.columns || 80, 75);
-    const boxWidth = Math.max(34, cols - 4);
-    const innerWidth = boxWidth - 4;
+    const boxWidth = Math.max(38, cols - 4);
+    const innerWidth = boxWidth - 6;
 
     const padRow = (label: string, value: string) => {
-      const plainLen = label.length + value.length;
+      const visibleValLen = stripAnsi(value).length;
+      const plainLen = label.length + visibleValLen;
       const spaces = Math.max(1, innerWidth - plainLen);
       return `│  ${pc.bold(label)}${' '.repeat(spaces)}${value}  │`;
     };

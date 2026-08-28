@@ -94,9 +94,13 @@ export class Agent {
                                 response = chunk.response;
                             }
                         }
-                        if (response || receivedAnyChunk) {
+                        if (response) {
                             break;
                         }
+                        if (!receivedAnyChunk) {
+                            throw new Error('Provider stream ended unexpectedly without receiving any data.');
+                        }
+                        break;
                     }
                     else {
                         response = await this.provider.chat(request);

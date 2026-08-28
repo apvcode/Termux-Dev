@@ -101,13 +101,6 @@ export async function checkForUpdates(timeoutMs = 10000): Promise<UpdateCheckRes
       currentVersion,
       latestVersion: latestVersion || currentVersion
     };
-
-    return {
-      updateAvailable: false,
-      currentVersion,
-      latestVersion: currentVersion,
-      error: `HTTP ${res.status}`
-    };
   } catch (err: any) {
     clearTimeout(timer);
     return {

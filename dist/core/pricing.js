@@ -42,7 +42,7 @@ export function getModelPricing(modelName) {
         return cache[clean];
     if (cache[short])
         return cache[short];
-    const baseName = short.replace(/\-\d {4,8}$/, '').replace(/:latest$/, '');
+    const baseName = short.replace(/-\d{4,8}$/, '').replace(/:latest$/, '');
     if (cache[baseName])
         return cache[baseName];
     if (clean.includes('gpt-4o-mini'))

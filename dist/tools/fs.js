@@ -153,7 +153,7 @@ export const editFileTool = {
             let addCounter = startLine;
             addedArr.forEach((l) => diffLines.push(`${addCounter++} +  ${l}`));
             contextAfter.forEach((l) => diffLines.push(`${addCounter++}    ${l}`));
-            const newContent = content.replace(target, args.replacement);
+            const newContent = content.slice(0, targetIndex) + args.replacement + content.slice(targetIndex + target.length);
             await fs.writeFile(args.path, newContent, 'utf8');
             return JSON.stringify({
                 status: 'success',

@@ -2,9 +2,9 @@ import { Tool } from '../core/types.js';
 
 function stripHtml(html: string): string {
   return html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, '')
+    .replace(/<svg\b[\s\S]*?<\/svg>/gi, '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, '&')

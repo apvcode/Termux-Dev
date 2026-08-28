@@ -64,12 +64,12 @@ export class CustomCommandManager {
             return trimmedArgs ? `${template}\n\nUser Arguments: ${trimmedArgs}` : template;
         }
         let expanded = template;
-        expanded = expanded.replace(/\$ARG/g, trimmedArgs);
-        expanded = expanded.replace(/\$\*/g, trimmedArgs);
+        expanded = expanded.replace(/\$ARG/g, () => trimmedArgs);
+        expanded = expanded.replace(/\$\*/g, () => trimmedArgs);
         // Support positional parameters: $1, $2, etc.
         const parts = trimmedArgs.split(/\s+/);
         for (let i = 0; i < parts.length; i++) {
-            expanded = expanded.replace(new RegExp(`\\$${i + 1}`, 'g'), parts[i]);
+            expanded = expanded.replace(new RegExp(`\\$${i + 1}`, 'g'), () => parts[i]);
         }
         return expanded;
     }

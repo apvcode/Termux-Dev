@@ -31,6 +31,7 @@ import { runHeadlessMode } from './headless.js';
 import { CustomCommandManager } from '../core/commands.js';
 import { UsageTracker } from '../core/usage.js';
 import { SessionExporter } from './export.js';
+import { MCPManager } from '../mcp/manager.js';
 const CONFIG_PATH = path.join(os.homedir(), '.devxrc.json');
 function maskApiKey(key) {
     if (!key)
@@ -360,40 +361,41 @@ async function loadConfig(interactive = true) {
         catch { }
     }
     const effectiveConfig = { ...globalConfig };
-    if (localConfig && typeof localConfig === 'object') {
-        const cwd = process.cwd();
-        const hasElevatedPermissions = localConfig.autoApprove === true || (Array.isArray(localConfig.bashAllowlist) && localConfig.bashAllowlist.length > 0);
-        let isTrusted = globalConfig.trustedProjects?.[cwd];
-        if (hasElevatedPermissions && isTrusted === undefined) {
-            if (interactive) {
-                console.log('');
-                p.log.warn(pc.bold(pc.yellow(`🛡️  [PROJECT TRUST] Local configuration (.devx.json) requests elevated permissions:`)));
+    const cwd = process.cwd();
+    let isTrusted = globalConfig.trustedProjects?.[cwd];
+    // Workspace & Project Trust Check on first time opening this directory
+    if (isTrusted === undefined) {
+        if (interactive) {
+            console.log('');
+            p.log.warn(pc.bold(pc.yellow(`🛡️  [WORKSPACE TRUST] First time opening this workspace:`)));
+            console.log(pc.dim(`   Directory: ${cwd}`));
+            if (localConfig) {
                 if (localConfig.autoApprove === true) {
-                    console.log(pc.yellow(`   • Auto-approval (YOLO mode): enabled`));
+                    console.log(pc.yellow(`   • Local .devx.json requests Auto-approval (YOLO mode)`));
                 }
                 if (localConfig.bashAllowlist) {
-                    console.log(pc.yellow(`   • Bash allowlist: ${localConfig.bashAllowlist.join(', ')}`));
-                }
-                console.log(pc.dim(`   Repository: ${cwd}`));
-                const answer = await p.confirm({
-                    message: 'Do you trust this repository and allow its elevated permissions?',
-                    initialValue: false
-                });
-                isTrusted = answer === true;
-                globalConfig.trustedProjects = globalConfig.trustedProjects || {};
-                globalConfig.trustedProjects[cwd] = isTrusted;
-                await saveConfig(globalConfig);
-                if (isTrusted) {
-                    p.log.success(pc.green('Repository marked as trusted. Elevated permissions applied.'));
-                }
-                else {
-                    p.log.info(pc.cyan('Repository not trusted. Elevated permissions ignored.'));
+                    console.log(pc.yellow(`   • Local .devx.json requests Bash allowlist: ${localConfig.bashAllowlist.join(', ')}`));
                 }
             }
-            else {
-                isTrusted = false; // Never auto-trust in non-interactive headless mode
+            const answer = await p.confirm({
+                message: 'Do you trust this workspace and allow agent operations?',
+                initialValue: true
+            });
+            if (p.isCancel(answer) || answer !== true) {
+                resetTerminalTheme();
+                p.outro(pc.yellow('Workspace not trusted. Exiting devx.'));
+                process.exit(0);
             }
+            globalConfig.trustedProjects = globalConfig.trustedProjects || {};
+            globalConfig.trustedProjects[cwd] = true;
+            await saveConfig(globalConfig);
+            p.log.success(pc.green('Workspace marked as trusted. Full capabilities enabled.'));
         }
+        else {
+            isTrusted = false; // Never auto-trust in non-interactive headless mode
+        }
+    }
+    if (localConfig && typeof localConfig === 'object') {
         // Apply safe configuration overrides
         if (localConfig.model)
             effectiveConfig.model = localConfig.model;
@@ -482,7 +484,7 @@ function drawLogo() {
             theme.colorFn('  █▀▀▄ █▀▀▀ █   █ █   █'),
             theme.colorFn('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
             theme.colorFn('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-            '  ' + theme.boldFn('v1.3.0'),
+            '  ' + theme.boldFn('v1.4.0'),
             ''
         ];
         for (const line of logo) {
@@ -497,7 +499,7 @@ function drawLogo() {
             indent + theme.colorFn('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
             indent + theme.colorFn('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
             indent + theme.colorFn('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-            indent + theme.boldFn('v1.3.0'),
+            indent + theme.boldFn('v1.4.0'),
             ''
         ];
         for (const line of logo) {
@@ -614,12 +616,162 @@ async function handleSessionDelete() {
         }
     }
 }
+async function handleThemeSelect(config) {
+    const currentTh = getCurrentTheme();
+    const themeChoices = listThemes().map(t => ({
+        name: `${t.emoji} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)} ${t.id === currentTh.id ? pc.green('(Active)') : ''}`,
+        value: t.id,
+        description: `Apply ${t.name} color palette (${t.hex}) to banners, prompts, and actions`
+    }));
+    try {
+        const selected = await select({
+            message: `${pc.bold('🎨 Select UI Theme / Выберите цветовую тему:')}`,
+            choices: themeChoices
+        });
+        if (selected) {
+            config.theme = selected;
+            await saveConfig(config);
+            const th = setActiveTheme(selected);
+            drawLogo();
+            p.log.success(th.boldFn(`🎨 Theme switched to ${th.emoji} ${th.name}!`));
+        }
+    }
+    catch { }
+}
+async function handleSettings(config) {
+    while (true) {
+        try {
+            const maxIter = config.maxIterations || 100;
+            const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
+            const currentTh = getCurrentTheme();
+            const choice = await select({
+                message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.4.0 • theme: ${currentTh.name})`)}`,
+                choices: [
+                    {
+                        name: `🎨 Color Theme: ${currentTh.emoji} ${currentTh.name}`,
+                        value: 'change_theme',
+                        description: `Switch UI accent colors (${currentTh.desc})`
+                    },
+                    {
+                        name: `${config.pureBlackTheme !== false ? pc.green('🖤 Pure Black Background: ON') : pc.yellow('🖤 Pure Black Background: OFF')}`,
+                        value: 'toggle_black_theme',
+                        description: config.pureBlackTheme !== false
+                            ? 'Apply deep OLED obsidian black background (#0a0a0c) like OpenCode'
+                            : 'Use standard system terminal background color'
+                    },
+                    {
+                        name: `${config.autoApprove ? pc.green('⚡ Auto-Approve (YOLO Mode): ON') : pc.yellow('🛡️  Auto-Approve (YOLO Mode): OFF')}`,
+                        value: 'toggle_auto_approve',
+                        description: config.autoApprove
+                            ? 'Permissions are automatically granted (no confirmation prompts for commands/files)'
+                            : 'Agent asks for confirmation before executing bash commands or writing files'
+                    },
+                    {
+                        name: `${config.enableMemory !== false ? pc.green('🧠 Project Memory Bank: ON') : pc.yellow('🧠 Project Memory Bank: OFF')}`,
+                        value: 'toggle_memory',
+                        description: config.enableMemory !== false
+                            ? 'Load persistent project rules and preferences from .devx/memory.md into AI context'
+                            : 'Start sessions with a clean state without loading project memory'
+                    },
+                    {
+                        name: `${config.checkUpdates !== false ? pc.green('🔔 Check for Updates on Startup: ON') : pc.yellow('🔔 Check for Updates on Startup: OFF')}`,
+                        value: 'toggle_check_updates',
+                        description: config.checkUpdates !== false
+                            ? 'Automatically check for updates from GitHub repository when launching devx'
+                            : 'Disable update checking on startup (run /update manually instead)'
+                    },
+                    {
+                        name: `🔄 Max Agent Iterations: ${currentTh.colorFn(maxIterLabel)}`,
+                        value: 'change_max_iterations',
+                        description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
+                    },
+                    {
+                        name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.4.0 by ApvCode)')}`,
+                        value: 'about',
+                        description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
+                    },
+                    {
+                        name: '⬅️ Back / Save',
+                        value: 'back',
+                        description: 'Return to chat'
+                    }
+                ]
+            });
+            if (choice === 'change_theme') {
+                await handleThemeSelect(config);
+                continue;
+            }
+            if (choice === 'about') {
+                p.note(`⚡ devx v1.4.0 — Terminal-Native AI Coding Agent\n` +
+                    `🎨 Theme: ${currentTh.emoji} ${currentTh.name}\n` +
+                    `👤 Author: ApvCode (https://github.com/apvcode)\n` +
+                    `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
+                    `📜 License: MIT License (2026)\n` +
+                    `Built for Android Termux, Windows, macOS, and Linux.`, 'About devx');
+                continue;
+            }
+            if (choice === 'toggle_black_theme') {
+                config.pureBlackTheme = config.pureBlackTheme === false ? true : false;
+                await saveConfig(config);
+                if (config.pureBlackTheme) {
+                    enableDarkTheme(true);
+                }
+                else {
+                    resetTerminalTheme();
+                }
+                drawLogo();
+                p.log.success(`Pure Black background: ${config.pureBlackTheme ? pc.bold(pc.green('ON (Deep Black)')) : pc.bold(pc.yellow('OFF (System Default)'))}`);
+                continue;
+            }
+            if (choice === 'toggle_auto_approve') {
+                config.autoApprove = !config.autoApprove;
+                await saveConfig(config);
+                p.log.success(`Auto-approve permissions: ${config.autoApprove ? pc.bold(pc.green('ON (Automatic Yes)')) : pc.bold(pc.yellow('OFF (Ask every time)'))}`);
+                continue;
+            }
+            if (choice === 'toggle_memory') {
+                config.enableMemory = config.enableMemory === false ? true : false;
+                await saveConfig(config);
+                p.log.success(`Project memory bank: ${config.enableMemory !== false ? pc.bold(pc.green('ON (Persistent .devx/memory.md)')) : pc.bold(pc.yellow('OFF'))}`);
+                continue;
+            }
+            if (choice === 'toggle_check_updates') {
+                config.checkUpdates = config.checkUpdates === false ? true : false;
+                await saveConfig(config);
+                p.log.success(`Check for updates: ${config.checkUpdates !== false ? pc.bold(pc.green('ON (Checked on startup)')) : pc.bold(pc.yellow('OFF (Manual only)'))}`);
+                continue;
+            }
+            if (choice === 'change_max_iterations') {
+                const val = await select({
+                    message: 'Select maximum iterations limit per prompt:',
+                    choices: [
+                        { name: '30 steps (Strict / Safe)', value: 30 },
+                        { name: '50 steps (Moderate)', value: 50 },
+                        { name: '100 steps (Recommended / Default)', value: 100 },
+                        { name: '200 steps (Very large refactors)', value: 200 },
+                        { name: 'Unlimited (No limit)', value: 9999 }
+                    ]
+                });
+                config.maxIterations = val;
+                await saveConfig(config);
+                p.log.success(`Max iterations updated to: ${pc.bold(val >= 9999 ? 'Unlimited' : `${val} steps`)}`);
+                continue;
+            }
+            break;
+        }
+        catch {
+            break;
+        }
+    }
+    process.stdin.resume();
+    return config;
+}
 export async function main() {
     const program = new Command();
     program
         .name('devx')
         .description('Terminal-native AI coding assistant and vibe-coding agent')
-        .version('1.3.0')
+        .version('1.4.0')
         .option('-p, --prompt <task>', 'Run one-shot task non-interactively (headless mode)')
         .option('-y, --yolo', 'Automatically approve all tool executions without confirmation')
         .option('-m, --model <model>', 'Specify AI model to use for this execution')
@@ -689,6 +841,7 @@ export async function main() {
     const sessionManager = new SessionManager(config.model, planMode);
     drawLogo();
     await runStartupUpdateCheck(config);
+    await MCPManager.getInstance().init();
     let totalSessionCost = 0;
     let currentDraft = '';
     let autoTriggerPrompt = '';
@@ -772,156 +925,6 @@ export async function main() {
         if (answer.startsWith('/')) {
             const parts = answer.split(' ');
             let cmd = parts[0];
-            async function handleThemeSelect(config) {
-                const currentTh = getCurrentTheme();
-                const themeChoices = listThemes().map(t => ({
-                    name: `${t.emoji} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)} ${t.id === currentTh.id ? pc.green('(Active)') : ''}`,
-                    value: t.id,
-                    description: `Apply ${t.name} color palette (${t.hex}) to banners, prompts, and actions`
-                }));
-                try {
-                    const selected = await select({
-                        message: `${pc.bold('🎨 Select UI Theme / Выберите цветовую тему:')}`,
-                        choices: themeChoices
-                    });
-                    if (selected) {
-                        config.theme = selected;
-                        await saveConfig(config);
-                        const th = setActiveTheme(selected);
-                        drawLogo();
-                        p.log.success(th.boldFn(`🎨 Theme switched to ${th.emoji} ${th.name}!`));
-                    }
-                }
-                catch { }
-            }
-            async function handleSettings(config) {
-                while (true) {
-                    try {
-                        const maxIter = config.maxIterations || 100;
-                        const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
-                        const currentTh = getCurrentTheme();
-                        const choice = await select({
-                            message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.3.0 • theme: ${currentTh.name})`)}`,
-                            choices: [
-                                {
-                                    name: `🎨 Color Theme: ${currentTh.emoji} ${currentTh.name}`,
-                                    value: 'change_theme',
-                                    description: `Switch UI accent colors (${currentTh.desc})`
-                                },
-                                {
-                                    name: `${config.pureBlackTheme !== false ? pc.green('🖤 Pure Black Background: ON') : pc.yellow('🖤 Pure Black Background: OFF')}`,
-                                    value: 'toggle_black_theme',
-                                    description: config.pureBlackTheme !== false
-                                        ? 'Apply deep OLED obsidian black background (#0a0a0c) like OpenCode'
-                                        : 'Use standard system terminal background color'
-                                },
-                                {
-                                    name: `${config.autoApprove ? pc.green('⚡ Auto-Approve (YOLO Mode): ON') : pc.yellow('🛡️  Auto-Approve (YOLO Mode): OFF')}`,
-                                    value: 'toggle_auto_approve',
-                                    description: config.autoApprove
-                                        ? 'Permissions are automatically granted (no confirmation prompts for commands/files)'
-                                        : 'Agent asks for confirmation before executing bash commands or writing files'
-                                },
-                                {
-                                    name: `${config.enableMemory !== false ? pc.green('🧠 Project Memory Bank: ON') : pc.yellow('🧠 Project Memory Bank: OFF')}`,
-                                    value: 'toggle_memory',
-                                    description: config.enableMemory !== false
-                                        ? 'Load persistent project rules and preferences from .devx/memory.md into AI context'
-                                        : 'Start sessions with a clean state without loading project memory'
-                                },
-                                {
-                                    name: `${config.checkUpdates !== false ? pc.green('🔔 Check for Updates on Startup: ON') : pc.yellow('🔔 Check for Updates on Startup: OFF')}`,
-                                    value: 'toggle_check_updates',
-                                    description: config.checkUpdates !== false
-                                        ? 'Automatically check for updates from GitHub repository when launching devx'
-                                        : 'Disable update checking on startup (run /update manually instead)'
-                                },
-                                {
-                                    name: `🔄 Max Agent Iterations: ${currentTh.colorFn(maxIterLabel)}`,
-                                    value: 'change_max_iterations',
-                                    description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
-                                },
-                                {
-                                    name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.3.0 by ApvCode)')}`,
-                                    value: 'about',
-                                    description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
-                                },
-                                {
-                                    name: '⬅️ Back / Save',
-                                    value: 'back',
-                                    description: 'Return to chat'
-                                }
-                            ]
-                        });
-                        if (choice === 'change_theme') {
-                            await handleThemeSelect(config);
-                            continue;
-                        }
-                        if (choice === 'about') {
-                            p.note(`⚡ devx v1.3.0 — Terminal-Native AI Coding Agent\n` +
-                                `🎨 Theme: ${currentTh.emoji} ${currentTh.name}\n` +
-                                `👤 Author: ApvCode (https://github.com/apvcode)\n` +
-                                `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
-                                `📜 License: MIT License (2026)\n` +
-                                `Built for Android Termux, Windows, macOS, and Linux.`, 'About devx');
-                            continue;
-                        }
-                        if (choice === 'toggle_black_theme') {
-                            config.pureBlackTheme = config.pureBlackTheme === false ? true : false;
-                            await saveConfig(config);
-                            if (config.pureBlackTheme) {
-                                enableDarkTheme(true);
-                            }
-                            else {
-                                resetTerminalTheme();
-                            }
-                            drawLogo();
-                            p.log.success(`Pure Black background: ${config.pureBlackTheme ? pc.bold(pc.green('ON (Deep Black)')) : pc.bold(pc.yellow('OFF (System Default)'))}`);
-                            continue;
-                        }
-                        if (choice === 'toggle_auto_approve') {
-                            config.autoApprove = !config.autoApprove;
-                            await saveConfig(config);
-                            p.log.success(`Auto-approve permissions: ${config.autoApprove ? pc.bold(pc.green('ON (Automatic Yes)')) : pc.bold(pc.yellow('OFF (Ask every time)'))}`);
-                            continue;
-                        }
-                        if (choice === 'toggle_memory') {
-                            config.enableMemory = config.enableMemory === false ? true : false;
-                            await saveConfig(config);
-                            p.log.success(`Project memory bank: ${config.enableMemory !== false ? pc.bold(pc.green('ON (Persistent .devx/memory.md)')) : pc.bold(pc.yellow('OFF'))}`);
-                            continue;
-                        }
-                        if (choice === 'toggle_check_updates') {
-                            config.checkUpdates = config.checkUpdates === false ? true : false;
-                            await saveConfig(config);
-                            p.log.success(`Check for updates: ${config.checkUpdates !== false ? pc.bold(pc.green('ON (Checked on startup)')) : pc.bold(pc.yellow('OFF (Manual only)'))}`);
-                            continue;
-                        }
-                        if (choice === 'change_max_iterations') {
-                            const val = await select({
-                                message: 'Select maximum iterations limit per prompt:',
-                                choices: [
-                                    { name: '30 steps (Strict / Safe)', value: 30 },
-                                    { name: '50 steps (Moderate)', value: 50 },
-                                    { name: '100 steps (Recommended / Default)', value: 100 },
-                                    { name: '200 steps (Very large refactors)', value: 200 },
-                                    { name: 'Unlimited (No limit)', value: 9999 }
-                                ]
-                            });
-                            config.maxIterations = val;
-                            await saveConfig(config);
-                            p.log.success(`Max iterations updated to: ${pc.bold(val >= 9999 ? 'Unlimited' : `${val} steps`)}`);
-                            continue;
-                        }
-                        break;
-                    }
-                    catch {
-                        break;
-                    }
-                }
-                process.stdin.resume();
-                return config;
-            }
             // 1. Check for custom slash commands (.devx/commands/*.md)
             const customCmd = await CustomCommandManager.findCommand(cmd);
             if (customCmd) {
@@ -933,7 +936,7 @@ export async function main() {
             else {
                 const VALID_COMMANDS = [
                     '/new', '/reset', '/resume', '/session', '/sessions', '/history',
-                    '/theme', '/themes', '/usage', '/export',
+                    '/theme', '/themes', '/usage', '/export', '/mcp',
                     '/settings', '/update', '/model', '/provider', '/providers',
                     '/plan', '/agent', '/image', '/serve', '/memory', '/undo',
                     '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
@@ -951,6 +954,7 @@ export async function main() {
                         { name: '/session del  - Select and delete saved sessions', value: '/session del' },
                         { name: '/usage        - Show network bandwidth, data saver & token cost', value: '/usage' },
                         { name: '/export       - Export session conversation to Markdown', value: '/export' },
+                        { name: '/mcp          - Manage Model Context Protocol (MCP) servers & tools', value: '/mcp' },
                         { name: '/theme        - Switch UI color theme', value: '/theme' },
                         { name: '/doctor       - Run system & environment health diagnostics', value: '/doctor' },
                         { name: '/settings     - Configure permissions & auto-approval', value: '/settings' },
@@ -1189,13 +1193,7 @@ export async function main() {
                     p.log.warn('No changes to undo.');
                 }
                 else {
-                    const msgs = history.getMessages();
-                    while (msgs.length > 1 && msgs[msgs.length - 1].role !== 'user') {
-                        msgs.pop();
-                    }
-                    if (msgs.length > 1 && msgs[msgs.length - 1].role === 'user') {
-                        msgs.pop();
-                    }
+                    history.popLastTurn();
                     p.log.success(pc.bold(pc.green(`⏪ Successfully reverted changes in ${count} file(s):`)));
                     for (const f of revertedFiles) {
                         console.log(pc.cyan(`  • ${f}`));
@@ -1469,6 +1467,20 @@ export async function main() {
                 }
                 else {
                     p.log.error(`Failed to export session: ${res.error}`);
+                }
+                continue;
+            }
+            if (cmd === '/mcp') {
+                const sub = (parts[1] || '').toLowerCase();
+                if (sub === 'reload' || sub === 'restart' || sub === 'r') {
+                    const s = p.spinner();
+                    s.start('Reloading MCP servers...');
+                    await MCPManager.getInstance().reload();
+                    s.stop();
+                    console.log('\n' + MCPManager.getInstance().renderStatusCard());
+                }
+                else {
+                    console.log('\n' + MCPManager.getInstance().renderStatusCard());
                 }
                 continue;
             }
@@ -1916,5 +1928,19 @@ export async function main() {
             }
         }
     }
+    MCPManager.getInstance().stopAll();
 }
+process.on('exit', () => {
+    try {
+        MCPManager.getInstance().stopAll();
+    }
+    catch { }
+});
+process.on('SIGINT', () => {
+    try {
+        MCPManager.getInstance().stopAll();
+    }
+    catch { }
+    process.exit(130);
+});
 main().catch(console.error);

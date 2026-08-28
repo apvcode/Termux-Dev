@@ -35,7 +35,7 @@ export function getModelContextLimit(modelName: string): number {
   if (cache[clean]) return cache[clean];
   if (cache[short]) return cache[short];
 
-  const baseName = short.replace(/\-\d {4,8}$/, '').replace(/:latest$/, '');
+  const baseName = short.replace(/-\d{4,8}$/, '').replace(/:latest$/, '');
   if (cache[baseName]) return cache[baseName];
 
   if (clean.includes('kimi-k2') || clean.includes('kimi')) return 256000;

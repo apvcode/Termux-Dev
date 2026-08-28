@@ -23,16 +23,25 @@ function isPathOutsideCwd(targetPath) {
 function isDangerousBashCommand(commandStr) {
     if (!commandStr)
         return false;
-    const lower = commandStr.toLowerCase().trim();
-    return (lower.includes('rm -rf /') ||
-        lower.includes('rm -rf ~') ||
-        lower.includes('rm -rf *') ||
-        lower.includes('mkfs') ||
-        lower.includes('dd if=') ||
-        lower.includes(':(){ :|:& };:') ||
-        lower.includes('chmod -r 777 /') ||
-        lower.includes('> /dev/sda') ||
-        lower.includes('format c:'));
+    // Normalize whitespace: collapse multiple spaces/tabs into single space
+    const norm = commandStr.toLowerCase().replace(/\s+/g, ' ').trim();
+    // Pattern matching rm with combined flags (-rf, -fr, -r -f, etc.) targeting root, home, termux prefix, or glob
+    const isDangerousRm = /rm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\s+(?:\/|\/\*|~|~\/|\*|\$home|\$prefix|\/data\/data\/com\.termux)/i.test(norm) ||
+        /rm\s+-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*\s+(?:\/|\/\*|~|~\/|\*|\$home|\$prefix|\/data\/data\/com\.termux)/i.test(norm) ||
+        /rm\s+-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*\s+(?:\/|\/\*|~|~\/|\*|\$home|\$prefix|\/data\/data\/com\.termux)/i.test(norm);
+    return (isDangerousRm ||
+        norm.includes('rm -rf /') ||
+        norm.includes('rm -rf ~') ||
+        norm.includes('rm -rf *') ||
+        norm.includes('rm -rf $prefix') ||
+        norm.includes('rm -rf $home') ||
+        norm.includes('rm -rf /data/data/com.termux') ||
+        norm.includes('mkfs') ||
+        norm.includes('dd if=') ||
+        norm.includes(':(){ :|:& };:') ||
+        norm.includes('chmod -r 777 /') ||
+        norm.includes('> /dev/sda') ||
+        norm.includes('format c:'));
 }
 /**
  * Checks if a command contains chaining, redirection, or subshell operators.
@@ -98,14 +107,29 @@ export class CLIConsoleGuard {
                 return true;
             }
         }
+        // 5. MCP Tools: ask if autoApprove is false
+        if (t.startsWith('mcp__')) {
+            return true;
+        }
         return false;
     }
     async askUser(toolName, args) {
         const t = (toolName || '').toLowerCase();
         const cmd = args?.command || args?.cmd || '';
         const isDangerous = t === 'bash' && isDangerousBashCommand(cmd);
+        // In headless / non-interactive environment without TTY, deny confirmation-requiring actions immediately
+        if (!process.stdin.isTTY) {
+            console.error(pc.red(`\n🛡️  [PERMISSION DENIED] Action '${toolName}' requires user confirmation in safe mode, but no interactive terminal is available. Pass --yolo (-y) to auto-approve actions in headless mode.`));
+            return false;
+        }
         if (isDangerous) {
             p.log.error(pc.bold(pc.red('⚠️  [SECURITY WARNING] Agent requested a potentially dangerous system command!')));
+        }
+        else if (t.startsWith('mcp__')) {
+            const parts = toolName.split('__');
+            const serverName = parts[1] || 'mcp';
+            const mcpToolName = parts.slice(2).join('__');
+            p.log.warn(pc.bold(pc.yellow(`🛡️  [PERMISSION GUARD] Agent wants to call MCP Tool: ${pc.cyan(serverName)} / ${pc.green(mcpToolName)}`)));
         }
         else {
             p.log.warn(pc.bold(pc.yellow(`🛡️  [PERMISSION GUARD] Agent wants to execute: ${pc.cyan(toolName)}`)));

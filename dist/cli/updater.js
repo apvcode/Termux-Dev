@@ -85,12 +85,6 @@ export async function checkForUpdates(timeoutMs = 10000) {
             currentVersion,
             latestVersion: latestVersion || currentVersion
         };
-        return {
-            updateAvailable: false,
-            currentVersion,
-            latestVersion: currentVersion,
-            error: `HTTP ${res.status}`
-        };
     }
     catch (err) {
         clearTimeout(timer);

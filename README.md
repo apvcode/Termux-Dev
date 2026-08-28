@@ -131,6 +131,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 | :--- | :--- |
 | **`/plan`** | Switch to **PLAN** mode (architect & requirements planner) |
 | **`/agent`** | Switch to **AGENT** mode (coder & autonomous executor) |
+| **`/mcp`** | Manage Model Context Protocol (MCP) servers & external tools (`/mcp reload`) |
 | **`/usage`** | View live network bandwidth (KB/MB), token costs, and API request counts |
 | **`/export`** | Export session conversation to a clean GitHub-Flavored Markdown transcript |
 | **`/theme`** | Switch UI color theme (Cyan, Purple, Matrix, Amber, Crimson, Monochrome) |
@@ -282,6 +283,7 @@ devx
 | :--- | :--- |
 | **`/plan`** | Переключиться в режим архитектора (**PLAN**) |
 | **`/agent`** | Переключиться в режим исполнителя (**AGENT**) |
+| **`/mcp`** | Управление MCP-серверами и внешними инструментами (`/mcp reload`) |
 | **`/usage`** | Показать сетевой трафик (КБ/МБ), токены, число запросов и расходы ($) |
 | **`/export`** | Экспортировать сессию диалога в чистый GitHub Markdown файл |
 | **`/theme`** | Сменить цветовую тему (Cyan, Purple, Matrix, Amber, Crimson, Monochrome) |

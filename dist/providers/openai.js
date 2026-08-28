@@ -131,11 +131,20 @@ export class OpenAIProvider {
         }
         return {
             content: choice.content || null,
-            toolCalls: choice.tool_calls ? choice.tool_calls.map((tc) => ({
-                id: tc.id,
-                name: tc.function.name,
-                arguments: JSON.parse(tc.function.arguments)
-            })) : undefined,
+            toolCalls: choice.tool_calls ? choice.tool_calls.map((tc) => {
+                let parsedArgs = {};
+                try {
+                    parsedArgs = JSON.parse(tc.function.arguments);
+                }
+                catch {
+                    parsedArgs = {};
+                }
+                return {
+                    id: tc.id || `call_${Math.random().toString(36).substring(2, 9)}`,
+                    name: tc.function.name,
+                    arguments: parsedArgs
+                };
+            }) : undefined,
             usage
         };
     }

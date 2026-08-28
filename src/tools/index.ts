@@ -11,14 +11,17 @@ import { todoListTool, currentTodoList, resetTodoList } from './todo.js';
 import { servePreviewTool } from './server.js';
 import { Tool } from '../core/types.js';
 
+import { MCPManager } from '../mcp/manager.js';
+
 export function getTools(planMode: boolean): Tool[] {
   const baseTools = [readFileTool, listDirTool, searchTool, askQuestionsTool, webSearchTool, fetchUrlTool, saveMemoryTool, planReadyTool, todoListTool];
+  const mcpTools = MCPManager.getInstance().getTools();
   
   if (planMode) {
-    return baseTools;
+    return [...baseTools, ...mcpTools];
   }
   
-  return [...baseTools, writeFileTool, editFileTool, mkdirTool, bashTool, diagnoseCodeTool, installPackageTool, servePreviewTool];
+  return [...baseTools, writeFileTool, editFileTool, mkdirTool, bashTool, diagnoseCodeTool, installPackageTool, servePreviewTool, ...mcpTools];
 }
 
 export { webSearchTool, fetchUrlTool, diagnoseCodeTool, installPackageTool, saveMemoryTool, planReadyTool, lastPlanReady, resetPlanReady, todoListTool, currentTodoList, resetTodoList, servePreviewTool };

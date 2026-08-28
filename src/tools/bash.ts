@@ -21,6 +21,7 @@ export const bashTool: Tool = {
     return new Promise((resolve, reject) => {
       const proc = spawn(args.command, { shell: true });
       let output = '';
+      let isTruncated = false;
       
       const timeout = setTimeout(() => {
         proc.kill();
@@ -28,16 +29,20 @@ export const bashTool: Tool = {
       }, 30000);
 
       proc.stdout.on('data', (data) => {
+        if (isTruncated) return;
         output += data.toString();
         if (output.length > 20000) {
+          isTruncated = true;
           output = output.substring(0, 20000) + '\n[Output truncated]';
           proc.kill();
         }
       });
 
       proc.stderr.on('data', (data) => {
+        if (isTruncated) return;
         output += data.toString();
         if (output.length > 20000) {
+          isTruncated = true;
           output = output.substring(0, 20000) + '\n[Output truncated]';
           proc.kill();
         }

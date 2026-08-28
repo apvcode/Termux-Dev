@@ -12,6 +12,7 @@ export const SLASH_COMMANDS = [
   { cmd: '/session del', desc: 'Select and delete saved sessions' },
   { cmd: '/usage', desc: 'Show network bandwidth, data saver & token cost' },
   { cmd: '/export', desc: 'Export session conversation to Markdown' },
+  { cmd: '/mcp', desc: 'Manage Model Context Protocol (MCP) servers & tools' },
   { cmd: '/theme', desc: 'Switch UI theme (Cyan, Purple, Matrix, Amber, etc.)' },
   { cmd: '/doctor', desc: 'Run system & environment health diagnostics' },
   { cmd: '/settings', desc: 'Configure permissions & auto-approval' },

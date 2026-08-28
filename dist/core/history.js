@@ -16,6 +16,16 @@ export class History {
     getMessages() {
         return [...this.messages];
     }
+    popLastTurn() {
+        // Pop assistant and tool messages from the end of history
+        while (this.messages.length > 1 && this.messages[this.messages.length - 1].role !== 'user') {
+            this.messages.pop();
+        }
+        // Pop the triggering user message
+        if (this.messages.length > 1 && this.messages[this.messages.length - 1].role === 'user') {
+            this.messages.pop();
+        }
+    }
     clear() {
         this.messages = [];
     }

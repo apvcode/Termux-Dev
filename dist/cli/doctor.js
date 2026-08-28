@@ -15,8 +15,14 @@ function checkCmd(cmd) {
 }
 async function pingUrl(url) {
     return new Promise((resolve) => {
-        const req = https.get(url, { timeout: 3000 }, (res) => {
-            resolve(res.statusCode !== undefined);
+        const req = https.get(url, {
+            timeout: 3000,
+            headers: {
+                'User-Agent': 'devx-doctor/1.4.0'
+            }
+        }, (res) => {
+            res.resume(); // consume response data to free up memory and release socket
+            resolve(res.statusCode !== undefined && res.statusCode < 500);
         });
         req.on('error', () => resolve(false));
         req.on('timeout', () => {
