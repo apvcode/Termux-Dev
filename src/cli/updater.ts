@@ -139,13 +139,13 @@ export async function performSelfUpdate(latestVersion: string): Promise<boolean>
     }, 80);
 
     try {
-      execSync('npm install -g termux-dev@latest', { stdio: 'pipe' });
+      execSync('npm install -g termux-dev@latest --prefer-online', { stdio: 'pipe' });
       clearInterval(interval);
       process.stdout.write(`\r  ${pc.green('✔')} ${pc.bold(pc.white(`Successfully updated termux-dev to v${latestVersion} via npm!`))}\n`);
     } catch (err: any) {
       clearInterval(interval);
       process.stdout.write(`\r  ${pc.red('✖')} ${pc.red(`Update failed: ${err.message}`)}\n`);
-      console.log(pc.yellow(`\n💡 To update manually, run: ${pc.bold('npm install -g termux-dev')}`));
+      console.log(pc.yellow(`\n💡 To update manually, run: ${pc.bold('npm install -g termux-dev@latest')}`));
       return false;
     }
   } else {
