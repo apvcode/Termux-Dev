@@ -43,6 +43,7 @@ export function askPrompt(opts = {}) {
         let cursorPos = input.length;
         let selectedIndex = 0;
         let lastDropdownLines = 0;
+        let lastCursorLine = 0;
         let disposed = false;
         let historyIndex = GLOBAL_PROMPT_HISTORY.length;
         let tempDraft = '';
@@ -229,7 +230,12 @@ export function askPrompt(opts = {}) {
                 }
                 dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯'));
             }
-            // 1. Draw/update input line (line 0)
+            // 1. Move cursor back to Line 0 from lastCursorLine and erase everything down
+            if (lastCursorLine > 0) {
+                process.stdout.write(`\x1b[${lastCursorLine}A`);
+            }
+            process.stdout.write('\r\x1b[J');
+            // 2. Prepare and write input display
             let inputDisplay = pc.dim('│') + '  ';
             if (input.length === 0) {
                 const maxPlace = Math.max(12, cols - 8);
@@ -239,24 +245,44 @@ export function askPrompt(opts = {}) {
             else {
                 inputDisplay += formatInputWithBadges(input);
             }
-            process.stdout.write(`\r\x1b[2K${inputDisplay}`);
-            // 2. Draw dropdown lines below, and clear any leftover old lines
-            const totalLinesToProcess = Math.max(dropdownLines.length, lastDropdownLines);
-            if (totalLinesToProcess > 0) {
-                for (let i = 0; i < totalLinesToProcess; i++) {
-                    if (i < dropdownLines.length) {
-                        process.stdout.write(`\n\x1b[2K${dropdownLines[i]}`);
-                    }
-                    else {
-                        process.stdout.write(`\n\x1b[2K`);
-                    }
+            process.stdout.write(inputDisplay);
+            // 3. Write dropdown lines below input if present
+            if (dropdownLines.length > 0) {
+                for (const dl of dropdownLines) {
+                    process.stdout.write(`\n${dl}`);
                 }
-                // 3. Move cursor back UP to prompt line (line 0) at cursorPos column
-                process.stdout.write(`\x1b[${totalLinesToProcess}A\r\x1b[${3 + cursorPos}C`);
             }
-            else {
-                process.stdout.write(`\r\x1b[${3 + cursorPos}C`);
+            // 4. Calculate cursor position
+            // Calculate how many wrapped lines inputDisplay occupies
+            const plainAll = stripAnsi(inputDisplay);
+            const allLines = plainAll.split('\n');
+            let totalInputLines = 0;
+            for (const l of allLines) {
+                totalInputLines += l.length === 0 ? 1 : Math.max(1, Math.floor((l.length - 1) / cols) + 1);
             }
+            // Calculate where the cursor is inside inputDisplay
+            const plainBefore = stripAnsi(pc.dim('│') + '  ' + formatInputWithBadges(input.slice(0, cursorPos)));
+            const linesBefore = plainBefore.split('\n');
+            let curLine = 0;
+            for (let i = 0; i < linesBefore.length - 1; i++) {
+                const l = linesBefore[i];
+                curLine += l.length === 0 ? 1 : Math.max(1, Math.floor((l.length - 1) / cols) + 1);
+            }
+            const lastLineSegment = linesBefore[linesBefore.length - 1];
+            const wrapOffsetInLastLine = Math.floor(lastLineSegment.length / cols);
+            curLine += wrapOffsetInLastLine;
+            const curCol = lastLineSegment.length % cols;
+            // Current line after writing dropdown is: (totalInputLines - 1) + dropdownLines.length
+            const totalBottomLine = (totalInputLines - 1) + dropdownLines.length;
+            const linesUp = totalBottomLine - curLine;
+            if (linesUp > 0) {
+                process.stdout.write(`\x1b[${linesUp}A`);
+            }
+            process.stdout.write('\r');
+            if (curCol > 0) {
+                process.stdout.write(`\x1b[${curCol}C`);
+            }
+            lastCursorLine = curLine;
             lastDropdownLines = dropdownLines.length;
         }
         render();
@@ -272,13 +298,10 @@ export function askPrompt(opts = {}) {
             process.stdin.pause();
         }
         function clearBoxAndExit(finalInput) {
-            if (lastDropdownLines > 0) {
-                for (let i = 0; i < lastDropdownLines; i++) {
-                    process.stdout.write(`\n\x1b[2K`);
-                }
-                process.stdout.write(`\x1b[${lastDropdownLines}A\r`);
-                lastDropdownLines = 0;
+            if (lastCursorLine > 0) {
+                process.stdout.write(`\x1b[${lastCursorLine}A`);
             }
+            process.stdout.write('\r\x1b[J');
             const fullText = expandPastes(finalInput);
             if (fullText.trim()) {
                 if (GLOBAL_PROMPT_HISTORY.length === 0 || GLOBAL_PROMPT_HISTORY[GLOBAL_PROMPT_HISTORY.length - 1] !== fullText.trim()) {
@@ -412,14 +435,10 @@ export function askPrompt(opts = {}) {
             }
             // Ctrl+C
             if (str === '\x03' || (str.length === 1 && str.charCodeAt(0) === 3)) {
-                if (lastDropdownLines > 0) {
-                    for (let i = 0; i < lastDropdownLines; i++) {
-                        process.stdout.write(`\n\x1b[2K`);
-                    }
-                    process.stdout.write(`\x1b[${lastDropdownLines}A\r`);
-                    lastDropdownLines = 0;
+                if (lastCursorLine > 0) {
+                    process.stdout.write(`\x1b[${lastCursorLine}A`);
                 }
-                process.stdout.write(`\r\x1b[2K\n`);
+                process.stdout.write('\r\x1b[J\n');
                 cleanup();
                 resolve('__CANCEL__');
                 return;
@@ -479,14 +498,10 @@ export function askPrompt(opts = {}) {
                     render();
                 }
                 else {
-                    if (lastDropdownLines > 0) {
-                        for (let i = 0; i < lastDropdownLines; i++) {
-                            process.stdout.write(`\n\x1b[2K`);
-                        }
-                        process.stdout.write(`\x1b[${lastDropdownLines}A\r`);
-                        lastDropdownLines = 0;
+                    if (lastCursorLine > 0) {
+                        process.stdout.write(`\x1b[${lastCursorLine}A`);
                     }
-                    process.stdout.write(`\r\x1b[2K`);
+                    process.stdout.write('\r\x1b[J');
                     cleanup();
                     resolve(`__TOGGLE_MODE__:${input}`);
                 }
