@@ -54,8 +54,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     let input = opts.initialValue || '';
     let cursorPos = input.length;
     let selectedIndex = 0;
-    let lastDropdownLines = 0;
-    let lastCursorLine = 0;
+    let lastTotalLines = 0;
     let disposed = false;
     let historyIndex = GLOBAL_PROMPT_HISTORY.length;
     let tempDraft = '';
@@ -196,20 +195,51 @@ function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
 }
 
+    // Helper: clear all previously rendered lines and move cursor to line 0
+    function clearPreviousRender() {
+      if (lastTotalLines > 1) {
+        process.stdout.write(`\x1b[${lastTotalLines - 1}A`);
+      }
+      for (let i = 0; i < lastTotalLines; i++) {
+        process.stdout.write(`\r\x1b[2K`);
+        if (i < lastTotalLines - 1) process.stdout.write('\n');
+      }
+      if (lastTotalLines > 1) {
+        process.stdout.write(`\x1b[${lastTotalLines - 1}A`);
+      }
+    }
+
     function render() {
       if (disposed) return;
 
       const items = getDropdownItems();
-      const dropdownLines: string[] = [];
-
       const cols = Math.max(28, process.stdout.columns || 80);
       const rows = Math.max(8, process.stdout.rows || 24);
+
+      const prefixLen = 3;
+      const maxPerLine = Math.max(10, cols - prefixLen - 1);
+
+      const allLines: string[] = [];
+
+      let inputLineCount = 0;
+      if (input.length === 0) {
+        const displayPlace = placeholder.length > maxPerLine ? placeholder.slice(0, maxPerLine - 1) + '…' : placeholder;
+        allLines.push(pc.dim('│') + '  ' + pc.dim(displayPlace));
+        inputLineCount = 1;
+      } else {
+        let pos = 0;
+        while (pos < input.length) {
+          const chunk = input.slice(pos, pos + maxPerLine);
+          allLines.push(pc.dim('│') + '  ' + formatInputWithBadges(chunk));
+          pos += maxPerLine;
+        }
+        inputLineCount = allLines.length;
+      }
 
       if (items.length > 0) {
         if (selectedIndex >= items.length) selectedIndex = 0;
         if (selectedIndex < 0) selectedIndex = items.length - 1;
 
-        // Ensure inner box width strictly fits: innerBoxWidth + 5 <= cols - 2
         const innerBoxWidth = Math.max(16, Math.min(cols - 8, 54));
         const isNarrowOrShort = rows <= 16 || cols < 50;
         const pageSize = isNarrowOrShort
@@ -224,7 +254,6 @@ function stripAnsi(str: string): string {
           }
         }
         const endIndex = Math.min(startIndex + pageSize, total);
-
         const hasMoreUp = startIndex > 0;
         const hasMoreDown = endIndex < total;
 
@@ -233,14 +262,13 @@ function stripAnsi(str: string): string {
           const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
           topBorderStr = '─'.repeat(mid) + ' ▲ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
         }
-
         let botBorderStr = '─'.repeat(innerBoxWidth);
         if (hasMoreDown) {
           const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
           botBorderStr = '─'.repeat(mid) + ' ▼ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
         }
 
-        dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╭' + topBorderStr + '╮'));
+        allLines.push(pc.dim('│') + '  ' + pc.dim('╭' + topBorderStr + '╮'));
 
         for (let i = startIndex; i < endIndex; i++) {
           const item = items[i];
@@ -259,7 +287,6 @@ function stripAnsi(str: string): string {
             const descMax = availWidth - labelMax - 1;
             const descStr = item.desc.length > descMax ? item.desc.slice(0, descMax - 1) + '…' : item.desc.padEnd(descMax);
             const plain = `${pointer}${labelStr} ${descStr}`;
-            
             if (isSelected) {
               row = theme.badgeFn(plain);
             } else {
@@ -271,95 +298,39 @@ function stripAnsi(str: string): string {
           if (currentLen < innerBoxWidth) {
             row += ' '.repeat(innerBoxWidth - currentLen);
           }
-
-          dropdownLines.push(pc.dim('│') + '  ' + pc.dim('│') + row + pc.dim('│'));
+          allLines.push(pc.dim('│') + '  ' + pc.dim('│') + row + pc.dim('│'));
         }
 
-        dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯'));
+        allLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯'));
       }
 
-      // === SCROLLING SINGLE-LINE INPUT (never wraps, works on all terminals) ===
-      const prefix = pc.dim('│') + '  ';
-      const prefixLen = 3; // visible width of "│  "
-      // Reserve 1 char safety margin so terminal never auto-wraps
-      const maxVisible = cols - prefixLen - 1;
+      clearPreviousRender();
 
-      let lineContent: string;
-      let screenCursorCol: number;
-
-      if (input.length === 0) {
-        // Show placeholder
-        const displayPlace = placeholder.length > maxVisible ? placeholder.slice(0, maxVisible - 1) + '…' : placeholder;
-        lineContent = prefix + pc.dim(displayPlace);
-        screenCursorCol = prefixLen;
-      } else if (input.length <= maxVisible) {
-        // Input fits on screen entirely
-        lineContent = prefix + formatInputWithBadges(input);
-        screenCursorCol = prefixLen + cursorPos;
-      } else {
-        // Scrolling window: show a slice of input around cursor
-        const scrollPad = Math.floor(maxVisible / 3);
-        let winStart = 0;
-
-        if (cursorPos > maxVisible - scrollPad) {
-          winStart = cursorPos - (maxVisible - scrollPad);
+      const maxLinesToWrite = Math.max(allLines.length, lastTotalLines);
+      for (let i = 0; i < maxLinesToWrite; i++) {
+        process.stdout.write('\r\x1b[2K');
+        if (i < allLines.length) {
+          process.stdout.write(allLines[i]);
         }
-        if (winStart > input.length - maxVisible) {
-          winStart = Math.max(0, input.length - maxVisible);
-        }
-
-        const winEnd = Math.min(winStart + maxVisible, input.length);
-        let visibleSlice = input.slice(winStart, winEnd);
-
-        // Add scroll indicators
-        if (winStart > 0) {
-          visibleSlice = '…' + visibleSlice.slice(1);
-        }
-        if (winEnd < input.length) {
-          visibleSlice = visibleSlice.slice(0, -1) + '…';
-        }
-
-        lineContent = prefix + formatInputWithBadges(visibleSlice);
-        screenCursorCol = prefixLen + (cursorPos - winStart);
-
-        // Clamp cursor position for scroll indicator adjustments
-        if (winStart > 0 && cursorPos === winStart) {
-          screenCursorCol = prefixLen + 1;
+        if (i < maxLinesToWrite - 1) {
+          process.stdout.write('\n');
         }
       }
 
-      // Pad line to exactly cols-1 to overwrite any stale characters
-      const visLen = stripAnsi(lineContent).length;
-      if (visLen < cols - 1) {
-        lineContent += ' '.repeat(cols - 1 - visLen);
+      const cursorInputLine = input.length === 0 ? 0 : Math.min(Math.floor(cursorPos / maxPerLine), inputLineCount - 1);
+      const cursorCol = input.length === 0 ? prefixLen : prefixLen + (cursorPos % maxPerLine);
+
+      const currentLine = maxLinesToWrite - 1;
+      const moveUp = currentLine - cursorInputLine;
+      if (moveUp > 0) {
+        process.stdout.write(`\x1b[${moveUp}A`);
+      }
+      process.stdout.write('\r');
+      if (cursorCol > 0) {
+        process.stdout.write(`\x1b[${cursorCol}C`);
       }
 
-      // Move cursor up past any previous dropdown lines, then clear and redraw
-      if (lastDropdownLines > 0) {
-        process.stdout.write(`\x1b[${lastDropdownLines}A`);
-      }
-      // Write input line (always exactly 1 physical line, no wrap)
-      process.stdout.write(`\r\x1b[2K${lineContent}`);
-
-      // Write dropdown lines below
-      for (let i = 0; i < Math.max(dropdownLines.length, lastDropdownLines); i++) {
-        if (i < dropdownLines.length) {
-          process.stdout.write(`\n\x1b[2K${dropdownLines[i]}`);
-        } else {
-          process.stdout.write(`\n\x1b[2K`);
-        }
-      }
-
-      // Move cursor back up to the input line
-      const totalBelow = Math.max(dropdownLines.length, lastDropdownLines);
-      if (totalBelow > 0) {
-        process.stdout.write(`\x1b[${totalBelow}A`);
-      }
-      // Position cursor at the correct column
-      process.stdout.write(`\r\x1b[${screenCursorCol}C`);
-
-      lastCursorLine = 0; // Always line 0 now
-      lastDropdownLines = dropdownLines.length;
+      lastTotalLines = allLines.length;
     }
 
     render();
@@ -377,14 +348,8 @@ function stripAnsi(str: string): string {
     }
 
     function clearBoxAndExit(finalInput: string) {
-      // Clear dropdown lines below
-      if (lastDropdownLines > 0) {
-        for (let i = 0; i < lastDropdownLines; i++) {
-          process.stdout.write(`\n\x1b[2K`);
-        }
-        process.stdout.write(`\x1b[${lastDropdownLines}A`);
-      }
-      process.stdout.write(`\r\x1b[2K`);
+      clearPreviousRender();
+      process.stdout.write('\r\x1b[2K');
 
       const fullText = expandPastes(finalInput);
       if (fullText.trim()) {
@@ -540,12 +505,7 @@ function stripAnsi(str: string): string {
 
       // Ctrl+C
       if (str === '\x03' || (str.length === 1 && str.charCodeAt(0) === 3)) {
-        if (lastDropdownLines > 0) {
-          for (let i = 0; i < lastDropdownLines; i++) {
-            process.stdout.write(`\n\x1b[2K`);
-          }
-          process.stdout.write(`\x1b[${lastDropdownLines}A`);
-        }
+        clearPreviousRender();
         process.stdout.write('\r\x1b[2K\n');
         cleanup();
         resolve('__CANCEL__');
@@ -607,12 +567,7 @@ function stripAnsi(str: string): string {
           cursorPos = selected.replaceStart + selected.replacement.length;
           render();
         } else {
-          if (lastDropdownLines > 0) {
-            for (let i = 0; i < lastDropdownLines; i++) {
-              process.stdout.write(`\n\x1b[2K`);
-            }
-            process.stdout.write(`\x1b[${lastDropdownLines}A`);
-          }
+          clearPreviousRender();
           process.stdout.write('\r\x1b[2K');
           cleanup();
           resolve(`__TOGGLE_MODE__:${input}`);
