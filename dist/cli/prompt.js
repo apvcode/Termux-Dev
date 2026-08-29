@@ -234,11 +234,7 @@ export function askPrompt(opts = {}) {
                 }
                 dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯'));
             }
-            // 1. Move cursor up if previous dropdown had lines
-            if (lastRenderedDropdownLines > 0) {
-                process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
-            }
-            // 2. Clear line 0 and write prompt line
+            // 1. Clear line 0 and write prompt line
             let inputDisplay = pc.dim('│') + '  ';
             if (input.length === 0) {
                 const maxPlace = Math.max(12, cols - 8);
