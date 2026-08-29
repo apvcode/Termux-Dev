@@ -250,12 +250,10 @@ function stripAnsi(str: string): string {
 
           let row = '';
           if (availWidth < 20) {
-            // Very narrow mobile screen: show command name only
             const labelStr = item.label.length > availWidth ? item.label.slice(0, availWidth - 1) + '…' : item.label.padEnd(availWidth);
             const plain = pointer + labelStr;
             row = isSelected ? theme.badgeFn(plain) : (pointer + theme.boldFn(labelStr));
           } else {
-            // Show command name and truncated description
             const labelMax = Math.min(15, Math.floor(availWidth * 0.45));
             const labelStr = item.label.length > labelMax ? item.label.slice(0, labelMax - 1) + '…' : item.label.padEnd(labelMax);
             const descMax = availWidth - labelMax - 1;
@@ -269,7 +267,6 @@ function stripAnsi(str: string): string {
             }
           }
 
-          // Safety guarantee: exact visible width must match innerBoxWidth
           const currentLen = stripAnsi(row).length;
           if (currentLen < innerBoxWidth) {
             row += ' '.repeat(innerBoxWidth - currentLen);
@@ -281,71 +278,87 @@ function stripAnsi(str: string): string {
         dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯'));
       }
 
-      // Calculate cursor position
-      // Calculate how many wrapped lines inputDisplay occupies
-      const plainAll = stripAnsi(pc.dim('│') + '  ' + formatInputWithBadges(input));
-      const allLines = plainAll.split('\n');
-      let totalInputLines = 0;
-      for (const l of allLines) {
-        totalInputLines += l.length === 0 ? 1 : Math.max(1, Math.floor((l.length - 1) / cols) + 1);
-      }
+      // === SCROLLING SINGLE-LINE INPUT (never wraps, works on all terminals) ===
+      const prefix = pc.dim('│') + '  ';
+      const prefixLen = 3; // visible width of "│  "
+      // Reserve 1 char safety margin so terminal never auto-wraps
+      const maxVisible = cols - prefixLen - 1;
 
-      // Calculate where the cursor is inside inputDisplay
-      const plainBefore = stripAnsi(pc.dim('│') + '  ' + formatInputWithBadges(input.slice(0, cursorPos)));
-      const linesBefore = plainBefore.split('\n');
-      let curLine = 0;
-      for (let i = 0; i < linesBefore.length - 1; i++) {
-        const l = linesBefore[i];
-        curLine += l.length === 0 ? 1 : Math.max(1, Math.floor((l.length - 1) / cols) + 1);
-      }
-      const lastLineSegment = linesBefore[linesBefore.length - 1];
-      const wrapOffsetInLastLine = Math.floor(lastLineSegment.length / cols);
-      curLine += wrapOffsetInLastLine;
-      const curCol = lastLineSegment.length % cols;
+      let lineContent: string;
+      let screenCursorCol: number;
 
-      // 1. Single-line fast path (flicker-free atomic render)
-      let inputDisplay = pc.dim('│') + '  ';
       if (input.length === 0) {
-        const maxPlace = Math.max(12, cols - 8);
-        const displayPlace = placeholder.length > maxPlace ? placeholder.slice(0, maxPlace - 1) + '…' : placeholder;
-        inputDisplay += pc.dim(displayPlace);
+        // Show placeholder
+        const displayPlace = placeholder.length > maxVisible ? placeholder.slice(0, maxVisible - 1) + '…' : placeholder;
+        lineContent = prefix + pc.dim(displayPlace);
+        screenCursorCol = prefixLen;
+      } else if (input.length <= maxVisible) {
+        // Input fits on screen entirely
+        lineContent = prefix + formatInputWithBadges(input);
+        screenCursorCol = prefixLen + cursorPos;
       } else {
-        inputDisplay += formatInputWithBadges(input);
-      }
+        // Scrolling window: show a slice of input around cursor
+        const scrollPad = Math.floor(maxVisible / 3);
+        let winStart = 0;
 
-      if (totalInputLines === 1 && dropdownLines.length === 0 && lastCursorLine === 0 && lastDropdownLines === 0) {
-        process.stdout.write(`\r\x1b[2K${inputDisplay}`);
-        process.stdout.write(`\r\x1b[${curCol}C`);
-        lastCursorLine = 0;
-        lastDropdownLines = 0;
-        return;
-      }
+        if (cursorPos > maxVisible - scrollPad) {
+          winStart = cursorPos - (maxVisible - scrollPad);
+        }
+        if (winStart > input.length - maxVisible) {
+          winStart = Math.max(0, input.length - maxVisible);
+        }
 
-      // 2. Multi-line / dropdown path: move to Line 0 and erase down
-      if (lastCursorLine > 0) {
-        process.stdout.write(`\x1b[${lastCursorLine}A`);
-      }
-      process.stdout.write('\r\x1b[J');
-      process.stdout.write(inputDisplay);
+        const winEnd = Math.min(winStart + maxVisible, input.length);
+        let visibleSlice = input.slice(winStart, winEnd);
 
-      if (dropdownLines.length > 0) {
-        for (const dl of dropdownLines) {
-          process.stdout.write(`\n${dl}`);
+        // Add scroll indicators
+        if (winStart > 0) {
+          visibleSlice = '…' + visibleSlice.slice(1);
+        }
+        if (winEnd < input.length) {
+          visibleSlice = visibleSlice.slice(0, -1) + '…';
+        }
+
+        lineContent = prefix + formatInputWithBadges(visibleSlice);
+        screenCursorCol = prefixLen + (cursorPos - winStart);
+
+        // Clamp cursor position for scroll indicator adjustments
+        if (winStart > 0 && cursorPos === winStart) {
+          screenCursorCol = prefixLen + 1;
         }
       }
 
-      const totalBottomLine = (totalInputLines - 1) + dropdownLines.length;
-      const linesUp = totalBottomLine - curLine;
-
-      if (linesUp > 0) {
-        process.stdout.write(`\x1b[${linesUp}A`);
-      }
-      process.stdout.write('\r');
-      if (curCol > 0) {
-        process.stdout.write(`\x1b[${curCol}C`);
+      // Pad line to exactly cols-1 to overwrite any stale characters
+      const visLen = stripAnsi(lineContent).length;
+      if (visLen < cols - 1) {
+        lineContent += ' '.repeat(cols - 1 - visLen);
       }
 
-      lastCursorLine = curLine;
+      // Move cursor up past any previous dropdown lines, then clear and redraw
+      if (lastDropdownLines > 0) {
+        process.stdout.write(`\x1b[${lastDropdownLines}A`);
+      }
+      // Write input line (always exactly 1 physical line, no wrap)
+      process.stdout.write(`\r\x1b[2K${lineContent}`);
+
+      // Write dropdown lines below
+      for (let i = 0; i < Math.max(dropdownLines.length, lastDropdownLines); i++) {
+        if (i < dropdownLines.length) {
+          process.stdout.write(`\n\x1b[2K${dropdownLines[i]}`);
+        } else {
+          process.stdout.write(`\n\x1b[2K`);
+        }
+      }
+
+      // Move cursor back up to the input line
+      const totalBelow = Math.max(dropdownLines.length, lastDropdownLines);
+      if (totalBelow > 0) {
+        process.stdout.write(`\x1b[${totalBelow}A`);
+      }
+      // Position cursor at the correct column
+      process.stdout.write(`\r\x1b[${screenCursorCol}C`);
+
+      lastCursorLine = 0; // Always line 0 now
       lastDropdownLines = dropdownLines.length;
     }
 
@@ -364,10 +377,14 @@ function stripAnsi(str: string): string {
     }
 
     function clearBoxAndExit(finalInput: string) {
-      if (lastCursorLine > 0) {
-        process.stdout.write(`\x1b[${lastCursorLine}A`);
+      // Clear dropdown lines below
+      if (lastDropdownLines > 0) {
+        for (let i = 0; i < lastDropdownLines; i++) {
+          process.stdout.write(`\n\x1b[2K`);
+        }
+        process.stdout.write(`\x1b[${lastDropdownLines}A`);
       }
-      process.stdout.write('\r\x1b[J');
+      process.stdout.write(`\r\x1b[2K`);
 
       const fullText = expandPastes(finalInput);
       if (fullText.trim()) {
@@ -377,7 +394,7 @@ function stripAnsi(str: string): string {
       }
 
       const lines = fullText.split('\n');
-      process.stdout.write(`\r\x1b[2K${pc.dim('│')}  ${formatInputWithBadges(lines[0])}\n`);
+      process.stdout.write(`${pc.dim('│')}  ${formatInputWithBadges(lines[0])}\n`);
       for (let i = 1; i < lines.length; i++) {
         process.stdout.write(pc.dim('│') + '  ' + lines[i] + '\n');
       }
@@ -523,10 +540,13 @@ function stripAnsi(str: string): string {
 
       // Ctrl+C
       if (str === '\x03' || (str.length === 1 && str.charCodeAt(0) === 3)) {
-        if (lastCursorLine > 0) {
-          process.stdout.write(`\x1b[${lastCursorLine}A`);
+        if (lastDropdownLines > 0) {
+          for (let i = 0; i < lastDropdownLines; i++) {
+            process.stdout.write(`\n\x1b[2K`);
+          }
+          process.stdout.write(`\x1b[${lastDropdownLines}A`);
         }
-        process.stdout.write('\r\x1b[J\n');
+        process.stdout.write('\r\x1b[2K\n');
         cleanup();
         resolve('__CANCEL__');
         return;
@@ -587,10 +607,13 @@ function stripAnsi(str: string): string {
           cursorPos = selected.replaceStart + selected.replacement.length;
           render();
         } else {
-          if (lastCursorLine > 0) {
-            process.stdout.write(`\x1b[${lastCursorLine}A`);
+          if (lastDropdownLines > 0) {
+            for (let i = 0; i < lastDropdownLines; i++) {
+              process.stdout.write(`\n\x1b[2K`);
+            }
+            process.stdout.write(`\x1b[${lastDropdownLines}A`);
           }
-          process.stdout.write('\r\x1b[J');
+          process.stdout.write('\r\x1b[2K');
           cleanup();
           resolve(`__TOGGLE_MODE__:${input}`);
         }
