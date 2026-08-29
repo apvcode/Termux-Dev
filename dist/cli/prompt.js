@@ -79,7 +79,7 @@ export function askPrompt(opts = {}) {
             return spans;
         }
         function formatInputWithBadges(str) {
-            return str.replace(/(\[(?:Pasted text #\d+ \+\d+ lines|\d+\.png \d+kb)\])/g, (match) => theme.badgeFn(` ${match.slice(1, -1)} `));
+            return str.replace(/(\[(?:Pasted text #\d+ \+\d+ lines|\d+\.png \d+kb)\])/g, (match) => theme.badgeFn(` ${match.slice(1, -1)} `) + '\x1b[0m');
         }
         function expandPastes(text) {
             let expanded = text;
@@ -95,13 +95,11 @@ export function askPrompt(opts = {}) {
             const trimmed = text.trim();
             const lines = trimmed.split(/\r\n|\r|\n/);
             if (lines.length <= 1 && text.length < 80) {
-                // Short paste: insert normally
                 input = input.slice(0, cursorPos) + text + input.slice(cursorPos);
                 cursorPos += text.length;
                 render();
                 return;
             }
-            // Check if pasted text is an image path
             if (trimmed.match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
                 processPastedFilePath(trimmed, usedImageNames)
                     .then((imgRes) => {
@@ -130,7 +128,6 @@ export function askPrompt(opts = {}) {
             render();
         }
         function getDropdownItems() {
-            // 1. Slash commands dropdown (when input starts with /)
             if (input.startsWith('/')) {
                 const q = input.trim().toLowerCase();
                 const baseList = [
@@ -146,7 +143,6 @@ export function askPrompt(opts = {}) {
                     replaceLen: input.length
                 }));
             }
-            // 2. @ file mention autocomplete
             const beforeCursor = input.slice(0, cursorPos);
             const atMatch = beforeCursor.match(/@([a-zA-Z0-9_\-./]*)$/);
             if (atMatch && availableFiles.length > 0) {
@@ -179,7 +175,7 @@ export function askPrompt(opts = {}) {
                 if (selectedIndex < 0)
                     selectedIndex = 0;
                 const pageSize = Math.min(4, Math.max(2, Math.floor(rows / 4)));
-                const innerBoxWidth = Math.max(14, Math.min(cols - 6, 50));
+                const innerBoxWidth = Math.max(10, Math.min(cols - 8, 48));
                 const total = items.length;
                 let startIndex = 0;
                 if (total > pageSize) {
@@ -200,47 +196,42 @@ export function askPrompt(opts = {}) {
                     const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
                     botBorderStr = '─'.repeat(mid) + ' ▼ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
                 }
-                dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╭' + topBorderStr + '╮'));
+                dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╭' + topBorderStr + '╮') + '\x1b[0m');
                 for (let i = startIndex; i < endIndex; i++) {
                     const item = items[i];
                     const isSelected = i === selectedIndex;
                     const pointer = isSelected ? '› ' : '  ';
-                    const availWidth = innerBoxWidth - 2;
+                    const availWidth = innerBoxWidth;
                     let row = '';
-                    if (availWidth < 22) {
-                        const labelStr = item.label.length > availWidth
-                            ? item.label.slice(0, availWidth - 1) + '…'
-                            : item.label.padEnd(availWidth);
-                        const plain = pointer + labelStr;
-                        row = isSelected ? theme.badgeFn(plain) : pointer + theme.boldFn(labelStr);
+                    if (availWidth < 20) {
+                        const labelStr = item.label.length > availWidth - 2
+                            ? item.label.slice(0, availWidth - 3) + '…'
+                            : item.label.padEnd(availWidth - 2, ' ');
+                        const plain = (pointer + labelStr).padEnd(availWidth, ' ').slice(0, availWidth);
+                        row = isSelected
+                            ? theme.badgeFn(plain) + '\x1b[0m'
+                            : pointer + theme.boldFn(labelStr) + '\x1b[0m';
                     }
                     else {
-                        const labelMax = Math.min(14, Math.floor(availWidth * 0.42));
+                        const labelMax = Math.min(13, Math.max(6, Math.floor(availWidth * 0.35)));
                         const labelStr = item.label.length > labelMax
                             ? item.label.slice(0, labelMax - 1) + '…'
-                            : item.label.padEnd(labelMax);
-                        const descMax = availWidth - labelMax - 1;
+                            : item.label.padEnd(labelMax, ' ');
+                        const descMax = Math.max(4, availWidth - labelMax - pointer.length - 1);
                         const descStr = item.desc.length > descMax
                             ? item.desc.slice(0, descMax - 1) + '…'
-                            : item.desc.padEnd(descMax);
-                        const plain = `${pointer}${labelStr} ${descStr}`;
+                            : item.desc.padEnd(descMax, ' ');
+                        const plain = (pointer + labelStr + ' ' + descStr).padEnd(availWidth, ' ').slice(0, availWidth);
                         if (isSelected) {
-                            row = theme.badgeFn(plain);
+                            row = theme.badgeFn(plain) + '\x1b[0m';
                         }
                         else {
-                            row = `${pointer}${theme.boldFn(labelStr)} ${pc.gray(descStr)}`;
+                            row = `${pointer}${theme.boldFn(labelStr)} ${pc.gray(descStr)}\x1b[0m`;
                         }
                     }
-                    const currentLen = stripAnsi(row).length;
-                    if (currentLen < innerBoxWidth) {
-                        row += ' '.repeat(innerBoxWidth - currentLen);
-                    }
-                    else if (currentLen > innerBoxWidth) {
-                        row = row.slice(0, innerBoxWidth);
-                    }
-                    dropdownLines.push(pc.dim('│') + '  ' + pc.dim('│') + row + pc.dim('│'));
+                    dropdownLines.push(pc.dim('│') + '  ' + pc.dim('│') + row + pc.dim('│') + '\x1b[0m');
                 }
-                dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯'));
+                dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯') + '\x1b[0m');
             }
             // 1. Format and write the Prompt line safely (guaranteed <= cols - 1 chars)
             let inputDisplay = pc.dim('│') + '  ';
@@ -248,13 +239,13 @@ export function askPrompt(opts = {}) {
             if (input.length === 0) {
                 const maxPlace = Math.max(10, cols - 6);
                 const displayPlace = placeholder.length > maxPlace ? placeholder.slice(0, maxPlace - 1) + '…' : placeholder;
-                inputDisplay += pc.dim(displayPlace);
+                inputDisplay += pc.dim(displayPlace) + '\x1b[0m';
                 renderCursorCol = 3;
             }
             else {
                 const maxInputLen = Math.max(10, cols - 6);
                 if (input.length <= maxInputLen) {
-                    inputDisplay += formatInputWithBadges(input);
+                    inputDisplay += formatInputWithBadges(input) + '\x1b[0m';
                     renderCursorCol = 3 + cursorPos;
                 }
                 else {
@@ -263,24 +254,24 @@ export function askPrompt(opts = {}) {
                     const visibleChunk = input.slice(start, start + maxInputLen);
                     const prefix = start > 0 ? '…' : '';
                     const suffix = start + maxInputLen < input.length ? '…' : '';
-                    inputDisplay += pc.dim(prefix) + formatInputWithBadges(visibleChunk) + pc.dim(suffix);
+                    inputDisplay += pc.dim(prefix) + formatInputWithBadges(visibleChunk) + pc.dim(suffix) + '\x1b[0m';
                     renderCursorCol = 3 + (prefix ? 1 : 0) + (cursorPos - start);
                 }
             }
-            process.stdout.write(`\r\x1b[2K${inputDisplay}`);
+            process.stdout.write(`\x1b[0m\r\x1b[2K${inputDisplay}\x1b[0m`);
             // 2. Draw dropdown lines below, and clear extra lines from previous render
             const maxDropdowns = Math.max(dropdownLines.length, lastRenderedDropdownLines);
             if (maxDropdowns > 0) {
                 for (let i = 0; i < maxDropdowns; i++) {
                     if (i < dropdownLines.length) {
-                        process.stdout.write(`\n\x1b[2K${dropdownLines[i]}`);
+                        process.stdout.write(`\n\x1b[0m\x1b[2K${dropdownLines[i]}\x1b[0m`);
                     }
                     else {
-                        process.stdout.write(`\n\x1b[2K`);
+                        process.stdout.write(`\n\x1b[0m\x1b[2K`);
                     }
                 }
                 // Move cursor back up to input line (line 0)
-                process.stdout.write(`\x1b[${maxDropdowns}A`);
+                process.stdout.write(`\x1b[0m\x1b[${maxDropdowns}A`);
             }
             // 3. Place cursor precisely
             process.stdout.write(`\r\x1b[${renderCursorCol}C`);
@@ -301,9 +292,9 @@ export function askPrompt(opts = {}) {
         function clearBoxAndExit(finalInput) {
             if (lastRenderedDropdownLines > 0) {
                 for (let i = 0; i < lastRenderedDropdownLines; i++) {
-                    process.stdout.write(`\n\x1b[2K`);
+                    process.stdout.write(`\n\x1b[0m\x1b[2K`);
                 }
-                process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
+                process.stdout.write(`\x1b[0m\x1b[${lastRenderedDropdownLines}A`);
                 lastRenderedDropdownLines = 0;
             }
             const fullText = expandPastes(finalInput);
@@ -313,7 +304,7 @@ export function askPrompt(opts = {}) {
                     GLOBAL_PROMPT_HISTORY.push(fullText.trim());
                 }
             }
-            process.stdout.write(`\r\x1b[2K${pc.dim('│')}  ${formatInputWithBadges(finalInput)}\n\n`);
+            process.stdout.write(`\x1b[0m\r\x1b[2K${pc.dim('│')}  ${formatInputWithBadges(finalInput)}\x1b[0m\n\n`);
             cleanup();
             resolve(fullText);
         }
@@ -359,12 +350,12 @@ export function askPrompt(opts = {}) {
             if (str === '\x03') {
                 if (lastRenderedDropdownLines > 0) {
                     for (let i = 0; i < lastRenderedDropdownLines; i++) {
-                        process.stdout.write(`\n\x1b[2K`);
+                        process.stdout.write(`\n\x1b[0m\x1b[2K`);
                     }
-                    process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
+                    process.stdout.write(`\x1b[0m\x1b[${lastRenderedDropdownLines}A`);
                     lastRenderedDropdownLines = 0;
                 }
-                process.stdout.write(`\r\x1b[2K\n`);
+                process.stdout.write(`\x1b[0m\r\x1b[2K\n`);
                 cleanup();
                 resolve('__CANCEL__');
                 return;
@@ -396,7 +387,7 @@ export function askPrompt(opts = {}) {
                             render();
                         }
                         else {
-                            process.stdout.write(`\r\x1b[2K${pc.yellow('⚠️  No image in clipboard. Take a screenshot first (Win+Shift+S)\n')}`);
+                            process.stdout.write(`\x1b[0m\r\x1b[2K${pc.yellow('⚠️  No image in clipboard. Take a screenshot first (Win+Shift+S)\n')}`);
                             input = '';
                             cursorPos = 0;
                             render();
@@ -440,12 +431,12 @@ export function askPrompt(opts = {}) {
                 else {
                     if (lastRenderedDropdownLines > 0) {
                         for (let i = 0; i < lastRenderedDropdownLines; i++) {
-                            process.stdout.write(`\n\x1b[2K`);
+                            process.stdout.write(`\n\x1b[0m\x1b[2K`);
                         }
-                        process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
+                        process.stdout.write(`\x1b[0m\x1b[${lastRenderedDropdownLines}A`);
                         lastRenderedDropdownLines = 0;
                     }
-                    process.stdout.write(`\r\x1b[2K`);
+                    process.stdout.write(`\x1b[0m\r\x1b[2K`);
                     cleanup();
                     resolve(`__TOGGLE_MODE__:${input}`);
                 }
@@ -551,7 +542,7 @@ export function askPrompt(opts = {}) {
                 }
                 return;
             }
-            // Backspace / DEL handling (including Android IME chunks)
+            // Backspace / DEL handling
             if (str.includes('\x08') || str.includes('\x7f')) {
                 for (let i = 0; i < str.length; i++) {
                     const ch = str[i];

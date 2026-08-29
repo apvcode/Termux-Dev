@@ -23,7 +23,7 @@ export const THEMES: Record<string, ThemeDef> = {
     colorFn: (s) => pc.cyan(s),
     boldFn: (s) => pc.bold(pc.cyan(s)),
     accentFn: (s) => pc.blue(s),
-    badgeFn: (s) => pc.bgCyan(pc.black(` ${s} `)),
+    badgeFn: (s) => pc.bgCyan(pc.black(s)),
     diffAddBg: (s) => pc.bgCyan(pc.black(s)),
     diffRemoveBg: (s) => pc.bgBlue(pc.white(s)),
     hex: '#00f2fe'
@@ -36,7 +36,7 @@ export const THEMES: Record<string, ThemeDef> = {
     colorFn: (s) => pc.magenta(s),
     boldFn: (s) => pc.bold(pc.magenta(s)),
     accentFn: (s) => pc.blue(s),
-    badgeFn: (s) => pc.bgMagenta(pc.black(` ${s} `)),
+    badgeFn: (s) => pc.bgMagenta(pc.black(s)),
     diffAddBg: (s) => pc.bgMagenta(pc.black(s)),
     diffRemoveBg: (s) => pc.bgBlue(pc.white(s)),
     hex: '#d946ef'
@@ -49,7 +49,7 @@ export const THEMES: Record<string, ThemeDef> = {
     colorFn: (s) => pc.green(s),
     boldFn: (s) => pc.bold(pc.green(s)),
     accentFn: (s) => pc.cyan(s),
-    badgeFn: (s) => pc.bgGreen(pc.black(` ${s} `)),
+    badgeFn: (s) => pc.bgGreen(pc.black(s)),
     diffAddBg: (s) => pc.bgGreen(pc.black(s)),
     diffRemoveBg: (s) => pc.bgRed(pc.white(s)),
     hex: '#22c55e'
@@ -62,7 +62,7 @@ export const THEMES: Record<string, ThemeDef> = {
     colorFn: (s) => pc.yellow(s),
     boldFn: (s) => pc.bold(pc.yellow(s)),
     accentFn: (s) => pc.red(s),
-    badgeFn: (s) => pc.bgYellow(pc.black(` ${s} `)),
+    badgeFn: (s) => pc.bgYellow(pc.black(s)),
     diffAddBg: (s) => pc.bgYellow(pc.black(s)),
     diffRemoveBg: (s) => pc.bgRed(pc.white(s)),
     hex: '#f59e0b'
@@ -75,7 +75,7 @@ export const THEMES: Record<string, ThemeDef> = {
     colorFn: (s) => pc.red(s),
     boldFn: (s) => pc.bold(pc.red(s)),
     accentFn: (s) => pc.magenta(s),
-    badgeFn: (s) => pc.bgRed(pc.white(` ${s} `)),
+    badgeFn: (s) => pc.bgRed(pc.white(s)),
     diffAddBg: (s) => pc.bgRed(pc.white(s)),
     diffRemoveBg: (s) => pc.bgMagenta(pc.white(s)),
     hex: '#ef4444'
@@ -88,7 +88,7 @@ export const THEMES: Record<string, ThemeDef> = {
     colorFn: (s) => pc.white(s),
     boldFn: (s) => pc.bold(pc.white(s)),
     accentFn: (s) => pc.dim(s),
-    badgeFn: (s) => pc.bgWhite(pc.black(` ${s} `)),
+    badgeFn: (s) => pc.bgWhite(pc.black(s)),
     diffAddBg: (s) => pc.bgWhite(pc.black(s)),
     diffRemoveBg: (s) => pc.bgBlack(pc.white(s)),
     hex: '#ffffff'

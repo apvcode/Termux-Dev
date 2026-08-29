@@ -25,7 +25,7 @@
 
   <!-- Tagline & Badge -->
   <text x="425" y="142" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="600" fill="#8b949e" text-anchor="middle" letter-spacing="3">
-    THE TERMINAL-NATIVE AI CODING AGENT <tspan fill="#00f2fe" font-weight="bold">v1.4.12</tspan>
+    THE TERMINAL-NATIVE AI CODING AGENT <tspan fill="#00f2fe" font-weight="bold">v1.4.13</tspan>
   </text>
 
   <!-- Top Accent Line -->

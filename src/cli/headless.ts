@@ -53,7 +53,7 @@ export async function runHeadlessMode(
 
   try {
     if (!isQuiet && !isJson) {
-      console.log(pc.bold(pc.cyan(`⚡ devx v1.4.12 (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
+      console.log(pc.bold(pc.cyan(`⚡ devx v1.4.13 (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
       console.log(pc.dim(`Task: ${userPrompt}\n`));
     }
 
