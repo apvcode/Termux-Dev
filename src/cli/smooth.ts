@@ -52,6 +52,14 @@ export class SmoothStreamer {
       take = 4;
     }
 
+    if (take < fullStr.length) {
+      const code = fullStr.charCodeAt(take - 1);
+      // If take ends on a high surrogate (0xD800..0xDBFF), advance by 1 to include low surrogate
+      if (code >= 0xD800 && code <= 0xDBFF) {
+        take++;
+      }
+    }
+
     const chunk = fullStr.slice(0, take);
     const rest = fullStr.slice(take);
     if (rest) {

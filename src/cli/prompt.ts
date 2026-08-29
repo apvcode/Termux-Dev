@@ -232,7 +232,9 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         if (selectedIndex >= items.length) selectedIndex = items.length - 1;
         if (selectedIndex < 0) selectedIndex = 0;
 
-        const pageSize = Math.min(4, Math.max(2, Math.floor(rows / 4)));
+        // On very small screens (keyboard open on Android), limit dropdown aggressively
+        const maxDropdownRows = Math.max(2, Math.min(rows - 3, 6));
+        const pageSize = Math.min(4, Math.max(2, Math.min(maxDropdownRows - 2, Math.floor(rows / 4))));
         const innerBoxWidth = Math.max(10, Math.min(cols - 8, 48));
         const total = items.length;
 
@@ -303,6 +305,9 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯') + '\x1b[0m');
       }
 
+      // === SAFE RENDERING: Use \x1b7/\x1b8 save/restore + \x1b[B (down) instead of \n ===
+      // This prevents hardware scroll when cursor is at the bottom of a small screen.
+
       // 1. Format and write the Prompt line safely (guaranteed <= cols - 1 chars)
       let inputDisplay = pc.dim('│') + '  ';
       let renderCursorCol = 3;
@@ -329,23 +334,40 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         }
       }
 
+      // Write prompt line (no \n — stays on same line)
       process.stdout.write(`\x1b[0m\r\x1b[2K${inputDisplay}\x1b[0m`);
 
-      // 2. Draw dropdown lines below, and clear extra lines from previous render
+      // 2. Draw dropdown below using \x1b[B (cursor down) + \r instead of \n
+      // \x1b[B moves cursor down WITHOUT scrolling if already at bottom — it just doesn't move.
+      // We first ensure enough blank lines exist by using \x1b[S (scroll up) if needed.
       const maxDropdowns = Math.max(dropdownLines.length, lastRenderedDropdownLines);
       if (maxDropdowns > 0) {
+        // Save cursor position
+        process.stdout.write('\x1b7');
+
+        // Ensure we have room: scroll terminal up if we're near the bottom
+        // Use \x1b[<n>S to scroll the viewport up, creating space below
+        if (dropdownLines.length > 0) {
+          const neededSpace = dropdownLines.length;
+          // Push content up to make room, then reposition
+          process.stdout.write(`\x1b[${neededSpace}S`);
+          // Move cursor back up by the same amount (it moved with the scroll)
+          process.stdout.write(`\x1b[${neededSpace}A`);
+        }
+
         for (let i = 0; i < maxDropdowns; i++) {
+          // Move to next line: \x1b[1B moves down 1, \r returns to col 0
+          process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K`);
           if (i < dropdownLines.length) {
-            process.stdout.write(`\n\x1b[0m\x1b[2K${dropdownLines[i]}\x1b[0m`);
-          } else {
-            process.stdout.write(`\n\x1b[0m\x1b[2K`);
+            process.stdout.write(dropdownLines[i] + '\x1b[0m');
           }
         }
-        // Move cursor back up to input line (line 0)
-        process.stdout.write(`\x1b[0m\x1b[${maxDropdowns}A`);
+
+        // Restore cursor position (back to prompt line)
+        process.stdout.write('\x1b8');
       }
 
-      // 3. Place cursor precisely
+      // 3. Place cursor precisely on the prompt line
       process.stdout.write(`\r\x1b[${renderCursorCol}C`);
 
       lastRenderedDropdownLines = dropdownLines.length;
@@ -368,10 +390,11 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
 
     function clearBoxAndExit(finalInput: string) {
       if (lastRenderedDropdownLines > 0) {
+        process.stdout.write('\x1b7');
         for (let i = 0; i < lastRenderedDropdownLines; i++) {
-          process.stdout.write(`\n\x1b[0m\x1b[2K`);
+          process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K`);
         }
-        process.stdout.write(`\x1b[0m\x1b[${lastRenderedDropdownLines}A`);
+        process.stdout.write('\x1b8');
         lastRenderedDropdownLines = 0;
       }
 
@@ -432,10 +455,11 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       // Ctrl+C / SIGINT
       if (str === '\x03') {
         if (lastRenderedDropdownLines > 0) {
+          process.stdout.write('\x1b7');
           for (let i = 0; i < lastRenderedDropdownLines; i++) {
-            process.stdout.write(`\n\x1b[0m\x1b[2K`);
+            process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K`);
           }
-          process.stdout.write(`\x1b[0m\x1b[${lastRenderedDropdownLines}A`);
+          process.stdout.write('\x1b8');
           lastRenderedDropdownLines = 0;
         }
         process.stdout.write(`\x1b[0m\r\x1b[2K\n`);

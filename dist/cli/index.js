@@ -484,7 +484,7 @@ function drawLogo() {
             theme.colorFn('  █▀▀▄ █▀▀▀ █   █ █   █'),
             theme.colorFn('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
             theme.colorFn('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-            '  ' + theme.boldFn('v1.4.14'),
+            '  ' + theme.boldFn('v1.4.15'),
             ''
         ];
         for (const line of logo) {
@@ -499,7 +499,7 @@ function drawLogo() {
             indent + theme.colorFn('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
             indent + theme.colorFn('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
             indent + theme.colorFn('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-            indent + theme.boldFn('v1.4.14'),
+            indent + theme.boldFn('v1.4.15'),
             ''
         ];
         for (const line of logo) {
@@ -645,7 +645,7 @@ async function handleSettings(config) {
             const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
             const currentTh = getCurrentTheme();
             const choice = await select({
-                message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.4.14 • theme: ${currentTh.name})`)}`,
+                message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.4.15 • theme: ${currentTh.name})`)}`,
                 choices: [
                     {
                         name: `🎨 Color Theme: ${currentTh.emoji} ${currentTh.name}`,
@@ -686,7 +686,7 @@ async function handleSettings(config) {
                         description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
                     },
                     {
-                        name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.4.14 by ApvCode)')}`,
+                        name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.4.15 by ApvCode)')}`,
                         value: 'about',
                         description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
                     },
@@ -702,7 +702,7 @@ async function handleSettings(config) {
                 continue;
             }
             if (choice === 'about') {
-                p.note(`⚡ devx v1.4.14 — Terminal-Native AI Coding Agent\n` +
+                p.note(`⚡ devx v1.4.15 — Terminal-Native AI Coding Agent\n` +
                     `🎨 Theme: ${currentTh.emoji} ${currentTh.name}\n` +
                     `👤 Author: ApvCode (https://github.com/apvcode)\n` +
                     `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
@@ -798,7 +798,7 @@ export async function main() {
     program
         .name('devx')
         .description('Terminal-native AI coding assistant and vibe-coding agent')
-        .version('1.4.14')
+        .version('1.4.15')
         .option('-p, --prompt <task>', 'Run one-shot task non-interactively (headless mode)')
         .option('-y, --yolo', 'Automatically approve all tool executions without confirmation')
         .option('-m, --model <model>', 'Specify AI model to use for this execution')
