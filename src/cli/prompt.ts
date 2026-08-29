@@ -233,9 +233,13 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         if (selectedIndex < 0) selectedIndex = 0;
 
         // Limit dropdown height gracefully so it always fits comfortably
-        const maxDropdownRows = Math.max(2, Math.min(rows - 3, 6));
+        const maxDropdownRows = Math.max(2, Math.min(rows - 3, 5));
         const pageSize = Math.min(4, Math.max(2, Math.min(maxDropdownRows - 2, Math.floor(rows / 4))));
-        const innerBoxWidth = Math.max(10, Math.min(cols - 8, 48));
+        
+        // Strict boundary: left margin (2) + box borders (2) + inner width <= cols - 4
+        // This mathematically prevents terminal auto-wrapping on narrow mobile screens
+        const boxWidth = Math.max(12, Math.min(cols - 6, 46));
+        const innerWidth = Math.max(8, boxWidth - 2);
         const total = items.length;
 
         let startIndex = 0;
@@ -249,60 +253,61 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         const hasMoreUp = startIndex > 0;
         const hasMoreDown = endIndex < total;
 
-        let topBorderStr = '─'.repeat(innerBoxWidth);
+        let topBorderStr = '─'.repeat(innerWidth);
         if (hasMoreUp) {
-          const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
-          topBorderStr = '─'.repeat(mid) + ' ▲ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
+          const mid = Math.max(0, Math.floor(innerWidth / 2) - 2);
+          topBorderStr = '─'.repeat(mid) + ' ▲ ' + '─'.repeat(Math.max(0, innerWidth - mid - 3));
         }
 
-        let botBorderStr = '─'.repeat(innerBoxWidth);
+        let botBorderStr = '─'.repeat(innerWidth);
         if (hasMoreDown) {
-          const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
-          botBorderStr = '─'.repeat(mid) + ' ▼ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
+          const mid = Math.max(0, Math.floor(innerWidth / 2) - 2);
+          botBorderStr = '─'.repeat(mid) + ' ▼ ' + '─'.repeat(Math.max(0, innerWidth - mid - 3));
         }
 
-        dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╭' + topBorderStr + '╮') + '\x1b[0m');
+        dropdownLines.push(pc.dim('│ ') + pc.dim('╭' + topBorderStr + '╮') + '\x1b[0m');
 
         for (let i = startIndex; i < endIndex; i++) {
           const item = items[i];
           const isSelected = i === selectedIndex;
           const pointer = isSelected ? '› ' : '  ';
-          const availWidth = innerBoxWidth;
+          const avail = Math.max(4, innerWidth - pointer.length);
 
-          let row = '';
-          if (availWidth < 20) {
+          let rowText = '';
+          if (avail < 16) {
             const labelStr =
-              item.label.length > availWidth - 2
-                ? item.label.slice(0, availWidth - 3) + '…'
-                : item.label.padEnd(availWidth - 2, ' ');
-            const plain = (pointer + labelStr).padEnd(availWidth, ' ').slice(0, availWidth);
-            row = isSelected
-              ? theme.badgeFn(plain) + '\x1b[0m'
-              : pointer + theme.boldFn(labelStr) + '\x1b[0m';
+              item.label.length > avail
+                ? item.label.slice(0, avail - 1) + '…'
+                : item.label.padEnd(avail, ' ');
+            rowText = pointer + (isSelected ? theme.boldFn(labelStr) : labelStr);
           } else {
-            const labelMax = Math.min(13, Math.max(6, Math.floor(availWidth * 0.35)));
+            const labelMax = Math.min(12, Math.max(6, Math.floor(avail * 0.38)));
             const labelStr =
               item.label.length > labelMax
                 ? item.label.slice(0, labelMax - 1) + '…'
                 : item.label.padEnd(labelMax, ' ');
-            const descMax = Math.max(4, availWidth - labelMax - pointer.length - 1);
+            const descMax = Math.max(3, avail - labelMax - 1);
             const descStr =
               item.desc.length > descMax
                 ? item.desc.slice(0, descMax - 1) + '…'
                 : item.desc.padEnd(descMax, ' ');
-            const plain = (pointer + labelStr + ' ' + descStr).padEnd(availWidth, ' ').slice(0, availWidth);
-
-            if (isSelected) {
-              row = theme.badgeFn(plain) + '\x1b[0m';
-            } else {
-              row = `${pointer}${theme.boldFn(labelStr)} ${pc.gray(descStr)}\x1b[0m`;
-            }
+            rowText = pointer + (isSelected ? theme.boldFn(labelStr) : labelStr) + ' ' + pc.gray(descStr);
           }
 
-          dropdownLines.push(pc.dim('│') + '  ' + pc.dim('│') + row + pc.dim('│') + '\x1b[0m');
+          // Calculate visible plain length without ANSI
+          const plainLen = rowText.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length;
+          const padCount = Math.max(0, innerWidth - plainLen);
+          const fullRow = rowText + ' '.repeat(padCount);
+
+          if (isSelected) {
+            const cleanFull = fullRow.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+            dropdownLines.push(pc.dim('│ ') + pc.dim('│') + theme.badgeFn(cleanFull) + pc.dim('│') + '\x1b[0m');
+          } else {
+            dropdownLines.push(pc.dim('│ ') + pc.dim('│') + fullRow + pc.dim('│') + '\x1b[0m');
+          }
         }
 
-        dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯') + '\x1b[0m');
+        dropdownLines.push(pc.dim('│ ') + pc.dim('╰' + botBorderStr + '╯') + '\x1b[0m');
       }
 
       // 1. Format and write the Prompt line safely
@@ -436,6 +441,11 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       // Check for raw multi-character paste with newlines or large size
       if (str.length > 1 && (str.includes('\n') || str.includes('\r') || str.length > 80)) {
         handlePaste(str);
+        return;
+      }
+
+      // Ignore EOF / Ctrl+D (\x04)
+      if (str === '\x04') {
         return;
       }
 
