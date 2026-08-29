@@ -35,7 +35,7 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
     });
     try {
         if (!isQuiet && !isJson) {
-            console.log(pc.bold(pc.cyan(`⚡ devx v1.4.9 (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
+            console.log(pc.bold(pc.cyan(`⚡ devx v1.4.10 (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
             console.log(pc.dim(`Task: ${userPrompt}\n`));
         }
         for await (const event of agent.run(abortController.signal)) {

@@ -63,7 +63,7 @@ export class MCPClient {
                     capabilities: {},
                     clientInfo: {
                         name: 'devx',
-                        version: '1.4.9'
+                        version: '1.4.10'
                     }
                 });
                 if (!initResult) {
