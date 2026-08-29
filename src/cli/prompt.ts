@@ -281,33 +281,9 @@ function stripAnsi(str: string): string {
         dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯'));
       }
 
-      // 1. Move cursor back to Line 0 from lastCursorLine and erase everything down
-      if (lastCursorLine > 0) {
-        process.stdout.write(`\x1b[${lastCursorLine}A`);
-      }
-      process.stdout.write('\r\x1b[J');
-
-      // 2. Prepare and write input display
-      let inputDisplay = pc.dim('│') + '  ';
-      if (input.length === 0) {
-        const maxPlace = Math.max(12, cols - 8);
-        const displayPlace = placeholder.length > maxPlace ? placeholder.slice(0, maxPlace - 1) + '…' : placeholder;
-        inputDisplay += pc.dim(displayPlace);
-      } else {
-        inputDisplay += formatInputWithBadges(input);
-      }
-      process.stdout.write(inputDisplay);
-
-      // 3. Write dropdown lines below input if present
-      if (dropdownLines.length > 0) {
-        for (const dl of dropdownLines) {
-          process.stdout.write(`\n${dl}`);
-        }
-      }
-
-      // 4. Calculate cursor position
+      // Calculate cursor position
       // Calculate how many wrapped lines inputDisplay occupies
-      const plainAll = stripAnsi(inputDisplay);
+      const plainAll = stripAnsi(pc.dim('│') + '  ' + formatInputWithBadges(input));
       const allLines = plainAll.split('\n');
       let totalInputLines = 0;
       for (const l of allLines) {
@@ -327,7 +303,37 @@ function stripAnsi(str: string): string {
       curLine += wrapOffsetInLastLine;
       const curCol = lastLineSegment.length % cols;
 
-      // Current line after writing dropdown is: (totalInputLines - 1) + dropdownLines.length
+      // 1. Single-line fast path (flicker-free atomic render)
+      let inputDisplay = pc.dim('│') + '  ';
+      if (input.length === 0) {
+        const maxPlace = Math.max(12, cols - 8);
+        const displayPlace = placeholder.length > maxPlace ? placeholder.slice(0, maxPlace - 1) + '…' : placeholder;
+        inputDisplay += pc.dim(displayPlace);
+      } else {
+        inputDisplay += formatInputWithBadges(input);
+      }
+
+      if (totalInputLines === 1 && dropdownLines.length === 0 && lastCursorLine === 0 && lastDropdownLines === 0) {
+        process.stdout.write(`\r\x1b[2K${inputDisplay}`);
+        process.stdout.write(`\r\x1b[${curCol}C`);
+        lastCursorLine = 0;
+        lastDropdownLines = 0;
+        return;
+      }
+
+      // 2. Multi-line / dropdown path: move to Line 0 and erase down
+      if (lastCursorLine > 0) {
+        process.stdout.write(`\x1b[${lastCursorLine}A`);
+      }
+      process.stdout.write('\r\x1b[J');
+      process.stdout.write(inputDisplay);
+
+      if (dropdownLines.length > 0) {
+        for (const dl of dropdownLines) {
+          process.stdout.write(`\n${dl}`);
+        }
+      }
+
       const totalBottomLine = (totalInputLines - 1) + dropdownLines.length;
       const linesUp = totalBottomLine - curLine;
 
@@ -690,21 +696,32 @@ function stripAnsi(str: string): string {
         return;
       }
 
-      // Backspace
-      if (str === '\x08' || str === '\x7f' || (str.length === 1 && (str.charCodeAt(0) === 8 || str.charCodeAt(0) === 127))) {
-        if (cursorPos > 0) {
-          const spans = getTagSpans();
-          const endingSpan = spans.find(s => s.end === cursorPos);
-          if (endingSpan) {
-            input = input.slice(0, endingSpan.start) + input.slice(endingSpan.end);
-            cursorPos = endingSpan.start;
-          } else {
-            input = input.slice(0, cursorPos - 1) + input.slice(cursorPos);
-            cursorPos--;
+      // Backspace / DEL handling (handles single or multiple backspaces from mobile IME)
+      if (str.includes('\x08') || str.includes('\x7f')) {
+        for (let i = 0; i < str.length; i++) {
+          const ch = str[i];
+          if (ch === '\x08' || ch === '\x7f') {
+            if (cursorPos > 0) {
+              const spans = getTagSpans();
+              const endingSpan = spans.find(s => s.end === cursorPos);
+              if (endingSpan) {
+                input = input.slice(0, endingSpan.start) + input.slice(endingSpan.end);
+                cursorPos = endingSpan.start;
+              } else {
+                input = input.slice(0, cursorPos - 1) + input.slice(cursorPos);
+                cursorPos--;
+              }
+            }
+          } else if (ch.charCodeAt(0) >= 32) {
+            const spans = getTagSpans();
+            const inside = spans.find(s => cursorPos > s.start && cursorPos < s.end);
+            if (inside) cursorPos = inside.end;
+            input = input.slice(0, cursorPos) + ch + input.slice(cursorPos);
+            cursorPos++;
           }
-          selectedIndex = 0;
-          render();
         }
+        selectedIndex = 0;
+        render();
         return;
       }
 
@@ -713,15 +730,18 @@ function stripAnsi(str: string): string {
         return;
       }
 
-      // Normal character input - snap out of span if needed
+      // Normal character input - clean control characters
+      const cleanStr = str.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+      if (!cleanStr) return;
+
       const spans = getTagSpans();
       const inside = spans.find(s => cursorPos > s.start && cursorPos < s.end);
       if (inside) {
         cursorPos = inside.end;
       }
 
-      input = input.slice(0, cursorPos) + str + input.slice(cursorPos);
-      cursorPos += str.length;
+      input = input.slice(0, cursorPos) + cleanStr + input.slice(cursorPos);
+      cursorPos += cleanStr.length;
       selectedIndex = 0;
       render();
     }
