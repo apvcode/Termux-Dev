@@ -18,7 +18,7 @@ async function pingUrl(url) {
         const req = https.get(url, {
             timeout: 3000,
             headers: {
-                'User-Agent': 'devx-doctor/1.4.7'
+                'User-Agent': 'devx-doctor/1.4.8'
             }
         }, (res) => {
             res.resume(); // consume response data to free up memory and release socket
