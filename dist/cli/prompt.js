@@ -53,6 +53,7 @@ export function askPrompt(opts = {}) {
         let input = opts.initialValue || '';
         let cursorPos = input.length;
         let selectedIndex = 0;
+        let lastRenderedDropdownLines = 0;
         let historyIndex = GLOBAL_PROMPT_HISTORY.length;
         let tempDraft = '';
         const imageAttachments = [];
@@ -168,7 +169,76 @@ export function askPrompt(opts = {}) {
             if (disposed)
                 return;
             const cols = Math.max(20, process.stdout.columns || 40);
+            const rows = Math.max(8, process.stdout.rows || 20);
             const items = getDropdownItems();
+            const dropdownLines = [];
+            if (items.length > 0) {
+                if (selectedIndex >= items.length)
+                    selectedIndex = items.length - 1;
+                if (selectedIndex < 0)
+                    selectedIndex = 0;
+                // Limit dropdown height gracefully so it always fits comfortably
+                const maxDropdownRows = Math.max(2, Math.min(rows - 3, 6));
+                const pageSize = Math.min(4, Math.max(2, Math.min(maxDropdownRows - 2, Math.floor(rows / 4))));
+                const innerBoxWidth = Math.max(10, Math.min(cols - 8, 48));
+                const total = items.length;
+                let startIndex = 0;
+                if (total > pageSize) {
+                    if (selectedIndex >= pageSize) {
+                        startIndex = Math.min(selectedIndex - pageSize + 1, total - pageSize);
+                    }
+                }
+                const endIndex = Math.min(startIndex + pageSize, total);
+                const hasMoreUp = startIndex > 0;
+                const hasMoreDown = endIndex < total;
+                let topBorderStr = '─'.repeat(innerBoxWidth);
+                if (hasMoreUp) {
+                    const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
+                    topBorderStr = '─'.repeat(mid) + ' ▲ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
+                }
+                let botBorderStr = '─'.repeat(innerBoxWidth);
+                if (hasMoreDown) {
+                    const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
+                    botBorderStr = '─'.repeat(mid) + ' ▼ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
+                }
+                dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╭' + topBorderStr + '╮') + '\x1b[0m');
+                for (let i = startIndex; i < endIndex; i++) {
+                    const item = items[i];
+                    const isSelected = i === selectedIndex;
+                    const pointer = isSelected ? '› ' : '  ';
+                    const availWidth = innerBoxWidth;
+                    let row = '';
+                    if (availWidth < 20) {
+                        const labelStr = item.label.length > availWidth - 2
+                            ? item.label.slice(0, availWidth - 3) + '…'
+                            : item.label.padEnd(availWidth - 2, ' ');
+                        const plain = (pointer + labelStr).padEnd(availWidth, ' ').slice(0, availWidth);
+                        row = isSelected
+                            ? theme.badgeFn(plain) + '\x1b[0m'
+                            : pointer + theme.boldFn(labelStr) + '\x1b[0m';
+                    }
+                    else {
+                        const labelMax = Math.min(13, Math.max(6, Math.floor(availWidth * 0.35)));
+                        const labelStr = item.label.length > labelMax
+                            ? item.label.slice(0, labelMax - 1) + '…'
+                            : item.label.padEnd(labelMax, ' ');
+                        const descMax = Math.max(4, availWidth - labelMax - pointer.length - 1);
+                        const descStr = item.desc.length > descMax
+                            ? item.desc.slice(0, descMax - 1) + '…'
+                            : item.desc.padEnd(descMax, ' ');
+                        const plain = (pointer + labelStr + ' ' + descStr).padEnd(availWidth, ' ').slice(0, availWidth);
+                        if (isSelected) {
+                            row = theme.badgeFn(plain) + '\x1b[0m';
+                        }
+                        else {
+                            row = `${pointer}${theme.boldFn(labelStr)} ${pc.gray(descStr)}\x1b[0m`;
+                        }
+                    }
+                    dropdownLines.push(pc.dim('│') + '  ' + pc.dim('│') + row + pc.dim('│') + '\x1b[0m');
+                }
+                dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯') + '\x1b[0m');
+            }
+            // 1. Format and write the Prompt line safely
             let inputDisplay = pc.dim('│') + '  ';
             let renderCursorCol = 3;
             if (input.length === 0) {
@@ -178,28 +248,9 @@ export function askPrompt(opts = {}) {
                 renderCursorCol = 3;
             }
             else {
-                if (selectedIndex >= items.length)
-                    selectedIndex = Math.max(0, items.length - 1);
-                if (selectedIndex < 0)
-                    selectedIndex = 0;
-                const selected = items.length > 0 ? items[selectedIndex] : null;
-                // Calculate ghost autocomplete text & badge if available
-                let ghostText = '';
-                let hintBadge = '';
-                if (selected) {
-                    if (input.startsWith('/') && selected.label.toLowerCase().startsWith(input.toLowerCase())) {
-                        ghostText = selected.label.slice(input.length);
-                        const remainingWidth = cols - (3 + input.length + ghostText.length + 8);
-                        if (remainingWidth > 12) {
-                            const maxDesc = Math.min(remainingWidth, 32);
-                            const descStr = selected.desc.length > maxDesc ? selected.desc.slice(0, maxDesc - 1) + '…' : selected.desc;
-                            hintBadge = '  ' + pc.dim('•') + ' ' + pc.gray(descStr);
-                        }
-                    }
-                }
                 const maxInputLen = Math.max(10, cols - 6);
                 if (input.length <= maxInputLen) {
-                    inputDisplay += formatInputWithBadges(input) + (ghostText ? pc.dim(ghostText) : '') + hintBadge + '\x1b[0m';
+                    inputDisplay += formatInputWithBadges(input) + '\x1b[0m';
                     renderCursorCol = 3 + cursorPos;
                 }
                 else {
@@ -212,8 +263,33 @@ export function askPrompt(opts = {}) {
                     renderCursorCol = 3 + (prefix ? 1 : 0) + (cursorPos - start);
                 }
             }
-            // Write prompt line cleanly (stays strictly on line 0, 0 scrolling, 0 vertical jumps)
-            process.stdout.write(`\x1b[0m\r\x1b[2K${inputDisplay}\x1b[0m\r\x1b[${renderCursorCol}C`);
+            // Write prompt line
+            process.stdout.write(`\x1b[0m\r\x1b[2K${inputDisplay}\x1b[0m`);
+            // 2. Draw or update dropdown lines safely
+            if (dropdownLines.length > lastRenderedDropdownLines) {
+                // Allocate additional new lines that don't exist yet
+                for (let i = 0; i < lastRenderedDropdownLines; i++) {
+                    process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K${dropdownLines[i]}\x1b[0m`);
+                }
+                for (let i = lastRenderedDropdownLines; i < dropdownLines.length; i++) {
+                    process.stdout.write(`\n\x1b[0m\x1b[2K${dropdownLines[i]}\x1b[0m`);
+                }
+                process.stdout.write(`\x1b[${dropdownLines.length}A`);
+                lastRenderedDropdownLines = dropdownLines.length;
+            }
+            else if (lastRenderedDropdownLines > 0) {
+                // Redraw over existing lines without allocating new ones (0 scrolling!)
+                for (let i = 0; i < lastRenderedDropdownLines; i++) {
+                    process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K`);
+                    if (i < dropdownLines.length) {
+                        process.stdout.write(`${dropdownLines[i]}\x1b[0m`);
+                    }
+                }
+                process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
+                lastRenderedDropdownLines = dropdownLines.length;
+            }
+            // 3. Position cursor on the prompt line
+            process.stdout.write(`\r\x1b[${renderCursorCol}C`);
         }
         render();
         function cleanup() {
@@ -229,6 +305,13 @@ export function askPrompt(opts = {}) {
             process.stdin.pause();
         }
         function clearBoxAndExit(finalInput) {
+            if (lastRenderedDropdownLines > 0) {
+                for (let i = 0; i < lastRenderedDropdownLines; i++) {
+                    process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K`);
+                }
+                process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
+                lastRenderedDropdownLines = 0;
+            }
             const fullText = expandPastes(finalInput);
             if (fullText.trim()) {
                 if (GLOBAL_PROMPT_HISTORY.length === 0 ||
@@ -280,6 +363,13 @@ export function askPrompt(opts = {}) {
             }
             // Ctrl+C / SIGINT
             if (str === '\x03') {
+                if (lastRenderedDropdownLines > 0) {
+                    for (let i = 0; i < lastRenderedDropdownLines; i++) {
+                        process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K`);
+                    }
+                    process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
+                    lastRenderedDropdownLines = 0;
+                }
                 process.stdout.write(`\x1b[0m\r\x1b[2K\n`);
                 cleanup();
                 resolve('__CANCEL__');
