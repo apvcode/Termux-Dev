@@ -98,7 +98,7 @@ export function askPrompt(opts = {}) {
             const curLine = rl.line || '';
             // INSTANT COMMAND MENU TRIGGER
             // If user types '/' as the first character, instantly launch the robust search menu!
-            if (str === '/' && curLine.length === 0) {
+            if (str === '/' && curLine === '/') {
                 readline.cursorTo(process.stdout, 0);
                 readline.clearLine(process.stdout, 0);
                 cleanup();
