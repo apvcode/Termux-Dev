@@ -337,26 +337,14 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       // Write prompt line (no \n — stays on same line)
       process.stdout.write(`\x1b[0m\r\x1b[2K${inputDisplay}\x1b[0m`);
 
-      // 2. Draw dropdown below using \x1b[B (cursor down) + \r instead of \n
-      // \x1b[B moves cursor down WITHOUT scrolling if already at bottom — it just doesn't move.
-      // We first ensure enough blank lines exist by using \x1b[S (scroll up) if needed.
+      // 2. Draw dropdown below using \x1b[1B (cursor down) + \r without scrolling viewport
       const maxDropdowns = Math.max(dropdownLines.length, lastRenderedDropdownLines);
       if (maxDropdowns > 0) {
-        // Save cursor position
+        // Save cursor position on the prompt line
         process.stdout.write('\x1b7');
 
-        // Ensure we have room: scroll terminal up if we're near the bottom
-        // Use \x1b[<n>S to scroll the viewport up, creating space below
-        if (dropdownLines.length > 0) {
-          const neededSpace = dropdownLines.length;
-          // Push content up to make room, then reposition
-          process.stdout.write(`\x1b[${neededSpace}S`);
-          // Move cursor back up by the same amount (it moved with the scroll)
-          process.stdout.write(`\x1b[${neededSpace}A`);
-        }
-
         for (let i = 0; i < maxDropdowns; i++) {
-          // Move to next line: \x1b[1B moves down 1, \r returns to col 0
+          // Move to next line: \x1b[1B moves down 1 without scrolling, \r returns to col 0, \x1b[2K clears line
           process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K`);
           if (i < dropdownLines.length) {
             process.stdout.write(dropdownLines[i] + '\x1b[0m');
