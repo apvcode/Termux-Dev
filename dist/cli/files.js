@@ -58,7 +58,7 @@ const IMAGE_EXTS = {
     '.svg': 'image/svg+xml'
 };
 export async function resolveAtMentions(text) {
-    const mentionRegex = /@([a-zA-Z0-9_\-./]+)/g;
+    const mentionRegex = /@([a-zA-Z0-9_\-./\u0400-\u04FF]+)/g;
     const attachments = [];
     const images = [];
     const seenPaths = new Set();

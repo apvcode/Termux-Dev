@@ -145,7 +145,7 @@ function renderDirectoryHtml(dirPath: string, relPath: string, files: fsSync.Dir
       ${parentLink}
       ${items || '<li style="padding: 20px; text-align: center; color: #6e7681;">No visible files in this directory</li>'}
     </ul>
-    <div class="footer">devx v1.4.13 &bull; Terminal-Native AI Assistant</div>
+    <div class="footer">devx v1.4.14 &bull; Terminal-Native AI Assistant</div>
   </div>
 </body>
 </html>`;
@@ -243,15 +243,18 @@ export async function startServer(preferredPort = 3000): Promise<{ port: number;
         }
 
         // 4. SPA Fallback: check if root index.html exists
-        const rootIndex = path.join(cwd, 'index.html');
-        if (fsSync.existsSync(rootIndex)) {
-          const content = await fs.readFile(rootIndex);
-          res.writeHead(200, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Access-Control-Allow-Origin': '*'
-          });
-          res.end(content);
-          return;
+        const hasAssetExt = path.extname(reqPath).length > 0;
+        if (!hasAssetExt) {
+          const rootIndex = path.join(cwd, 'index.html');
+          if (fsSync.existsSync(rootIndex)) {
+            const content = await fs.readFile(rootIndex);
+            res.writeHead(200, {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Access-Control-Allow-Origin': '*'
+            });
+            res.end(content);
+            return;
+          }
         }
 
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });

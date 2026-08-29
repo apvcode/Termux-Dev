@@ -31,9 +31,10 @@ export function getModelPricing(modelName: string): { input: number; output: num
   const clean = (modelName || '').trim().toLowerCase();
 
   if (
-    clean.includes(':free') ||
+    clean.endsWith(':free') ||
     clean.includes('/free') ||
-    clean.includes('free') ||
+    clean === 'free' ||
+    clean.includes('free-models/') ||
     clean.includes('stealth') ||
     clean.includes('local') ||
     clean.includes('ollama') ||

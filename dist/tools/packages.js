@@ -51,7 +51,9 @@ export const installPackageTool = {
             cmd = `pnpm add ${args.dev ? '-D ' : ''}${args.package}`;
         }
         else if (pkgManager === 'pip') {
-            cmd = `pip install ${args.package}`;
+            const isUnix = process.platform !== 'win32';
+            const extraFlag = isUnix ? ' --break-system-packages' : '';
+            cmd = `pip install ${args.package}${extraFlag}`;
         }
         else if (pkgManager === 'cargo') {
             cmd = `cargo add ${args.package}`;

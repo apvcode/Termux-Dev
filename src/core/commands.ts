@@ -86,7 +86,7 @@ export class CustomCommandManager {
     // Support positional parameters: $1, $2, etc.
     const parts = trimmedArgs.split(/\s+/);
     for (let i = 0; i < parts.length; i++) {
-      expanded = expanded.replace(new RegExp(`\\$${i + 1}`, 'g'), () => parts[i]);
+      expanded = expanded.replace(new RegExp(`\\$${i + 1}(?!\\d)`, 'g'), () => parts[i]);
     }
 
     return expanded;

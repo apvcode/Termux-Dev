@@ -7,7 +7,21 @@ export interface NotificationOptions {
 }
 
 export function isTermux(): boolean {
-  return !!process.env.PREFIX?.includes('com.termux');
+  return !!process.env.TERMUX_VERSION || !!process.env.PREFIX?.includes('com.termux');
+}
+
+/**
+ * Acquires a Termux CPU wake lock to prevent Android from putting the process to sleep
+ * when Termux is in the background or the screen is turned off.
+ */
+export function acquireWakeLock(): void {
+  if (isTermux()) {
+    try {
+      const proc = spawn('termux-wake-lock', [], { stdio: 'ignore', detached: true });
+      proc.on('error', () => {});
+      proc.unref();
+    } catch {}
+  }
 }
 
 /**

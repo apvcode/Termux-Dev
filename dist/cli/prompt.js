@@ -69,6 +69,9 @@ export function askPrompt(opts = {}) {
             process.stdin.setRawMode(true);
             process.stdout.write('\x1b[?2004h'); // Enable bracketed paste mode
         }
+        const onResize = () => { if (!disposed)
+            render(); };
+        process.stdout.on('resize', onResize);
         function getTagSpans() {
             const spans = [];
             const regex = /\[(?:Pasted text #\d+ \+\d+ lines|\d+\.png \d+kb)\]/g;
@@ -144,7 +147,7 @@ export function askPrompt(opts = {}) {
                 }));
             }
             const beforeCursor = input.slice(0, cursorPos);
-            const atMatch = beforeCursor.match(/@([a-zA-Z0-9_\-./]*)$/);
+            const atMatch = beforeCursor.match(/@([a-zA-Z0-9_\-./\u0400-\u04FF]*)$/);
             if (atMatch && availableFiles.length > 0) {
                 const query = atMatch[1].toLowerCase();
                 const replaceStart = cursorPos - atMatch[0].length;
@@ -283,6 +286,7 @@ export function askPrompt(opts = {}) {
             if (process.stdout.isTTY) {
                 process.stdout.write('\x1b[?2004l');
             }
+            process.stdout.removeListener('resize', onResize);
             process.stdin.removeListener('data', onData);
             if (process.stdin.isTTY) {
                 process.stdin.setRawMode(false);
@@ -555,8 +559,11 @@ export function askPrompt(opts = {}) {
                                 cursorPos = endingSpan.start;
                             }
                             else {
-                                input = input.slice(0, cursorPos - 1) + input.slice(cursorPos);
-                                cursorPos--;
+                                // Handle surrogate pairs (emoji)
+                                const prevChar = input.charCodeAt(cursorPos - 1);
+                                const deleteCount = (prevChar >= 0xDC00 && prevChar <= 0xDFFF && cursorPos >= 2) ? 2 : 1;
+                                input = input.slice(0, cursorPos - deleteCount) + input.slice(cursorPos);
+                                cursorPos -= deleteCount;
                             }
                         }
                     }

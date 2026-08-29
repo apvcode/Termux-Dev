@@ -2,6 +2,19 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+const FALLBACK_LIMITS: Record<string, number> = {
+  'claude-3.5-sonnet': 200000,
+  'claude-3-opus': 200000,
+  'gemini-2.5-flash': 1048576,
+  'gemini-2.5-pro': 1048576,
+  'gemini-2.0-flash': 1048576,
+  'gpt-4o': 128000,
+  'gpt-4o-mini': 128000,
+  'deepseek-chat': 128000,
+  'deepseek-r1': 128000,
+  'qwen-2.5-coder': 131072,
+};
+
 let limitsCache: Record<string, number> | null = null;
 
 function loadLimits(): Record<string, number> {
@@ -23,7 +36,7 @@ function loadLimits(): Record<string, number> {
     }
   } catch {}
 
-  limitsCache = {};
+  limitsCache = { ...FALLBACK_LIMITS };
   return limitsCache;
 }
 

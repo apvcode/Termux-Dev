@@ -69,7 +69,7 @@ export interface ResolvedMentions {
 }
 
 export async function resolveAtMentions(text: string): Promise<ResolvedMentions> {
-  const mentionRegex = /@([a-zA-Z0-9_\-./]+)/g;
+  const mentionRegex = /@([a-zA-Z0-9_\-./\u0400-\u04FF]+)/g;
   const attachments: Array<{ path: string; content: string }> = [];
   const images: Array<{ path: string; dataUrl: string }> = [];
   const seenPaths = new Set<string>();

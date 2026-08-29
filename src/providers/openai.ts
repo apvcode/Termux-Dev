@@ -213,6 +213,7 @@ export class OpenAIProvider implements LLMProvider {
     let accumulatedContent = '';
     let accumulatedReasoning = '';
     let inThinkTag = false;
+    let thinkBuffer = '';
     const toolMap = new Map<number, { id: string; name: string; argsStr: string }>();
     let usageData: any = null;
 
@@ -257,36 +258,62 @@ export class OpenAIProvider implements LLMProvider {
 
               // 2. Check content (and handle <think> tags if embedded in content)
               if (delta.content) {
-                const text = delta.content;
-                
-                if (text.includes('<think>')) {
-                  inThinkTag = true;
-                  const parts = text.split('<think>');
-                  if (parts[0]) {
-                    accumulatedContent += parts[0];
-                    yield { type: 'content_delta', delta: parts[0] };
+                thinkBuffer += delta.content;
+
+                while (thinkBuffer.length > 0) {
+                  if (inThinkTag) {
+                    const closeIdx = thinkBuffer.indexOf('</think>');
+                    if (closeIdx !== -1) {
+                      const reasoning = thinkBuffer.slice(0, closeIdx);
+                      if (reasoning) {
+                        accumulatedReasoning += reasoning;
+                        yield { type: 'reasoning_delta', delta: reasoning };
+                      }
+                      inThinkTag = false;
+                      thinkBuffer = thinkBuffer.slice(closeIdx + 8);
+                    } else {
+                      const partialIdx = thinkBuffer.lastIndexOf('<');
+                      if (partialIdx !== -1 && thinkBuffer.length - partialIdx < 8) {
+                        const reasoning = thinkBuffer.slice(0, partialIdx);
+                        if (reasoning) {
+                          accumulatedReasoning += reasoning;
+                          yield { type: 'reasoning_delta', delta: reasoning };
+                        }
+                        thinkBuffer = thinkBuffer.slice(partialIdx);
+                        break;
+                      } else {
+                        accumulatedReasoning += thinkBuffer;
+                        yield { type: 'reasoning_delta', delta: thinkBuffer };
+                        thinkBuffer = '';
+                      }
+                    }
+                  } else {
+                    const openIdx = thinkBuffer.indexOf('<think>');
+                    if (openIdx !== -1) {
+                      const content = thinkBuffer.slice(0, openIdx);
+                      if (content) {
+                        accumulatedContent += content;
+                        yield { type: 'content_delta', delta: content };
+                      }
+                      inThinkTag = true;
+                      thinkBuffer = thinkBuffer.slice(openIdx + 7);
+                    } else {
+                      const partialIdx = thinkBuffer.lastIndexOf('<');
+                      if (partialIdx !== -1 && thinkBuffer.length - partialIdx < 8) {
+                        const content = thinkBuffer.slice(0, partialIdx);
+                        if (content) {
+                          accumulatedContent += content;
+                          yield { type: 'content_delta', delta: content };
+                        }
+                        thinkBuffer = thinkBuffer.slice(partialIdx);
+                        break;
+                      } else {
+                        accumulatedContent += thinkBuffer;
+                        yield { type: 'content_delta', delta: thinkBuffer };
+                        thinkBuffer = '';
+                      }
+                    }
                   }
-                  if (parts[1]) {
-                    accumulatedReasoning += parts[1];
-                    yield { type: 'reasoning_delta', delta: parts[1] };
-                  }
-                } else if (text.includes('</think>')) {
-                  inThinkTag = false;
-                  const parts = text.split('</think>');
-                  if (parts[0]) {
-                    accumulatedReasoning += parts[0];
-                    yield { type: 'reasoning_delta', delta: parts[0] };
-                  }
-                  if (parts[1]) {
-                    accumulatedContent += parts[1];
-                    yield { type: 'content_delta', delta: parts[1] };
-                  }
-                } else if (inThinkTag) {
-                  accumulatedReasoning += text;
-                  yield { type: 'reasoning_delta', delta: text };
-                } else {
-                  accumulatedContent += text;
-                  yield { type: 'content_delta', delta: text };
                 }
               }
 
@@ -338,6 +365,16 @@ export class OpenAIProvider implements LLMProvider {
       }
     } finally {
       reader.releaseLock();
+    }
+    
+    if (thinkBuffer.length > 0) {
+      if (inThinkTag) {
+        accumulatedReasoning += thinkBuffer;
+        yield { type: 'reasoning_delta', delta: thinkBuffer };
+      } else {
+        accumulatedContent += thinkBuffer;
+        yield { type: 'content_delta', delta: thinkBuffer };
+      }
     }
 
     const toolCalls = Array.from(toolMap.values()).map(tc => {

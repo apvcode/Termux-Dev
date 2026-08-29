@@ -36,18 +36,36 @@ export class History {
         const chatOnly = this.messages.filter(m => m.role !== 'system');
         return this.estimateTokens(chatOnly);
     }
-    // Эвристика: кол-во токенов = длина всех строк / 3.5
     estimateTokens(messages) {
-        let chars = 0;
+        let tokens = 0;
+        const countStringTokens = (str) => {
+            if (!str)
+                return 0;
+            let t = 0;
+            for (let i = 0; i < str.length; i++) {
+                const code = str.charCodeAt(i);
+                if (code >= 0x0400 && code <= 0x04FF) {
+                    t += 0.8;
+                }
+                else if (code > 0x07FF) {
+                    t += 1.2;
+                }
+                else {
+                    t += 0.25;
+                }
+            }
+            return t;
+        };
         for (const m of messages) {
-            chars += m.content?.length || 0;
+            tokens += countStringTokens(m.content || '');
             if (m.tool_calls) {
                 for (const tc of m.tool_calls) {
-                    chars += (tc.name.length + JSON.stringify(tc.arguments).length);
+                    tokens += countStringTokens(tc.name);
+                    tokens += countStringTokens(JSON.stringify(tc.arguments));
                 }
             }
         }
-        return Math.ceil(chars / 3.5);
+        return Math.ceil(tokens);
     }
     groupIntoBlocks(messages) {
         const blocks = [];

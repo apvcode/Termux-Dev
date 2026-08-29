@@ -16,7 +16,7 @@ import { CLIConsoleGuard } from '../permissions/guard.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
 import { MemoryManager } from '../core/memory.js';
 import { startServer, stopServer, displayServerBanner } from './server.js';
-import { notifyDevice } from '../core/notify.js';
+import { notifyDevice, acquireWakeLock } from '../core/notify.js';
 import { runDoctor } from './doctor.js';
 import { ALL_PROVIDERS } from './providers.js';
 import { getModelContextLimit } from '../core/models.js';
@@ -484,7 +484,7 @@ function drawLogo() {
             theme.colorFn('  █▀▀▄ █▀▀▀ █   █ █   █'),
             theme.colorFn('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
             theme.colorFn('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-            '  ' + theme.boldFn('v1.4.13'),
+            '  ' + theme.boldFn('v1.4.14'),
             ''
         ];
         for (const line of logo) {
@@ -499,7 +499,7 @@ function drawLogo() {
             indent + theme.colorFn('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
             indent + theme.colorFn('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
             indent + theme.colorFn('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-            indent + theme.boldFn('v1.4.13'),
+            indent + theme.boldFn('v1.4.14'),
             ''
         ];
         for (const line of logo) {
@@ -645,7 +645,7 @@ async function handleSettings(config) {
             const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
             const currentTh = getCurrentTheme();
             const choice = await select({
-                message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.4.13 • theme: ${currentTh.name})`)}`,
+                message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.4.14 • theme: ${currentTh.name})`)}`,
                 choices: [
                     {
                         name: `🎨 Color Theme: ${currentTh.emoji} ${currentTh.name}`,
@@ -686,7 +686,7 @@ async function handleSettings(config) {
                         description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
                     },
                     {
-                        name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.4.13 by ApvCode)')}`,
+                        name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.4.14 by ApvCode)')}`,
                         value: 'about',
                         description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
                     },
@@ -702,7 +702,7 @@ async function handleSettings(config) {
                 continue;
             }
             if (choice === 'about') {
-                p.note(`⚡ devx v1.4.13 — Terminal-Native AI Coding Agent\n` +
+                p.note(`⚡ devx v1.4.14 — Terminal-Native AI Coding Agent\n` +
                     `🎨 Theme: ${currentTh.emoji} ${currentTh.name}\n` +
                     `👤 Author: ApvCode (https://github.com/apvcode)\n` +
                     `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
@@ -767,11 +767,38 @@ async function handleSettings(config) {
     return config;
 }
 export async function main() {
+    // === Termux / Android Stability: Global Signal Handlers ===
+    // Ignore SIGHUP so the process survives when Termux is minimized
+    if (process.platform !== 'win32') {
+        process.on('SIGHUP', () => {
+            // Termux minimized or window lost focus — keep process alive
+        });
+    }
+    // Graceful shutdown on SIGTERM (closing Termux tab / kill command)
+    process.on('SIGTERM', () => {
+        try {
+            resetTerminalTheme();
+            MCPManager.getInstance().stopAll();
+        }
+        catch { }
+        process.exit(0);
+    });
+    // Protect against crash on background I/O errors (EIO/EPIPE/ERR_STREAM_DESTROYED)
+    process.on('uncaughtException', (err) => {
+        const isIgnorableIo = err.code === 'EIO' || err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED';
+        if (isIgnorableIo)
+            return;
+        console.error('\n[devx runtime error]:', err.message);
+    });
+    process.on('unhandledRejection', (reason) => {
+        // Prevent Node.js crash from unhandled network promise rejections
+    });
+    acquireWakeLock();
     const program = new Command();
     program
         .name('devx')
         .description('Terminal-native AI coding assistant and vibe-coding agent')
-        .version('1.4.13')
+        .version('1.4.14')
         .option('-p, --prompt <task>', 'Run one-shot task non-interactively (headless mode)')
         .option('-y, --yolo', 'Automatically approve all tool executions without confirmation')
         .option('-m, --model <model>', 'Specify AI model to use for this execution')

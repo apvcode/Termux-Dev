@@ -19,12 +19,23 @@ export const bashTool: Tool = {
   },
   async execute(args: any) {
     return new Promise((resolve, reject) => {
-      const proc = spawn(args.command, { shell: true });
+      const isWin = process.platform === 'win32';
+      const proc = spawn(args.command, { shell: true, detached: !isWin });
       let output = '';
       let isTruncated = false;
       
+      const killProc = () => {
+        try {
+          if (!isWin && proc.pid) {
+            process.kill(-proc.pid, 'SIGTERM');
+          } else {
+            proc.kill();
+          }
+        } catch {}
+      };
+      
       const timeout = setTimeout(() => {
-        proc.kill();
+        killProc();
         resolve(output + '\n[Process killed due to timeout]');
       }, 30000);
 
@@ -34,7 +45,7 @@ export const bashTool: Tool = {
         if (output.length > 20000) {
           isTruncated = true;
           output = output.substring(0, 20000) + '\n[Output truncated]';
-          proc.kill();
+          killProc();
         }
       });
 
@@ -44,7 +55,7 @@ export const bashTool: Tool = {
         if (output.length > 20000) {
           isTruncated = true;
           output = output.substring(0, 20000) + '\n[Output truncated]';
-          proc.kill();
+          killProc();
         }
       });
 

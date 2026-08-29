@@ -1,6 +1,20 @@
 import { spawn } from 'child_process';
 export function isTermux() {
-    return !!process.env.PREFIX?.includes('com.termux');
+    return !!process.env.TERMUX_VERSION || !!process.env.PREFIX?.includes('com.termux');
+}
+/**
+ * Acquires a Termux CPU wake lock to prevent Android from putting the process to sleep
+ * when Termux is in the background or the screen is turned off.
+ */
+export function acquireWakeLock() {
+    if (isTermux()) {
+        try {
+            const proc = spawn('termux-wake-lock', [], { stdio: 'ignore', detached: true });
+            proc.on('error', () => { });
+            proc.unref();
+        }
+        catch { }
+    }
 }
 /**
  * Sends a notification and haptic vibration to the device.

@@ -159,8 +159,20 @@ export class Agent {
             if (!response.toolCalls || response.toolCalls.length === 0) {
                 break;
             }
+            const executedToolCallIds = new Set();
             for (const call of response.toolCalls) {
                 if (signal?.aborted) {
+                    // Add synthetic responses for ALL remaining unexecuted tool calls
+                    for (const remaining of response.toolCalls) {
+                        if (!executedToolCallIds.has(remaining.id)) {
+                            this.history.addMessage({
+                                role: 'tool',
+                                content: '[Operation cancelled by user]',
+                                tool_call_id: remaining.id,
+                                name: remaining.name,
+                            });
+                        }
+                    }
                     return;
                 }
                 const actionDesc = getActionDescription(call.name, call.arguments);
@@ -197,6 +209,7 @@ export class Agent {
                     tool_call_id: call.id,
                     name: call.name,
                 });
+                executedToolCallIds.add(call.id);
             }
             iterations++;
         }

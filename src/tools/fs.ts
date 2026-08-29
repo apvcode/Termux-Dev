@@ -161,7 +161,15 @@ export const editFileTool: Tool = {
       addedArr.forEach((l: string) => diffLines.push(`${addCounter++} +  ${l}`));
       contextAfter.forEach((l: string) => diffLines.push(`${addCounter++}    ${l}`));
 
-      const newContent = content.slice(0, targetIndex) + args.replacement + content.slice(targetIndex + target.length);
+      const hasCRLF = oldContent.includes('\r\n');
+      let newContent = content.slice(0, targetIndex) + args.replacement + content.slice(targetIndex + target.length);
+      
+      if (hasCRLF) {
+        newContent = newContent.replace(/\r?\n/g, '\r\n');
+      } else {
+        newContent = newContent.replace(/\r\n/g, '\n');
+      }
+      
       await fs.writeFile(args.path, newContent, 'utf8');
 
       return JSON.stringify({
@@ -196,10 +204,12 @@ export const listDirTool: Tool = {
   validateArgs(args: any) {
     if (!args.path || typeof args.path !== 'string') throw new Error('path is required');
   },
-  async execute(args: any) {
+    async execute(args: any) {
     try {
       const files = await fs.readdir(args.path, { withFileTypes: true });
-      return files.map(f => `${f.isDirectory() ? '[DIR]' : '[FILE]'} ${f.name}`).join('\n');
+      const ignores = ['node_modules', '.git', '.next', '.cache', 'dist'];
+      const filtered = files.filter(f => !ignores.includes(f.name));
+      return filtered.map(f => `${f.isDirectory() ? '[DIR]' : '[FILE]'} ${f.name}`).join('\n');
     } catch (err: any) {
       throw new Error(`Failed to list directory: ${err.message}`);
     }

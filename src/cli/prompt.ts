@@ -107,6 +107,9 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       process.stdout.write('\x1b[?2004h'); // Enable bracketed paste mode
     }
 
+    const onResize = () => { if (!disposed) render(); };
+    process.stdout.on('resize', onResize);
+
     function getTagSpans(): Array<{ start: number; end: number }> {
       const spans: Array<{ start: number; end: number }> = [];
       const regex = /\[(?:Pasted text #\d+ \+\d+ lines|\d+\.png \d+kb)\]/g;
@@ -194,7 +197,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       }
 
       const beforeCursor = input.slice(0, cursorPos);
-      const atMatch = beforeCursor.match(/@([a-zA-Z0-9_\-./]*)$/);
+      const atMatch = beforeCursor.match(/@([a-zA-Z0-9_\-./\u0400-\u04FF]*)$/);
       if (atMatch && availableFiles.length > 0) {
         const query = atMatch[1].toLowerCase();
         const replaceStart = cursorPos - atMatch[0].length;
@@ -355,6 +358,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       if (process.stdout.isTTY) {
         process.stdout.write('\x1b[?2004l');
       }
+      process.stdout.removeListener('resize', onResize);
       process.stdin.removeListener('data', onData);
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(false);
@@ -640,8 +644,11 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
                 input = input.slice(0, endingSpan.start) + input.slice(endingSpan.end);
                 cursorPos = endingSpan.start;
               } else {
-                input = input.slice(0, cursorPos - 1) + input.slice(cursorPos);
-                cursorPos--;
+                // Handle surrogate pairs (emoji)
+                const prevChar = input.charCodeAt(cursorPos - 1);
+                const deleteCount = (prevChar >= 0xDC00 && prevChar <= 0xDFFF && cursorPos >= 2) ? 2 : 1;
+                input = input.slice(0, cursorPos - deleteCount) + input.slice(cursorPos);
+                cursorPos -= deleteCount;
               }
             }
           } else if (ch.charCodeAt(0) >= 32) {

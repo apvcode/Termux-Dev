@@ -36,56 +36,73 @@ export const askQuestionsTool = {
         }
     },
     execute: async (args) => {
+        if (!process.stdin.isTTY) {
+            return JSON.stringify({ note: 'Questions skipped in non-interactive mode', answers: {} });
+        }
         if (!args.questions || !Array.isArray(args.questions) || args.questions.length === 0) {
             return 'No questions provided.';
         }
         const results = [];
         const total = args.questions.length;
         console.log();
-        for (let i = 0; i < total; i++) {
-            const q = args.questions[i];
-            const stepHeader = pc.cyan(`‹ ${i + 1} of ${total} ›`);
-            const messageTitle = `${pc.bold(q.question)}  ${stepHeader}`;
-            const choices = q.options.map((opt, idx) => ({
-                name: `${pc.cyan(String(idx + 1))}  ${opt}`,
-                value: opt
-            }));
-            if (q.allowCustom !== false) {
-                choices.push({
-                    name: `${pc.dim('✏️  Type custom answer...')}`,
-                    value: '__custom__'
-                });
-            }
-            choices.push({
-                name: `${pc.dim('⏭️  Skip')}`,
-                value: '__skip__'
-            });
-            try {
-                let answer = await select({
-                    message: messageTitle,
-                    choices,
-                    pageSize: Math.min(8, choices.length)
-                });
-                if (answer === '__custom__') {
-                    const customAns = await input({
-                        message: pc.cyan('Your custom answer:'),
-                        validate: (v) => v.trim().length > 0 || 'Answer cannot be empty'
+        // Pause raw mode for interactive prompt
+        const wasRaw = process.stdin.isTTY && process.stdin.isRaw;
+        if (wasRaw) {
+            process.stdin.setRawMode(false);
+        }
+        try {
+            for (let i = 0; i < total; i++) {
+                const q = args.questions[i];
+                const stepHeader = pc.cyan(`‹ ${i + 1} of ${total} ›`);
+                const messageTitle = `${pc.bold(q.question)}  ${stepHeader}`;
+                const choices = q.options.map((opt, idx) => ({
+                    name: `${pc.cyan(String(idx + 1))}  ${opt}`,
+                    value: opt
+                }));
+                if (q.allowCustom !== false) {
+                    choices.push({
+                        name: `${pc.dim('✏️  Type custom answer...')}`,
+                        value: '__custom__'
                     });
-                    answer = customAns.trim();
                 }
-                else if (answer === '__skip__') {
-                    answer = '(Skipped)';
-                }
-                results.push({
-                    question: q.question,
-                    answer
+                choices.push({
+                    name: `${pc.dim('⏭️  Skip')}`,
+                    value: '__skip__'
                 });
+                try {
+                    let answer = await select({
+                        message: messageTitle,
+                        choices,
+                        pageSize: Math.min(8, choices.length)
+                    });
+                    if (answer === '__custom__') {
+                        const customAns = await input({
+                            message: pc.cyan('Your custom answer:'),
+                            validate: (v) => v.trim().length > 0 || 'Answer cannot be empty'
+                        });
+                        answer = customAns.trim();
+                    }
+                    else if (answer === '__skip__') {
+                        answer = '(Skipped)';
+                    }
+                    results.push({
+                        question: q.question,
+                        answer
+                    });
+                }
+                catch {
+                    results.push({
+                        question: q.question,
+                        answer: '(Skipped)'
+                    });
+                }
             }
-            catch {
-                results.push({
-                    question: q.question,
-                    answer: '(Skipped)'
-                });
+        }
+        finally {
+            // Restore raw mode
+            if (wasRaw && process.stdin.isTTY) {
+                process.stdin.setRawMode(true);
+                process.stdin.resume();
             }
         }
         // Print styled Q&A block in console

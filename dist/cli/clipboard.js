@@ -4,6 +4,15 @@ import path from 'path';
 import os from 'os';
 import { exec } from 'child_process';
 const MEDIA_DIR = path.join(process.cwd(), '.devx', 'media');
+export function expandHomePath(p) {
+    if (!p)
+        return p;
+    const trimmed = p.trim().replace(/^['"]|['"]$/g, '');
+    if (trimmed === '~' || trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+        return path.join(os.homedir(), trimmed.slice(2));
+    }
+    return trimmed;
+}
 export function formatFileSize(bytes) {
     if (bytes < 1024)
         return `${bytes}b`;
@@ -107,7 +116,7 @@ if ($img -ne $null) {
     });
 }
 export async function processPastedFilePath(rawPath, existingNames) {
-    const cleanPath = rawPath.trim().replace(/^['"&]+|['"]+$/g, '').trim();
+    const cleanPath = expandHomePath(rawPath).trim().replace(/^['"&]+|['"]+$/g, '').trim();
     const resolved = path.resolve(process.cwd(), cleanPath);
     const imageExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.bmp']);
     const ext = path.extname(resolved).toLowerCase();

@@ -20,16 +20,17 @@ export const diagnoseCodeTool: Tool = {
       let cmd = '';
 
       if (args.file) {
+        const quotedFile = `"${args.file}"`;
         if (args.file.endsWith('.ts') || args.file.endsWith('.tsx')) {
           if (fsSync.existsSync('tsconfig.json')) {
             cmd = 'npx tsc --noEmit';
           } else {
-            cmd = `node --check ${args.file}`;
+            cmd = `echo "node --check does not work for TypeScript. Please use tsc or tsx."`;
           }
         } else if (args.file.endsWith('.js') || args.file.endsWith('.mjs') || args.file.endsWith('.cjs')) {
-          cmd = `node --check ${args.file}`;
+          cmd = `node --check ${quotedFile}`;
         } else if (args.file.endsWith('.py')) {
-          cmd = `python -m py_compile ${args.file}`;
+          cmd = `python -m py_compile ${quotedFile}`;
         } else if (args.file.endsWith('.rs')) {
           cmd = 'cargo check';
         }

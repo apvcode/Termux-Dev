@@ -163,10 +163,25 @@ export class CLIConsoleGuard implements PermissionGuard {
       console.log(`  ${pc.dim('Arguments:')} ${JSON.stringify(args, null, 2)}`);
     }
 
-    const allowed = await p.confirm({
-      message: isDangerous ? pc.red('Confirm executing this dangerous command?') : 'Allow execution?',
-      initialValue: !isDangerous
-    });
+    // Pause raw mode for interactive prompt
+    const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
+    if (wasRaw) {
+      process.stdin.setRawMode(false);
+    }
+
+    let allowed: boolean | symbol = false;
+    try {
+      allowed = await p.confirm({
+        message: isDangerous ? pc.red('Confirm executing this dangerous command?') : 'Allow execution?',
+        initialValue: !isDangerous
+      });
+    } finally {
+      // Restore raw mode
+      if (wasRaw && process.stdin.isTTY) {
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+      }
+    }
 
     return allowed === true;
   }

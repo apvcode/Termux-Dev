@@ -27,9 +27,10 @@ function loadPricing() {
 }
 export function getModelPricing(modelName) {
     const clean = (modelName || '').trim().toLowerCase();
-    if (clean.includes(':free') ||
+    if (clean.endsWith(':free') ||
         clean.includes('/free') ||
-        clean.includes('free') ||
+        clean === 'free' ||
+        clean.includes('free-models/') ||
         clean.includes('stealth') ||
         clean.includes('local') ||
         clean.includes('ollama') ||
