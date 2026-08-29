@@ -1,4 +1,3 @@
-import readline from 'readline';
 import pc from 'picocolors';
 import { scanProjectFiles } from './files.js';
 import { saveClipboardImage, processPastedFilePath } from './clipboard.js';
@@ -45,6 +44,25 @@ export interface AskPromptOptions {
   planMode?: boolean;
 }
 
+interface DropdownItem {
+  label: string;
+  desc: string;
+  replacement: string;
+  replaceStart: number;
+  replaceLen: number;
+}
+
+interface PastedBlock {
+  id: number;
+  lines: number;
+  text: string;
+  tag: string;
+}
+
+function stripAnsi(str: string): string {
+  return str.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+}
+
 export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
   return new Promise((resolve) => {
     const msg = opts.message
@@ -62,90 +80,77 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       .then((c) => (customCommandsList = c.map((x) => ({ cmd: x.cmd, desc: x.desc }))))
       .catch(() => {});
 
+    let input = opts.initialValue || '';
+    let cursorPos = input.length;
+    let selectedIndex = 0;
+    let lastRenderedDropdownLines = 0;
+
+    let historyIndex = GLOBAL_PROMPT_HISTORY.length;
+    let tempDraft = '';
+
     const imageAttachments: Array<{ tag: string; fileName: string; filePath: string; sizeStr: string }> = [];
     const usedImageNames = new Set<string>();
 
-    const completer = (line: string): [string[], string] => {
-      const allCmds = [
-        ...SLASH_COMMANDS.map((c) => c.cmd),
-        ...customCommandsList.map((c) => c.cmd)
-      ];
+    const pastedBlocks: PastedBlock[] = [];
+    let nextPasteId = 1;
 
-      // 1. Slash commands autocomplete
-      if (line.startsWith('/')) {
-        const q = line.trim().toLowerCase();
-        const hits = allCmds.filter((cmd) => cmd.toLowerCase().startsWith(q));
-        return [hits.length ? hits : allCmds, line];
-      }
+    let inBracketedPaste = false;
+    let bracketedBuffer = '';
 
-      // 2. @file autocomplete
-      const atMatch = line.match(/@([a-zA-Z0-9_\-./]*)$/);
-      if (atMatch && availableFiles.length > 0) {
-        const query = atMatch[1].toLowerCase();
-        const hits = availableFiles
-          .filter((f) => f.toLowerCase().includes(query) || query === '')
-          .slice(0, 15)
-          .map((f) => `@${f}${f.endsWith('/') ? '' : ' '}`);
-        return [hits, atMatch[0]];
-      }
+    const placeholder = opts.placeholder || 'Describe a task, @file, /help, paste image, or press Tab to switch mode';
 
-      return [[], line];
-    };
+    let disposed = false;
 
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      prompt: pc.dim('│') + '  ',
-      completer,
-      historySize: 100
-    });
-
-    // Populate history in readline
-    if (GLOBAL_PROMPT_HISTORY.length > 0) {
-      (rl as any).history = [...GLOBAL_PROMPT_HISTORY].reverse();
+    process.stdin.resume();
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
+      process.stdout.write('\x1b[?2004h'); // Enable bracketed paste mode
     }
 
-    let isClosed = false;
+    function getTagSpans(): Array<{ start: number; end: number }> {
+      const spans: Array<{ start: number; end: number }> = [];
+      const regex = /\[(?:Pasted text #\d+ \+\d+ lines|\d+\.png \d+kb)\]/g;
+      let match;
+      while ((match = regex.exec(input)) !== null) {
+        spans.push({ start: match.index, end: match.index + match[0].length });
+      }
+      return spans;
+    }
 
-    const cleanup = () => {
-      if (isClosed) return;
-      isClosed = true;
-      process.stdin.removeListener('keypress', onKeypress);
-      rl.close();
-    };
+    function formatInputWithBadges(str: string): string {
+      return str.replace(
+        /(\[(?:Pasted text #\d+ \+\d+ lines|\d+\.png \d+kb)\])/g,
+        (match) => theme.badgeFn(` ${match.slice(1, -1)} `)
+      );
+    }
 
-    const onKeypress = (str: string, key: any) => {
-      if (isClosed) return;
+    function expandPastes(text: string): string {
+      let expanded = text;
+      for (const block of pastedBlocks) {
+        expanded = expanded.split(block.tag).join(block.text);
+      }
+      for (const img of imageAttachments) {
+        expanded = expanded.split(img.tag).join(`@${img.filePath.replace(/\\/g, '/')} `);
+      }
+      return expanded;
+    }
 
-      const curLine = rl.line || '';
-
-      // INSTANT COMMAND MENU TRIGGER
-      // If user types '/' as the first character, instantly launch the robust search menu!
-      if (str === '/' && curLine === '/') {
-        readline.cursorTo(process.stdout, 0);
-        readline.clearLine(process.stdout, 0);
-        cleanup();
-        resolve('/');
+    function handlePaste(text: string) {
+      const trimmed = text.trim();
+      const lines = trimmed.split(/\r\n|\r|\n/);
+      if (lines.length <= 1 && text.length < 80) {
+        // Short paste: insert normally
+        input = input.slice(0, cursorPos) + text + input.slice(cursorPos);
+        cursorPos += text.length;
+        render();
         return;
       }
 
-      // Tab key pressed
-      if (key && key.name === 'tab') {
-        // If line is empty or does not start with / or contain @, switch mode
-        if (curLine.trim() === '' || (!curLine.startsWith('/') && !curLine.includes('@'))) {
-          readline.cursorTo(process.stdout, 0);
-          readline.clearLine(process.stdout, 0);
-          cleanup();
-          resolve(`__TOGGLE_MODE__:${curLine}`);
-          return;
-        }
-      }
-
-      // Ctrl+V or Ctrl+P: Clipboard image paste
-      if ((key && key.ctrl && (key.name === 'v' || key.name === 'p')) || str === '\x16' || str === '\x10') {
-        saveClipboardImage('image.png', usedImageNames)
+      // Check if pasted text is an image path
+      if (trimmed.match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
+        processPastedFilePath(trimmed, usedImageNames)
           .then((imgRes) => {
-            if (imgRes && !isClosed) {
+            if (imgRes && !disposed) {
               const tag = `[${imgRes.fileName} ${imgRes.sizeStr}]`;
               imageAttachments.push({
                 tag,
@@ -154,93 +159,534 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
                 sizeStr: imgRes.sizeStr
               });
               usedImageNames.add(imgRes.fileName);
-              rl.write(`${tag} `);
+              input = input.slice(0, cursorPos) + tag + ' ' + input.slice(cursorPos);
+              cursorPos += tag.length + 1;
+              render();
             }
           })
           .catch(() => {});
+        return;
       }
-    };
 
-    if (process.stdin.isTTY) {
-      readline.emitKeypressEvents(process.stdin, rl);
-      process.stdin.on('keypress', onKeypress);
+      const id = nextPasteId++;
+      const tag = `[Pasted text #${id} +${lines.length} lines]`;
+      pastedBlocks.push({ id, lines: lines.length, text, tag });
+
+      input = input.slice(0, cursorPos) + tag + input.slice(cursorPos);
+      cursorPos += tag.length;
+      render();
     }
 
-    if (opts.initialValue) {
-      rl.write(opts.initialValue);
+    function getDropdownItems(): DropdownItem[] {
+      // 1. Slash commands dropdown (when input starts with /)
+      if (input.startsWith('/')) {
+        const q = input.trim().toLowerCase();
+        const baseList = [
+          ...SLASH_COMMANDS.map((c) => ({ label: c.cmd, desc: c.desc, replacement: c.cmd })),
+          ...customCommandsList.map((c) => ({ label: c.cmd, desc: `(custom) ${c.desc}`, replacement: c.cmd }))
+        ];
+
+        const filtered = baseList.filter((c) => c.label.toLowerCase().startsWith(q) || q === '/');
+        return filtered.map((item) => ({
+          label: item.label,
+          desc: item.desc,
+          replacement: item.replacement,
+          replaceStart: 0,
+          replaceLen: input.length
+        }));
+      }
+
+      // 2. @ file mention autocomplete
+      const beforeCursor = input.slice(0, cursorPos);
+      const atMatch = beforeCursor.match(/@([a-zA-Z0-9_\-./]*)$/);
+      if (atMatch && availableFiles.length > 0) {
+        const query = atMatch[1].toLowerCase();
+        const replaceStart = cursorPos - atMatch[0].length;
+        const replaceLen = atMatch[0].length;
+
+        const filtered = availableFiles
+          .filter((f) => f.toLowerCase().includes(query) || query === '')
+          .slice(0, 15);
+
+        return filtered.map((file) => ({
+          label: `@${file}`,
+          desc: file.endsWith('/') ? 'Directory' : 'File',
+          replacement: `@${file}${file.endsWith('/') ? '' : ' '}`,
+          replaceStart,
+          replaceLen
+        }));
+      }
+
+      return [];
     }
 
-    rl.prompt();
+    function render() {
+      if (disposed) return;
 
-    rl.on('line', async (rawLine: string) => {
-      cleanup();
+      const cols = Math.max(20, process.stdout.columns || 40);
+      const rows = Math.max(8, process.stdout.rows || 20);
 
-      let line = rawLine.trim();
+      const items = getDropdownItems();
+      const dropdownLines: string[] = [];
 
-      // Handle direct /image command
-      if (line === '/image') {
-        try {
-          const imgRes = await saveClipboardImage('image.png', usedImageNames);
-          if (imgRes) {
-            const tag = `[${imgRes.fileName} ${imgRes.sizeStr}]`;
-            imageAttachments.push({
-              tag,
-              fileName: imgRes.fileName,
-              filePath: imgRes.filePath,
-              sizeStr: imgRes.sizeStr
-            });
-            usedImageNames.add(imgRes.fileName);
-            line = tag;
-          } else {
-            console.log(pc.yellow('⚠️  No image in clipboard. Take a screenshot first (Win+Shift+S)\n'));
-            resolve('');
-            return;
+      if (items.length > 0) {
+        if (selectedIndex >= items.length) selectedIndex = items.length - 1;
+        if (selectedIndex < 0) selectedIndex = 0;
+
+        const pageSize = Math.min(4, Math.max(2, Math.floor(rows / 4)));
+        const innerBoxWidth = Math.max(14, Math.min(cols - 6, 50));
+        const total = items.length;
+
+        let startIndex = 0;
+        if (total > pageSize) {
+          if (selectedIndex >= pageSize) {
+            startIndex = Math.min(selectedIndex - pageSize + 1, total - pageSize);
           }
-        } catch {
-          resolve('');
+        }
+        const endIndex = Math.min(startIndex + pageSize, total);
+
+        const hasMoreUp = startIndex > 0;
+        const hasMoreDown = endIndex < total;
+
+        let topBorderStr = '─'.repeat(innerBoxWidth);
+        if (hasMoreUp) {
+          const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
+          topBorderStr = '─'.repeat(mid) + ' ▲ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
+        }
+
+        let botBorderStr = '─'.repeat(innerBoxWidth);
+        if (hasMoreDown) {
+          const mid = Math.max(0, Math.floor(innerBoxWidth / 2) - 2);
+          botBorderStr = '─'.repeat(mid) + ' ▼ ' + '─'.repeat(Math.max(0, innerBoxWidth - mid - 3));
+        }
+
+        dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╭' + topBorderStr + '╮'));
+
+        for (let i = startIndex; i < endIndex; i++) {
+          const item = items[i];
+          const isSelected = i === selectedIndex;
+          const pointer = isSelected ? '› ' : '  ';
+          const availWidth = innerBoxWidth - 2;
+
+          let row = '';
+          if (availWidth < 22) {
+            const labelStr =
+              item.label.length > availWidth
+                ? item.label.slice(0, availWidth - 1) + '…'
+                : item.label.padEnd(availWidth);
+            const plain = pointer + labelStr;
+            row = isSelected ? theme.badgeFn(plain) : pointer + theme.boldFn(labelStr);
+          } else {
+            const labelMax = Math.min(14, Math.floor(availWidth * 0.42));
+            const labelStr =
+              item.label.length > labelMax
+                ? item.label.slice(0, labelMax - 1) + '…'
+                : item.label.padEnd(labelMax);
+            const descMax = availWidth - labelMax - 1;
+            const descStr =
+              item.desc.length > descMax
+                ? item.desc.slice(0, descMax - 1) + '…'
+                : item.desc.padEnd(descMax);
+            const plain = `${pointer}${labelStr} ${descStr}`;
+
+            if (isSelected) {
+              row = theme.badgeFn(plain);
+            } else {
+              row = `${pointer}${theme.boldFn(labelStr)} ${pc.gray(descStr)}`;
+            }
+          }
+
+          const currentLen = stripAnsi(row).length;
+          if (currentLen < innerBoxWidth) {
+            row += ' '.repeat(innerBoxWidth - currentLen);
+          } else if (currentLen > innerBoxWidth) {
+            row = row.slice(0, innerBoxWidth);
+          }
+
+          dropdownLines.push(pc.dim('│') + '  ' + pc.dim('│') + row + pc.dim('│'));
+        }
+
+        dropdownLines.push(pc.dim('│') + '  ' + pc.dim('╰' + botBorderStr + '╯'));
+      }
+
+      // 1. Format and write the Prompt line safely (guaranteed <= cols - 1 chars)
+      let inputDisplay = pc.dim('│') + '  ';
+      let renderCursorCol = 3;
+
+      if (input.length === 0) {
+        const maxPlace = Math.max(10, cols - 6);
+        const displayPlace =
+          placeholder.length > maxPlace ? placeholder.slice(0, maxPlace - 1) + '…' : placeholder;
+        inputDisplay += pc.dim(displayPlace);
+        renderCursorCol = 3;
+      } else {
+        const maxInputLen = Math.max(10, cols - 6);
+        if (input.length <= maxInputLen) {
+          inputDisplay += formatInputWithBadges(input);
+          renderCursorCol = 3 + cursorPos;
+        } else {
+          // Horizontal scrolling to prevent auto-wrapping
+          const start = Math.max(0, Math.min(cursorPos - Math.floor(maxInputLen / 2), input.length - maxInputLen));
+          const visibleChunk = input.slice(start, start + maxInputLen);
+          const prefix = start > 0 ? '…' : '';
+          const suffix = start + maxInputLen < input.length ? '…' : '';
+          inputDisplay += pc.dim(prefix) + formatInputWithBadges(visibleChunk) + pc.dim(suffix);
+          renderCursorCol = 3 + (prefix ? 1 : 0) + (cursorPos - start);
+        }
+      }
+
+      process.stdout.write(`\r\x1b[2K${inputDisplay}`);
+
+      // 2. Draw dropdown lines below, and clear extra lines from previous render
+      const maxDropdowns = Math.max(dropdownLines.length, lastRenderedDropdownLines);
+      if (maxDropdowns > 0) {
+        for (let i = 0; i < maxDropdowns; i++) {
+          if (i < dropdownLines.length) {
+            process.stdout.write(`\n\x1b[2K${dropdownLines[i]}`);
+          } else {
+            process.stdout.write(`\n\x1b[2K`);
+          }
+        }
+        // Move cursor back up to input line (line 0)
+        process.stdout.write(`\x1b[${maxDropdowns}A`);
+      }
+
+      // 3. Place cursor precisely
+      process.stdout.write(`\r\x1b[${renderCursorCol}C`);
+
+      lastRenderedDropdownLines = dropdownLines.length;
+    }
+
+    render();
+
+    function cleanup() {
+      disposed = true;
+      if (process.stdout.isTTY) {
+        process.stdout.write('\x1b[?2004l');
+      }
+      process.stdin.removeListener('data', onData);
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+      }
+      process.stdin.pause();
+    }
+
+    function clearBoxAndExit(finalInput: string) {
+      if (lastRenderedDropdownLines > 0) {
+        for (let i = 0; i < lastRenderedDropdownLines; i++) {
+          process.stdout.write(`\n\x1b[2K`);
+        }
+        process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
+        lastRenderedDropdownLines = 0;
+      }
+
+      const fullText = expandPastes(finalInput);
+      if (fullText.trim()) {
+        if (
+          GLOBAL_PROMPT_HISTORY.length === 0 ||
+          GLOBAL_PROMPT_HISTORY[GLOBAL_PROMPT_HISTORY.length - 1] !== fullText.trim()
+        ) {
+          GLOBAL_PROMPT_HISTORY.push(fullText.trim());
+        }
+      }
+
+      process.stdout.write(`\r\x1b[2K${pc.dim('│')}  ${formatInputWithBadges(finalInput)}\n\n`);
+      cleanup();
+      resolve(fullText);
+    }
+
+    function onData(data: Buffer) {
+      if (disposed) return;
+      const str = data.toString('utf-8');
+
+      // Bracketed paste mode handling
+      if (str.includes('\x1b[200~')) {
+        inBracketedPaste = true;
+        bracketedBuffer = '';
+        const afterTag = str.split('\x1b[200~')[1] || '';
+        if (afterTag.includes('\x1b[201~')) {
+          const content = afterTag.split('\x1b[201~')[0];
+          inBracketedPaste = false;
+          handlePaste(content);
+          return;
+        } else {
+          bracketedBuffer += afterTag;
           return;
         }
       }
 
-      // Check for pasted file path to image
-      if (line.match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
-        const imgRes = await processPastedFilePath(line, usedImageNames);
-        if (imgRes) {
-          const tag = `[${imgRes.fileName} ${imgRes.sizeStr}]`;
-          imageAttachments.push({
-            tag,
-            fileName: imgRes.fileName,
-            filePath: imgRes.filePath,
-            sizeStr: imgRes.sizeStr
-          });
-          usedImageNames.add(imgRes.fileName);
-          line = tag;
+      if (inBracketedPaste) {
+        if (str.includes('\x1b[201~')) {
+          const beforeTag = str.split('\x1b[201~')[0];
+          bracketedBuffer += beforeTag;
+          inBracketedPaste = false;
+          handlePaste(bracketedBuffer);
+          return;
+        } else {
+          bracketedBuffer += str;
+          return;
         }
       }
 
-      // Expand image attachment tags to @path
-      let expanded = line;
-      for (const img of imageAttachments) {
-        expanded = expanded.split(img.tag).join(`@${img.filePath.replace(/\\/g, '/')} `);
+      // Check for raw multi-character paste with newlines or large size
+      if (str.length > 1 && (str.includes('\n') || str.includes('\r') || str.length > 80)) {
+        handlePaste(str);
+        return;
       }
 
-      if (expanded.trim()) {
+      // Ctrl+C / SIGINT
+      if (str === '\x03') {
+        if (lastRenderedDropdownLines > 0) {
+          for (let i = 0; i < lastRenderedDropdownLines; i++) {
+            process.stdout.write(`\n\x1b[2K`);
+          }
+          process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
+          lastRenderedDropdownLines = 0;
+        }
+        process.stdout.write(`\r\x1b[2K\n`);
+        cleanup();
+        resolve('__CANCEL__');
+        return;
+      }
+
+      const items = getDropdownItems();
+
+      // Enter / Return
+      if (
+        str === '\r' ||
+        str === '\n' ||
+        (str.length === 1 && (str.charCodeAt(0) === 13 || str.charCodeAt(0) === 10))
+      ) {
+        // Direct /image command
         if (
-          GLOBAL_PROMPT_HISTORY.length === 0 ||
-          GLOBAL_PROMPT_HISTORY[GLOBAL_PROMPT_HISTORY.length - 1] !== expanded.trim()
+          input.trim() === '/image' ||
+          (items.length > 0 &&
+            selectedIndex >= 0 &&
+            selectedIndex < items.length &&
+            items[selectedIndex].label === '/image')
         ) {
-          GLOBAL_PROMPT_HISTORY.push(expanded.trim());
+          saveClipboardImage('image.png', usedImageNames)
+            .then((imgRes) => {
+              if (imgRes) {
+                const tag = `[${imgRes.fileName} ${imgRes.sizeStr}]`;
+                imageAttachments.push({
+                  tag,
+                  fileName: imgRes.fileName,
+                  filePath: imgRes.filePath,
+                  sizeStr: imgRes.sizeStr
+                });
+                usedImageNames.add(imgRes.fileName);
+                input = `${tag} `;
+                cursorPos = input.length;
+                render();
+              } else {
+                process.stdout.write(
+                  `\r\x1b[2K${pc.yellow('⚠️  No image in clipboard. Take a screenshot first (Win+Shift+S)\n')}`
+                );
+                input = '';
+                cursorPos = 0;
+                render();
+              }
+            })
+            .catch(() => {});
+          return;
         }
+
+        if (items.length > 0 && selectedIndex >= 0 && selectedIndex < items.length) {
+          const selected = items[selectedIndex];
+          if (input.startsWith('/')) {
+            input = selected.replacement;
+            clearBoxAndExit(input);
+            return;
+          } else {
+            // @ mention autocomplete on Enter
+            input =
+              input.slice(0, selected.replaceStart) +
+              selected.replacement +
+              input.slice(selected.replaceStart + selected.replaceLen);
+            cursorPos = selected.replaceStart + selected.replacement.length;
+            render();
+            return;
+          }
+        }
+        clearBoxAndExit(input);
+        return;
       }
 
-      console.log();
-      resolve(expanded);
-    });
+      // Tab
+      if (str === '\t' || (str.length === 1 && str.charCodeAt(0) === 9)) {
+        if (items.length > 0 && selectedIndex >= 0 && selectedIndex < items.length) {
+          const selected = items[selectedIndex];
+          input =
+            input.slice(0, selected.replaceStart) +
+            selected.replacement +
+            input.slice(selected.replaceStart + selected.replaceLen);
+          cursorPos = selected.replaceStart + selected.replacement.length;
+          render();
+        } else {
+          if (lastRenderedDropdownLines > 0) {
+            for (let i = 0; i < lastRenderedDropdownLines; i++) {
+              process.stdout.write(`\n\x1b[2K`);
+            }
+            process.stdout.write(`\x1b[${lastRenderedDropdownLines}A`);
+            lastRenderedDropdownLines = 0;
+          }
+          process.stdout.write(`\r\x1b[2K`);
+          cleanup();
+          resolve(`__TOGGLE_MODE__:${input}`);
+        }
+        return;
+      }
 
-    rl.on('SIGINT', () => {
-      cleanup();
-      console.log();
-      resolve('__CANCEL__');
-    });
+      // Up Arrow
+      if (str === '\x1b[A' || str === '\x1bOA') {
+        if (items.length > 0) {
+          selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+          render();
+        } else if (GLOBAL_PROMPT_HISTORY.length > 0 && historyIndex > 0) {
+          if (historyIndex === GLOBAL_PROMPT_HISTORY.length) {
+            tempDraft = input;
+          }
+          historyIndex--;
+          input = GLOBAL_PROMPT_HISTORY[historyIndex];
+          cursorPos = input.length;
+          render();
+        }
+        return;
+      }
+
+      // Down Arrow
+      if (str === '\x1b[B' || str === '\x1bOB') {
+        if (items.length > 0) {
+          selectedIndex = (selectedIndex + 1) % items.length;
+          render();
+        } else if (historyIndex < GLOBAL_PROMPT_HISTORY.length) {
+          historyIndex++;
+          if (historyIndex === GLOBAL_PROMPT_HISTORY.length) {
+            input = tempDraft;
+          } else {
+            input = GLOBAL_PROMPT_HISTORY[historyIndex];
+          }
+          cursorPos = input.length;
+          render();
+        }
+        return;
+      }
+
+      // Left Arrow
+      if (str === '\x1b[D' || str === '\x1bOD') {
+        if (cursorPos > 0) {
+          const spans = getTagSpans();
+          const endingSpan = spans.find((s) => s.end === cursorPos);
+          if (endingSpan) {
+            cursorPos = endingSpan.start;
+          } else {
+            cursorPos--;
+            const inside = spans.find((s) => cursorPos > s.start && cursorPos < s.end);
+            if (inside) cursorPos = inside.start;
+          }
+          render();
+        }
+        return;
+      }
+
+      // Right Arrow
+      if (str === '\x1b[C' || str === '\x1bOC') {
+        if (cursorPos < input.length) {
+          const spans = getTagSpans();
+          const startingSpan = spans.find((s) => s.start === cursorPos);
+          if (startingSpan) {
+            cursorPos = startingSpan.end;
+          } else {
+            cursorPos++;
+            const inside = spans.find((s) => cursorPos > s.start && cursorPos < s.end);
+            if (inside) cursorPos = inside.end;
+          }
+          render();
+        }
+        return;
+      }
+
+      // Home
+      if (str === '\x1b[H' || str === '\x1b[1~') {
+        cursorPos = 0;
+        render();
+        return;
+      }
+
+      // End
+      if (str === '\x1b[F' || str === '\x1b[4~') {
+        cursorPos = input.length;
+        render();
+        return;
+      }
+
+      // Delete key
+      if (str === '\x1b[3~') {
+        if (cursorPos < input.length) {
+          const spans = getTagSpans();
+          const startingSpan = spans.find((s) => s.start === cursorPos);
+          if (startingSpan) {
+            input = input.slice(0, startingSpan.start) + input.slice(startingSpan.end);
+          } else {
+            input = input.slice(0, cursorPos) + input.slice(cursorPos + 1);
+          }
+          selectedIndex = 0;
+          render();
+        }
+        return;
+      }
+
+      // Backspace / DEL handling (including Android IME chunks)
+      if (str.includes('\x08') || str.includes('\x7f')) {
+        for (let i = 0; i < str.length; i++) {
+          const ch = str[i];
+          if (ch === '\x08' || ch === '\x7f') {
+            if (cursorPos > 0) {
+              const spans = getTagSpans();
+              const endingSpan = spans.find((s) => s.end === cursorPos);
+              if (endingSpan) {
+                input = input.slice(0, endingSpan.start) + input.slice(endingSpan.end);
+                cursorPos = endingSpan.start;
+              } else {
+                input = input.slice(0, cursorPos - 1) + input.slice(cursorPos);
+                cursorPos--;
+              }
+            }
+          } else if (ch.charCodeAt(0) >= 32) {
+            const spans = getTagSpans();
+            const inside = spans.find((s) => cursorPos > s.start && cursorPos < s.end);
+            if (inside) cursorPos = inside.end;
+            input = input.slice(0, cursorPos) + ch + input.slice(cursorPos);
+            cursorPos++;
+          }
+        }
+        selectedIndex = 0;
+        render();
+        return;
+      }
+
+      // Ignore unknown escape sequences
+      if (str.startsWith('\x1b')) {
+        return;
+      }
+
+      // Normal character input - clean control characters
+      const cleanStr = str.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+      if (!cleanStr) return;
+
+      const spans = getTagSpans();
+      const inside = spans.find((s) => cursorPos > s.start && cursorPos < s.end);
+      if (inside) {
+        cursorPos = inside.end;
+      }
+
+      input = input.slice(0, cursorPos) + cleanStr + input.slice(cursorPos);
+      cursorPos += cleanStr.length;
+      selectedIndex = 0;
+      render();
+    }
+
+    process.stdin.on('data', onData);
   });
 }
