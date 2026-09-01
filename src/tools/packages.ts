@@ -19,6 +19,10 @@ export const installPackageTool: Tool = {
   },
   validateArgs(args: any) {
     if (!args.package || typeof args.package !== 'string') throw new Error('package is required');
+    const sanitized = args.package.trim();
+    if (!/^[@a-zA-Z0-9_\-./=><^~+:[\] ]+$/.test(sanitized) || /[;&|`$\n\r()]/.test(sanitized)) {
+      throw new Error(`Invalid package name: "${args.package}". Invalid characters or potential command injection detected.`);
+    }
   },
   async execute(args: { package: string; dev?: boolean; manager?: string }) {
     let pkgManager = args.manager;
@@ -36,25 +40,44 @@ export const installPackageTool: Tool = {
       }
     }
 
-    let cmd = '';
+    let executable = 'npm';
+    let cmdArgs: string[] = [];
+
+    const pkgs = args.package.trim().split(/\s+/);
+
     if (pkgManager === 'npm') {
-      cmd = `npm install ${args.dev ? '-D ' : ''}${args.package}`;
+      executable = 'npm';
+      cmdArgs = ['install'];
+      if (args.dev) cmdArgs.push('-D');
+      cmdArgs.push(...pkgs);
     } else if (pkgManager === 'yarn') {
-      cmd = `yarn add ${args.dev ? '-D ' : ''}${args.package}`;
+      executable = 'yarn';
+      cmdArgs = ['add'];
+      if (args.dev) cmdArgs.push('-D');
+      cmdArgs.push(...pkgs);
     } else if (pkgManager === 'pnpm') {
-      cmd = `pnpm add ${args.dev ? '-D ' : ''}${args.package}`;
+      executable = 'pnpm';
+      cmdArgs = ['add'];
+      if (args.dev) cmdArgs.push('-D');
+      cmdArgs.push(...pkgs);
     } else if (pkgManager === 'pip') {
-      const isUnix = process.platform !== 'win32';
-      const extraFlag = isUnix ? ' --break-system-packages' : '';
-      cmd = `pip install ${args.package}${extraFlag}`;
+      executable = 'pip';
+      cmdArgs = ['install'];
+      if (process.platform !== 'win32') {
+        cmdArgs.push('--break-system-packages');
+      }
+      cmdArgs.push(...pkgs);
     } else if (pkgManager === 'cargo') {
-      cmd = `cargo add ${args.package}`;
+      executable = 'cargo';
+      cmdArgs = ['add', ...pkgs];
     } else {
-      cmd = `npm install ${args.package}`;
+      executable = 'npm';
+      cmdArgs = ['install', ...pkgs];
     }
 
+    const isWin = process.platform === 'win32';
     return new Promise((resolve) => {
-      const proc = spawn(cmd, { shell: true });
+      const proc = spawn(executable, cmdArgs, { shell: isWin });
       let output = '';
 
       proc.stdout.on('data', (d) => { output += d.toString(); });
@@ -69,7 +92,7 @@ export const installPackageTool: Tool = {
       });
 
       proc.on('error', (err) => {
-        resolve(`Failed to run ${cmd}: ${err.message}`);
+        resolve(`Failed to run ${executable} ${cmdArgs.join(' ')}: ${err.message}`);
       });
     });
   }

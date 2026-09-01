@@ -111,7 +111,8 @@ export const editFileTool: Tool = {
       properties: {
         path: { type: 'string', description: 'Path to the file to edit' },
         target: { type: 'string', description: 'Exact string or block of code to replace' },
-        replacement: { type: 'string', description: 'New string or block of code to replace with' }
+        replacement: { type: 'string', description: 'New string or block of code to replace with' },
+        replaceAll: { type: 'boolean', description: 'If true, replaces all occurrences of target in the file. Default is false.' }
       },
       required: ['path', 'target', 'replacement']
     }
@@ -140,16 +141,55 @@ export const editFileTool: Tool = {
         }
       }
 
-      const targetIndex = content.indexOf(target);
-      const allLines = content.split('\n');
-      const startLine = content.slice(0, targetIndex).split('\n').length;
-      const removedArr = target.split('\n');
+      // Find all matching occurrences
+      const matches: number[] = [];
+      let searchPos = 0;
+      while (searchPos < content.length) {
+        const idx = content.indexOf(target, searchPos);
+        if (idx === -1) break;
+        matches.push(idx);
+        searchPos = idx + Math.max(1, target.length);
+      }
+
+      const isReplaceAll = args.replaceAll === true || args.replaceAll === 'true';
+
+      if (matches.length > 1 && !isReplaceAll) {
+        const lineNumbers = matches.map(idx => content.slice(0, idx).split(/\r?\n/).length);
+        throw new Error(
+          `Target text matches ${matches.length} occurrences in ${args.path} at lines: [${lineNumbers.join(', ')}]. ` +
+          `Please provide more surrounding lines/context to make the target block unique, or set replaceAll: true to replace all instances.`
+        );
+      }
+
+      const hasCRLF = oldContent.includes('\r\n');
+      const removedArr = target.split(/\r?\n/);
+      const addedArr = args.replacement.split(/\r?\n/);
+
+      if (isReplaceAll && matches.length > 1) {
+        let newContent = content.split(target).join(args.replacement);
+        if (hasCRLF) {
+          newContent = newContent.replace(/\r?\n/g, '\r\n');
+        } else {
+          newContent = newContent.replace(/\r\n/g, '\n');
+        }
+        await fs.writeFile(args.path, newContent, 'utf8');
+
+        return JSON.stringify({
+          status: 'success',
+          action: 'edit',
+          path: args.path,
+          occurrencesReplaced: matches.length,
+          summary: `Successfully replaced all ${matches.length} occurrences in ${args.path}`
+        });
+      }
+
+      const targetIndex = matches[0];
+      const allLines = content.split(/\r?\n/);
+      const startLine = content.slice(0, targetIndex).split(/\r?\n/).length;
       const endLine = startLine + removedArr.length - 1;
 
       const contextBefore = allLines.slice(Math.max(0, startLine - 3), startLine - 1);
       const contextAfter = allLines.slice(endLine, Math.min(allLines.length, endLine + 2));
-
-      const addedArr = args.replacement.split('\n');
 
       const diffLines: string[] = [];
       let lineCounter = startLine - contextBefore.length;
@@ -161,7 +201,6 @@ export const editFileTool: Tool = {
       addedArr.forEach((l: string) => diffLines.push(`${addCounter++} +  ${l}`));
       contextAfter.forEach((l: string) => diffLines.push(`${addCounter++}    ${l}`));
 
-      const hasCRLF = oldContent.includes('\r\n');
       let newContent = content.slice(0, targetIndex) + args.replacement + content.slice(targetIndex + target.length);
       
       if (hasCRLF) {

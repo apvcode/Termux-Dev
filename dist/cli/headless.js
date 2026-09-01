@@ -1,4 +1,5 @@
 import pc from 'picocolors';
+import { DEVX_VERSION } from '../core/types.js';
 import { History } from '../core/history.js';
 import { Agent } from '../core/loop.js';
 import { buildSystemPrompt } from '../prompts/builder.js';
@@ -14,13 +15,13 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
     const isJson = !!options.json;
     let history = new History();
     const sysPrompt = await buildSystemPrompt(planMode);
-    history.addMessage({ role: 'system', content: sysPrompt });
+    history.updateSystemPrompt(sysPrompt);
     history.addMessage({ role: 'user', content: userPrompt });
     const provider = createProvider(config);
     const tools = getTools(planMode);
-    const guard = new CLIConsoleGuard(isYolo, config.bashAllowlist || []);
+    const guard = new CLIConsoleGuard(isYolo);
     const agent = new Agent(config, provider, tools, history, guard);
-    const executedTools = [];
+    let executedTools = [];
     let accumulatedText = '';
     let accumulatedReasoning = '';
     let isFatalError = false;
@@ -35,7 +36,7 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
     });
     try {
         if (!isQuiet && !isJson) {
-            console.log(pc.bold(pc.cyan(`⚡ devx v1.4.19 (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
+            console.log(pc.bold(pc.cyan(`⚡ devx v${DEVX_VERSION} (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
             console.log(pc.dim(`Task: ${userPrompt}\n`));
         }
         for await (const event of agent.run(abortController.signal)) {
@@ -67,7 +68,6 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
                 }
             }
         }
-        globalSnapshotManager.finishTurn();
         if (isJson) {
             const summary = UsageTracker.getInstance().getSummary();
             const output = {
@@ -106,5 +106,8 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
             console.error(pc.red(`\n❌ Fatal Headless Execution Error: ${err.message}`));
         }
         return 1;
+    }
+    finally {
+        globalSnapshotManager.finishTurn();
     }
 }

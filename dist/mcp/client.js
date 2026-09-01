@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { DEVX_VERSION } from '../core/types.js';
 export class MCPClient {
     name;
     config;
@@ -63,7 +64,7 @@ export class MCPClient {
                     capabilities: {},
                     clientInfo: {
                         name: 'devx',
-                        version: '1.4.19'
+                        version: DEVX_VERSION
                     }
                 });
                 if (!initResult) {

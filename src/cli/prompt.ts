@@ -3,6 +3,11 @@ import { scanProjectFiles } from './files.js';
 import { saveClipboardImage, processPastedFilePath } from './clipboard.js';
 import { getCurrentTheme, listThemes } from './theme.js';
 import { CustomCommandManager } from '../core/commands.js';
+import { formatPromptHeader } from './modeborder.js';
+import { filterCommandPalette, estimatePromptTokens, formatPromptTokenBadge } from './prompt_palette.js';
+import { PromptHistoryNavigator } from './history_search.js';
+
+import { UIConfig } from '../core/types.js';
 
 export const SLASH_COMMANDS = [
   { cmd: '/new', desc: 'Start a new clean chat session' },
@@ -42,6 +47,8 @@ export interface AskPromptOptions {
   placeholder?: string;
   initialValue?: string;
   planMode?: boolean;
+  isYolo?: boolean;
+  ui?: UIConfig;
 }
 
 interface DropdownItem {
@@ -65,12 +72,16 @@ function stripAnsi(str: string): string {
 
 export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
   return new Promise((resolve) => {
-    const msg = opts.message
-      ? `${opts.message} ${pc.dim(`(Tab = ${opts.planMode ? 'AGENT' : 'PLAN'})`)}`
-      : `Ask anything... ${pc.dim(`(Tab = ${opts.planMode ? 'AGENT' : 'PLAN'})`)}`;
-
     const theme = getCurrentTheme();
-    console.log(theme.colorFn('◆') + '  ' + pc.bold(msg));
+    if (opts.ui?.modeBorder) {
+      const header = formatPromptHeader(!!opts.planMode, !!opts.isYolo, opts.message);
+      console.log(header);
+    } else {
+      const msg = opts.message
+        ? `${opts.message} ${pc.dim(`(Tab = ${opts.planMode ? 'AGENT' : 'PLAN'})`)}`
+        : `Ask anything... ${pc.dim(`(Tab = ${opts.planMode ? 'AGENT' : 'PLAN'})`)}`;
+      console.log(theme.colorFn('◆') + '  ' + pc.bold(msg));
+    }
 
     let availableFiles: string[] = [];
     let customCommandsList: Array<{ cmd: string; desc: string }> = [];
@@ -85,8 +96,14 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     let selectedIndex = 0;
     let lastRenderedDropdownLines = 0;
 
-    let historyIndex = GLOBAL_PROMPT_HISTORY.length;
-    let tempDraft = '';
+    const historyNav = new PromptHistoryNavigator(GLOBAL_PROMPT_HISTORY, !!opts.ui?.promptHistoryFuzzy);
+    PromptHistoryNavigator.loadPersistent().then((persisted) => {
+      for (const p of persisted) {
+        if (!GLOBAL_PROMPT_HISTORY.includes(p)) {
+          GLOBAL_PROMPT_HISTORY.push(p);
+        }
+      }
+    }).catch(() => {});
 
     const imageAttachments: Array<{ tag: string; fileName: string; filePath: string; sizeStr: string }> = [];
     const usedImageNames = new Set<string>();
@@ -181,19 +198,35 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     function getDropdownItems(): DropdownItem[] {
       if (input.startsWith('/')) {
         const q = input.trim().toLowerCase();
-        const baseList = [
-          ...SLASH_COMMANDS.map((c) => ({ label: c.cmd, desc: c.desc, replacement: c.cmd })),
-          ...customCommandsList.map((c) => ({ label: c.cmd, desc: `(custom) ${c.desc}`, replacement: c.cmd }))
-        ];
+        if (opts.ui?.commandPalette) {
+          const baseList = [
+            ...SLASH_COMMANDS.map((c) => ({ cmd: c.cmd, desc: c.desc })),
+            ...customCommandsList.map((c) => ({ cmd: c.cmd, desc: `(custom) ${c.desc}` }))
+          ];
 
-        const filtered = baseList.filter((c) => c.label.toLowerCase().startsWith(q) || q === '/');
-        return filtered.map((item) => ({
-          label: item.label,
-          desc: item.desc,
-          replacement: item.replacement,
-          replaceStart: 0,
-          replaceLen: input.length
-        }));
+          const filtered = filterCommandPalette(input, baseList).slice(0, 15);
+          return filtered.map((item) => ({
+            label: item.cmd,
+            desc: item.desc,
+            replacement: `${item.cmd} `,
+            replaceStart: 0,
+            replaceLen: input.length
+          }));
+        } else {
+          const baseList = [
+            ...SLASH_COMMANDS.map((c) => ({ label: c.cmd, desc: c.desc, replacement: c.cmd })),
+            ...customCommandsList.map((c) => ({ label: c.cmd, desc: `(custom) ${c.desc}`, replacement: c.cmd }))
+          ];
+
+          const filtered = baseList.filter((c) => c.label.toLowerCase().startsWith(q) || q === '/');
+          return filtered.map((item) => ({
+            label: item.label,
+            desc: item.desc,
+            replacement: item.replacement,
+            replaceStart: 0,
+            replaceLen: input.length
+          }));
+        }
       }
 
       const beforeCursor = input.slice(0, cursorPos);
@@ -321,9 +354,11 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         inputDisplay += pc.dim(displayPlace) + '\x1b[0m';
         renderCursorCol = 3;
       } else {
-        const maxInputLen = Math.max(10, cols - 6);
+        const tokenBadge = opts.ui?.inputTokenCounter ? formatPromptTokenBadge(estimatePromptTokens(input), 40) : '';
+        const badgeSuffix = tokenBadge ? ` ${tokenBadge}` : '';
+        const maxInputLen = Math.max(10, cols - 6 - (tokenBadge ? 12 : 0));
         if (input.length <= maxInputLen) {
-          inputDisplay += formatInputWithBadges(input) + '\x1b[0m';
+          inputDisplay += formatInputWithBadges(input) + badgeSuffix + '\x1b[0m';
           renderCursorCol = 3 + cursorPos;
         } else {
           // Horizontal scrolling to prevent auto-wrapping
@@ -331,7 +366,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
           const visibleChunk = input.slice(start, start + maxInputLen);
           const prefix = start > 0 ? '…' : '';
           const suffix = start + maxInputLen < input.length ? '…' : '';
-          inputDisplay += pc.dim(prefix) + formatInputWithBadges(visibleChunk) + pc.dim(suffix) + '\x1b[0m';
+          inputDisplay += pc.dim(prefix) + formatInputWithBadges(visibleChunk) + pc.dim(suffix) + badgeSuffix + '\x1b[0m';
           renderCursorCol = 3 + (prefix ? 1 : 0) + (cursorPos - start);
         }
       }
@@ -559,14 +594,13 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         if (items.length > 0) {
           selectedIndex = (selectedIndex - 1 + items.length) % items.length;
           render();
-        } else if (GLOBAL_PROMPT_HISTORY.length > 0 && historyIndex > 0) {
-          if (historyIndex === GLOBAL_PROMPT_HISTORY.length) {
-            tempDraft = input;
+        } else {
+          const prev = historyNav.navigateUp(input);
+          if (prev !== null) {
+            input = prev;
+            cursorPos = input.length;
+            render();
           }
-          historyIndex--;
-          input = GLOBAL_PROMPT_HISTORY[historyIndex];
-          cursorPos = input.length;
-          render();
         }
         return;
       }
@@ -576,15 +610,13 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         if (items.length > 0) {
           selectedIndex = (selectedIndex + 1) % items.length;
           render();
-        } else if (historyIndex < GLOBAL_PROMPT_HISTORY.length) {
-          historyIndex++;
-          if (historyIndex === GLOBAL_PROMPT_HISTORY.length) {
-            input = tempDraft;
-          } else {
-            input = GLOBAL_PROMPT_HISTORY[historyIndex];
+        } else {
+          const next = historyNav.navigateDown();
+          if (next !== null) {
+            input = next;
+            cursorPos = input.length;
+            render();
           }
-          cursorPos = input.length;
-          render();
         }
         return;
       }

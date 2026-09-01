@@ -233,10 +233,11 @@ export class OpenAIProvider implements LLMProvider {
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed || trimmed.startsWith(':')) continue;
-          if (trimmed === 'data: [DONE]') continue;
-          if (trimmed.startsWith('data: ')) {
+          if (trimmed.startsWith('data:')) {
+            const dataPayload = trimmed.replace(/^data:\s*/, '');
+            if (dataPayload === '[DONE]') continue;
             try {
-              const json = JSON.parse(trimmed.slice(6));
+              const json = JSON.parse(dataPayload);
               if (json.error) {
                 const errMsg = json.error.message || json.error.code || JSON.stringify(json.error);
                 throw new Error(`Provider Stream Error: ${errMsg}`);

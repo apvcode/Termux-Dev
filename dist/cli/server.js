@@ -7,6 +7,7 @@ import { spawn } from 'child_process';
 import pc from 'picocolors';
 import qrcode from 'qrcode-terminal';
 import { getTheme } from './theme.js';
+import { DEVX_VERSION } from '../core/types.js';
 const MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
     '.htm': 'text/html; charset=utf-8',
@@ -139,7 +140,7 @@ function renderDirectoryHtml(dirPath, relPath, files, port) {
       ${parentLink}
       ${items || '<li style="padding: 20px; text-align: center; color: #6e7681;">No visible files in this directory</li>'}
     </ul>
-    <div class="footer">devx v1.4.19 &bull; Terminal-Native AI Assistant</div>
+    <div class="footer">devx v${DEVX_VERSION} &bull; Terminal-Native AI Assistant</div>
   </div>
 </body>
 </html>`;

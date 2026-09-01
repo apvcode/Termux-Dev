@@ -25,14 +25,19 @@ function isDangerousBashCommand(commandStr) {
         return false;
     // Normalize whitespace: collapse multiple spaces/tabs into single space
     const norm = commandStr.toLowerCase().replace(/\s+/g, ' ').trim();
-    // Pattern matching rm with combined flags (-rf, -fr, -r -f, etc.) targeting root, home, termux prefix, or glob
-    const isDangerousRm = /rm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\s+(?:\/|\/\*|~|~\/|\*|\$home|\$prefix|\/data\/data\/com\.termux)/i.test(norm) ||
-        /rm\s+-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*\s+(?:\/|\/\*|~|~\/|\*|\$home|\$prefix|\/data\/data\/com\.termux)/i.test(norm) ||
-        /rm\s+-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*\s+(?:\/|\/\*|~|~\/|\*|\$home|\$prefix|\/data\/data\/com\.termux)/i.test(norm);
+    // Pattern matching rm with combined flags (-rf, -fr, -r -f, etc.) targeting root, home, termux prefix, glob, or current/parent dir
+    const isDangerousRm = /rm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\s+(?:\/|\/\*|~|~\/|\*|\.|\.\/|\.\.\/?.*|\$home|\$prefix|\/data\/data\/com\.termux)/i.test(norm) ||
+        /rm\s+-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*\s+(?:\/|\/\*|~|~\/|\*|\.|\.\/|\.\.\/?.*|\$home|\$prefix|\/data\/data\/com\.termux)/i.test(norm) ||
+        /rm\s+-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*\s+(?:\/|\/\*|~|~\/|\*|\.|\.\/|\.\.\/?.*|\$home|\$prefix|\/data\/data\/com\.termux)/i.test(norm);
     return (isDangerousRm ||
         norm.includes('rm -rf /') ||
         norm.includes('rm -rf ~') ||
         norm.includes('rm -rf *') ||
+        norm.includes('rm -rf .') ||
+        norm.includes('rm -rf ./') ||
+        norm.includes('rm -rf ..') ||
+        norm.includes('rm -fr .') ||
+        norm.includes('rm -fr ./') ||
         norm.includes('rm -rf $prefix') ||
         norm.includes('rm -rf $home') ||
         norm.includes('rm -rf /data/data/com.termux') ||

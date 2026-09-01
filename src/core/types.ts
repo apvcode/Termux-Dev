@@ -1,3 +1,5 @@
+export const DEVX_VERSION = '1.5.0';
+
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
 export interface ToolCall {
@@ -63,6 +65,18 @@ export interface LLMProvider {
   chatStream?(request: LLMRequest): AsyncGenerator<LLMStreamChunk, LLMResponse, unknown>;
 }
 
+export interface UIConfig {
+  liveTelemetry?: boolean;
+  powerlineStatus?: boolean;
+  modeBorder?: boolean;
+  diffColors?: boolean;
+  commandPalette?: boolean;
+  inputTokenCounter?: boolean;
+  promptHistoryFuzzy?: boolean;
+}
+
+export type BannerMode = 'full' | 'minimal' | 'off';
+
 export interface AgentConfig {
   maxContextTokens: number;
   maxIterations: number;
@@ -80,6 +94,9 @@ export interface AgentConfig {
   onboarded?: boolean;
   apiKeys?: Record<string, string>;
   baseUrls?: Record<string, string>;
+  maxCostUSD?: number;
+  banner?: BannerMode;
+  ui?: UIConfig;
 }
 
 export interface PermissionGuard {

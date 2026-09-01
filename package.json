@@ -1,6 +1,6 @@
 {
   "name": "termux-dev",
-  "version": "1.4.19",
+  "version": "1.5.0",
   "description": "Ultra-fast, terminal-native AI coding assistant and agent built for Android Termux, Windows, macOS, and Linux.",
   "main": "dist/cli/index.js",
   "type": "module",
@@ -21,6 +21,8 @@
     "build": "tsc && node ./scripts/copy-assets.js",
     "start": "node ./bin/devx.js",
     "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepublishOnly": "npm run build"
   },
   "engines": {
@@ -61,6 +63,7 @@
     "@types/marked-terminal": "^6.1.1",
     "@types/node": "^20.0.0",
     "@types/qrcode-terminal": "^0.12.2",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.11"
   }
 }

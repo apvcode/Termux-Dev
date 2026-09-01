@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { MCPServerConfig, MCPToolDefinition, MCPCallToolResult, JSONRPCRequest, JSONRPCResponse } from './types.js';
+import { DEVX_VERSION } from '../core/types.js';
 
 export class MCPClient {
   public readonly name: string;
@@ -82,7 +83,7 @@ export class MCPClient {
           capabilities: {},
           clientInfo: {
             name: 'devx',
-            version: '1.4.19'
+            version: DEVX_VERSION
           }
         });
 

@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import { execSync, execFileSync } from 'child_process';
+import { DEVX_VERSION } from '../core/types.js';
 import { History } from '../core/history.js';
 import { Agent } from '../core/loop.js';
 import { buildSystemPrompt } from '../prompts/builder.js';
@@ -32,6 +33,10 @@ import { CustomCommandManager } from '../core/commands.js';
 import { UsageTracker } from '../core/usage.js';
 import { SessionExporter } from './export.js';
 import { MCPManager } from '../mcp/manager.js';
+import { LiveTelemetryTracker } from './telemetry.js';
+import { renderPowerlineStatus, GitStatusCache } from './statusline.js';
+import { formatDiffBox } from './diff.js';
+import { drawBanner } from './banner.js';
 const CONFIG_PATH = path.join(os.homedir(), '.devxrc.json');
 function maskApiKey(key) {
     if (!key)
@@ -473,40 +478,10 @@ function clearTerminalScreen() {
         console.clear();
     }
 }
-function drawLogo() {
+function drawLogo(bannerMode = 'full') {
     const cols = process.stdout.columns || 80;
     clearTerminalScreen();
-    const theme = getCurrentTheme();
-    if (cols < 56) {
-        // Ultra-clean compact ASCII for small mobile screens (width: ~26 chars)
-        const logo = [
-            '',
-            theme.colorFn('  █▀▀▄ █▀▀▀ █   █ █   █'),
-            theme.colorFn('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
-            theme.colorFn('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
-            '  ' + theme.boldFn('v1.4.19'),
-            ''
-        ];
-        for (const line of logo) {
-            console.log(line);
-        }
-    }
-    else {
-        // Full TERMUX-DEV banner (width: 53 chars)
-        const indent = cols < 68 ? ' ' : '   ';
-        const logo = [
-            '',
-            indent + theme.colorFn('▀▀▀█▀▀▀ █▀▀▀ █▀▀█ █▄ ▄█ █  █ ▀▄ ▄▀    █▀▀▄ █▀▀▀ █   █'),
-            indent + theme.colorFn('   █    █▀▀▀ █▄▄▀ █ █ █ █  █   █   ▀▀ █  █ █▀▀▀ █   █'),
-            indent + theme.colorFn('   █    █▄▄▄ █ ▀▄ █   █ ▀▄▄▀ ▄▀ ▀▄    █▄▄▀ █▄▄▄  ▀▄▀ '),
-            indent + theme.boldFn('v1.4.19'),
-            ''
-        ];
-        for (const line of logo) {
-            console.log(line);
-        }
-    }
-    console.log();
+    drawBanner(bannerMode, DEVX_VERSION, cols);
 }
 function formatSessionTime(timestamp) {
     const diff = Date.now() - timestamp;
@@ -645,7 +620,7 @@ async function handleSettings(config) {
             const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
             const currentTh = getCurrentTheme();
             const choice = await select({
-                message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v1.4.19 • theme: ${currentTh.name})`)}`,
+                message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v${DEVX_VERSION} • theme: ${currentTh.name})`)}`,
                 choices: [
                     {
                         name: `🎨 Color Theme: ${currentTh.emoji} ${currentTh.name}`,
@@ -686,7 +661,7 @@ async function handleSettings(config) {
                         description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
                     },
                     {
-                        name: `${currentTh.colorFn('✨ About devx')} ${pc.dim('(v1.4.19 by ApvCode)')}`,
+                        name: `${currentTh.colorFn('✨ About devx')} ${pc.dim(`(v${DEVX_VERSION} by ApvCode)`)}`,
                         value: 'about',
                         description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
                     },
@@ -702,7 +677,7 @@ async function handleSettings(config) {
                 continue;
             }
             if (choice === 'about') {
-                p.note(`⚡ devx v1.4.19 — Terminal-Native AI Coding Agent\n` +
+                p.note(`⚡ devx v${DEVX_VERSION} — Terminal-Native AI Coding Agent\n` +
                     `🎨 Theme: ${currentTh.emoji} ${currentTh.name}\n` +
                     `👤 Author: ApvCode (https://github.com/apvcode)\n` +
                     `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
@@ -798,7 +773,7 @@ export async function main() {
     program
         .name('devx')
         .description('Terminal-native AI coding assistant and vibe-coding agent')
-        .version('1.4.19')
+        .version(DEVX_VERSION)
         .option('-p, --prompt <task>', 'Run one-shot task non-interactively (headless mode)')
         .option('-y, --yolo', 'Automatically approve all tool executions without confirmation')
         .option('-m, --model <model>', 'Specify AI model to use for this execution')
@@ -866,7 +841,7 @@ export async function main() {
     const sysPrompt = await buildSystemPrompt(planMode);
     history.addMessage({ role: 'system', content: sysPrompt });
     const sessionManager = new SessionManager(config.model, planMode);
-    drawLogo();
+    drawLogo(config.banner || 'full');
     await runStartupUpdateCheck(config);
     await MCPManager.getInstance().init();
     let totalSessionCost = 0;
@@ -889,23 +864,38 @@ export async function main() {
         const cols = process.stdout.columns || 80;
         const modeName = planMode ? 'PLAN' : 'AGENT';
         const theme = getCurrentTheme();
-        // Shorten model name if too long on narrow mobile screens
-        let displayModel = config.model;
-        if (cols < 75 && displayModel.length > 20) {
-            const parts = displayModel.split('/');
-            displayModel = parts.length > 1 ? parts.slice(1).join('/') : displayModel;
-            if (displayModel.length > 20) {
-                displayModel = displayModel.slice(0, 17) + '...';
-            }
-        }
-        const badge = theme.badgeFn(`devx | ${modeName} | ${displayModel}`);
-        if (cols < 75) {
-            // 2-line layout for mobile screens: perfectly aligned with clack box borders
-            p.intro(`${badge}\n${pc.dim('│')}  ${pc.dim(tokenStats)}`);
+        if (config.ui?.powerlineStatus) {
+            const statusLine = renderPowerlineStatus({
+                mode: modeName,
+                model: config.model,
+                currentTokens,
+                maxTokens,
+                cost: totalSessionCost,
+                cols,
+                maxCostUSD: config.maxCostUSD,
+                isYolo: !!config.autoApprove
+            });
+            p.intro(statusLine);
         }
         else {
-            // 1-line layout for wider desktop screens
-            p.intro(`${badge}  ${pc.dim(tokenStats)}`);
+            // Shorten model name if too long on narrow mobile screens
+            let displayModel = config.model;
+            if (cols < 75 && displayModel.length > 20) {
+                const parts = displayModel.split('/');
+                displayModel = parts.length > 1 ? parts.slice(1).join('/') : displayModel;
+                if (displayModel.length > 20) {
+                    displayModel = displayModel.slice(0, 17) + '...';
+                }
+            }
+            const badge = theme.badgeFn(`devx | ${modeName} | ${displayModel}`);
+            if (cols < 75) {
+                // 2-line layout for mobile screens: perfectly aligned with clack box borders
+                p.intro(`${badge}\n${pc.dim('│')}  ${pc.dim(tokenStats)}`);
+            }
+            else {
+                // 1-line layout for wider desktop screens
+                p.intro(`${badge}  ${pc.dim(tokenStats)}`);
+            }
         }
         let answer = '';
         if (autoTriggerPrompt) {
@@ -918,7 +908,9 @@ export async function main() {
                 message: 'Ask anything...',
                 placeholder: 'Fix a TODO, type /help, or press Tab to switch mode',
                 initialValue: currentDraft,
-                planMode
+                planMode,
+                isYolo: !!config.autoApprove,
+                ui: config.ui
             });
             if (inputStr.startsWith('__TOGGLE_MODE__:')) {
                 currentDraft = inputStr.slice('__TOGGLE_MODE__:'.length);
@@ -1615,30 +1607,35 @@ export async function main() {
         };
         const agent = new Agent(agentConfig, provider, tools, history, guard);
         const taskStartTime = Date.now();
-        const s = p.spinner();
-        s.start('Connecting...');
-        let spinnerActive = true;
+        const abortController = new AbortController();
+        let aborted = false;
+        let isConnecting = true;
+        let spinnerActive = false;
         let thinkingActive = false;
         let thinkingStartTime = 0;
         let textActive = false;
+        const s = p.spinner();
         const streamer = new MarkdownStreamer();
         const thoughtStreamer = new SmoothStreamer((chunk) => {
             process.stdout.write(pc.dim(chunk));
         });
+        const telemetry = new LiveTelemetryTracker();
+        telemetry.start('connecting');
         const finishThinking = (extraNewline = true) => {
             if (!thinkingActive)
                 return;
             thoughtStreamer.flush();
             const elapsedSec = thinkingStartTime > 0 ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : '0.0';
+            const teleStats = config.ui?.liveTelemetry && telemetry.getTotalTokens() > 0
+                ? ` · ${LiveTelemetryTracker.formatTokenCount(telemetry.getTotalTokens())} tok · ${telemetry.getTokensPerSecond()} tok/s`
+                : '';
             const width = Math.min(process.stdout.columns || 40, 52);
-            const label = `─── Thought for ${elapsedSec}s `;
+            const label = `─── Thought for ${elapsedSec}s${teleStats} `;
             const fillLen = Math.max(2, width - label.length);
             process.stdout.write('\n\n' + pc.dim(label + '─'.repeat(fillLen)) + (extraNewline ? '\n\n' : '\n'));
             thinkingActive = false;
             thinkingStartTime = 0;
         };
-        const abortController = new AbortController();
-        let aborted = false;
         const stopGeneration = () => {
             if (aborted)
                 return;
@@ -1648,13 +1645,19 @@ export async function main() {
                 s.stop();
                 spinnerActive = false;
             }
+            telemetry.reset();
             thoughtStreamer.reset();
             finishThinking(true);
             streamer.finish();
             if (textActive) {
                 process.stdout.write('\n');
             }
-            console.log(pc.yellow('\n⏹  Generation stopped / Ответ остановлен (Ctrl+C).'));
+            if (isConnecting) {
+                console.log(pc.yellow('\n⏹  Подключение отменено / Connection cancelled (Ctrl+C).'));
+            }
+            else {
+                console.log(pc.yellow('\n⏹  Generation stopped / Ответ остановлен (Ctrl+C).'));
+            }
         };
         const onSigInt = () => {
             stopGeneration();
@@ -1675,6 +1678,8 @@ export async function main() {
             }
             catch { }
         }
+        s.start('Connecting...');
+        spinnerActive = true;
         const turnStartTime = Date.now();
         let toolsExecutedCount = 0;
         try {
@@ -1682,6 +1687,9 @@ export async function main() {
                 if (aborted)
                     break;
                 if (event.type === 'reasoning_delta') {
+                    isConnecting = false;
+                    telemetry.setPhase('thinking');
+                    telemetry.recordTokens(telemetry.estimateTokensFromText(event.delta));
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
@@ -1694,6 +1702,9 @@ export async function main() {
                     thoughtStreamer.push(event.delta);
                 }
                 else if (event.type === 'text_delta') {
+                    isConnecting = false;
+                    telemetry.setPhase('generating');
+                    telemetry.recordTokens(telemetry.estimateTokensFromText(event.delta));
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
@@ -1705,6 +1716,7 @@ export async function main() {
                     streamer.push(event.delta);
                 }
                 else if (event.type === 'text') {
+                    isConnecting = false;
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
@@ -1715,19 +1727,27 @@ export async function main() {
                     }
                 }
                 else if (event.type === 'tool_generating') {
+                    isConnecting = false;
+                    telemetry.setPhase('tool');
                     const theme = getCurrentTheme();
                     const label = formatToolGeneratingLabel(event.name, event.targetHint);
+                    const teleStats = telemetry.getTotalTokens() > 0
+                        ? ` · ${LiveTelemetryTracker.formatTokenCount(telemetry.getTotalTokens())} tok · ${telemetry.getTokensPerSecond()} tok/s`
+                        : '';
+                    const telemetrySuffix = config.ui?.liveTelemetry ? ` ${pc.dim(`(${telemetry.getElapsedSeconds()}s${teleStats})`)}` : '';
                     if (!spinnerActive) {
                         streamer.finish();
                         finishThinking(false);
-                        s.start(theme.boldFn(label));
+                        s.start(theme.boldFn(label) + telemetrySuffix);
                         spinnerActive = true;
                     }
                     else {
-                        s.message(theme.boldFn(label));
+                        s.message(theme.boldFn(label) + telemetrySuffix);
                     }
                 }
                 else if (event.type === 'tool_start') {
+                    isConnecting = false;
+                    telemetry.reset();
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
@@ -1746,6 +1766,7 @@ export async function main() {
                 }
                 else if (event.type === 'tool_end') {
                     toolsExecutedCount++;
+                    GitStatusCache.invalidate();
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
@@ -1757,50 +1778,8 @@ export async function main() {
                                 process.stdout.write(parsed.displayCard);
                             }
                             else if (parsed.action === 'edit' && parsed.diffLines) {
-                                const theme = getCurrentTheme();
                                 const cols = Math.min(process.stdout.columns || 80, 80);
-                                const boxWidth = Math.max(30, Math.min(cols - 4, 76));
-                                const fileName = typeof parsed.path === 'string' ? parsed.path.split(/[\/\\]/).pop() || 'file' : 'file';
-                                const fillCount = Math.max(2, boxWidth - 5 - fileName.length);
-                                console.log(theme.colorFn('┌─ ') + pc.bold(fileName) + ' ' + theme.colorFn('─'.repeat(fillCount) + '┐'));
-                                const maxShown = Math.min(parsed.diffLines.length, 30);
-                                for (let i = 0; i < maxShown; i++) {
-                                    const line = parsed.diffLines[i];
-                                    const match = line.match(/^(\d+)(\s+[+\- ]\s+)(.*)$/);
-                                    if (match) {
-                                        const lineNum = match[1].padStart(4, ' ');
-                                        const symbol = match[2];
-                                        const contentStr = match[3] || '';
-                                        const prefix = symbol.includes('-') ? '-' : symbol.includes('+') ? '+' : ' ';
-                                        const maxCodeLen = Math.max(10, boxWidth - 11);
-                                        const paddedCode = contentStr.length > maxCodeLen
-                                            ? contentStr.substring(0, maxCodeLen - 1) + '…'
-                                            : contentStr.padEnd(maxCodeLen, ' ');
-                                        const innerRow = ` ${lineNum} ${prefix} ${paddedCode} `;
-                                        if (prefix === '-') {
-                                            console.log(theme.colorFn('│') + theme.diffRemoveBg(innerRow) + theme.colorFn('│'));
-                                        }
-                                        else if (prefix === '+') {
-                                            console.log(theme.colorFn('│') + theme.diffAddBg(innerRow) + theme.colorFn('│'));
-                                        }
-                                        else {
-                                            console.log(theme.colorFn('│') + pc.dim(innerRow) + theme.colorFn('│'));
-                                        }
-                                    }
-                                    else {
-                                        const maxLen = Math.max(10, boxWidth - 4);
-                                        const padded = line.length > maxLen ? line.substring(0, maxLen - 1) + '…' : line.padEnd(maxLen, ' ');
-                                        console.log(theme.colorFn('│ ') + pc.white(padded) + theme.colorFn(' │'));
-                                    }
-                                }
-                                if (parsed.diffLines.length > maxShown) {
-                                    const dots = `... +${parsed.diffLines.length - maxShown} more lines`;
-                                    const maxLen = Math.max(10, boxWidth - 4);
-                                    const paddedDots = dots.length > maxLen ? dots.substring(0, maxLen - 1) + '…' : dots.padEnd(maxLen, ' ');
-                                    console.log(theme.colorFn('│ ') + pc.dim(paddedDots) + theme.colorFn(' │'));
-                                }
-                                console.log(theme.colorFn('└' + '─'.repeat(boxWidth - 2) + '┘'));
-                                console.log(theme.boldFn(`  └─ ${parsed.summary}`));
+                                console.log(formatDiffBox(parsed.path, parsed.diffLines, cols, parsed.summary, !!config.ui?.diffColors));
                             }
                             else if (parsed.summary) {
                                 console.log(pc.green(`  └─ ${parsed.summary}`));
@@ -1824,6 +1803,7 @@ export async function main() {
                     totalSessionCost += event.usage.cost || 0;
                 }
                 else if (event.type === 'reconnecting') {
+                    telemetry.reset();
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
@@ -1878,7 +1858,6 @@ export async function main() {
             if (textActive) {
                 process.stdout.write('\n');
             }
-            globalSnapshotManager.finishTurn();
             const turnElapsedMs = Date.now() - turnStartTime;
             const shouldNotify = (turnElapsedMs >= 15000) || (toolsExecutedCount > 0) || (planMode && lastPlanReady !== null);
             if (shouldNotify && !aborted) {
@@ -1947,6 +1926,7 @@ export async function main() {
             }
         }
         finally {
+            globalSnapshotManager.finishTurn();
             activeAbortHandler = null;
             process.removeListener('SIGINT', onSigInt);
             if (process.stdin.isTTY) {

@@ -2,6 +2,7 @@ import os from 'os';
 import { execSync } from 'child_process';
 import https from 'https';
 import pc from 'picocolors';
+import { DEVX_VERSION } from '../core/types.js';
 import { getCurrentTheme } from './theme.js';
 import { isTermux } from '../core/notify.js';
 function checkCmd(cmd) {
@@ -18,7 +19,7 @@ async function pingUrl(url) {
         const req = https.get(url, {
             timeout: 3000,
             headers: {
-                'User-Agent': 'devx-doctor/1.4.19'
+                'User-Agent': `devx-doctor/${DEVX_VERSION}`
             }
         }, (res) => {
             res.resume(); // consume response data to free up memory and release socket

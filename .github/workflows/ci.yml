@@ -32,5 +32,8 @@ jobs:
       - name: 🔨 Compile TypeScript (Build)
         run: npm run build
 
+      - name: 🧪 Run Unit Tests (Vitest)
+        run: npm test
+
       - name: 🧪 Test CLI Binary
         run: node ./bin/devx.js --help

@@ -1,5 +1,5 @@
 import pc from 'picocolors';
-import { AgentConfig, ToolCall } from '../core/types.js';
+import { AgentConfig, ToolCall, DEVX_VERSION } from '../core/types.js';
 import { History } from '../core/history.js';
 import { Agent } from '../core/loop.js';
 import { buildSystemPrompt } from '../prompts/builder.js';
@@ -28,15 +28,15 @@ export async function runHeadlessMode(
 
   let history = new History();
   const sysPrompt = await buildSystemPrompt(planMode);
-  history.addMessage({ role: 'system', content: sysPrompt });
+  history.updateSystemPrompt(sysPrompt);
   history.addMessage({ role: 'user', content: userPrompt });
 
   const provider = createProvider(config);
   const tools = getTools(planMode);
-  const guard = new CLIConsoleGuard(isYolo, config.bashAllowlist || []);
+  const guard = new CLIConsoleGuard(isYolo);
   const agent = new Agent(config, provider, tools, history, guard);
 
-  const executedTools: Array<{ id: string; name: string; result: string }> = [];
+  let executedTools: Array<{ id: string; name: string; result: string }> = [];
   let accumulatedText = '';
   let accumulatedReasoning = '';
   let isFatalError = false;
@@ -53,7 +53,7 @@ export async function runHeadlessMode(
 
   try {
     if (!isQuiet && !isJson) {
-      console.log(pc.bold(pc.cyan(`⚡ devx v1.4.19 (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
+      console.log(pc.bold(pc.cyan(`⚡ devx v${DEVX_VERSION} (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
       console.log(pc.dim(`Task: ${userPrompt}\n`));
     }
 
@@ -82,8 +82,6 @@ export async function runHeadlessMode(
         }
       }
     }
-
-    globalSnapshotManager.finishTurn();
 
     if (isJson) {
       const summary = UsageTracker.getInstance().getSummary();
@@ -121,5 +119,7 @@ export async function runHeadlessMode(
       console.error(pc.red(`\n❌ Fatal Headless Execution Error: ${err.message}`));
     }
     return 1;
+  } finally {
+    globalSnapshotManager.finishTurn();
   }
 }

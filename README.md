@@ -46,6 +46,10 @@ Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**
   Deep OLED black background designed for distraction-free CLI vibe-coding.
 - **📜 Smart Session History (`/resume` & `/session`):**  
   Resume sessions with last 20 messages neatly rendered in full Markdown and track unique session IDs (`#a8f9z`).
+- **🔍 Smart Multi-Line Editor (`edit_file 2.0`):**  
+  Collision-safe code editing with line-number error reporting on duplicate matches and `replaceAll` support.
+- **🧪 Comprehensive Test Suite (Vitest):**  
+  Full test coverage across core agent loop, file systems, security guard, snapshots, and context history with automated CI.
 - **⚡ Universal AI Provider Support:**  
   **OpenRouter**, **Google Gemini**, **DeepSeek**, **Groq**, **Mistral**, **OpenAI**, **Anthropic**, **Alibaba**, and local models (**Ollama**, **LM Studio**).
 
@@ -198,6 +202,10 @@ If you find **devx** useful, please consider giving it a ⭐️ star on [GitHub]
   Глубокий OLED-чёрный фон в стиле OpenCode для комфортной ночной разработки.
 - **📜 История сессий с уникальными ID (`/resume` и `/session`):**  
   Восстановление сессий с предпросмотром последних 20 сообщений в Markdown и короткими хэш-ID (`#a8f9z`).
+- **🔍 Умный редактор `edit_file 2.0`:**  
+  Безопасная замена фрагментов кода с защитой от коллизий при дубликатах, указанием номеров строк и поддержкой `replaceAll`.
+- **🧪 Тестовый фундамент (Vitest):**  
+  Полное покрытие юнит-тестами ядра агента, файловой системы, безопасности, снимков и истории контекста с авто-тестами в CI.
 - **⚡ Поддержка любых провайдеров:**  
   **OpenRouter**, **Google Gemini**, **DeepSeek**, **Groq**, **Mistral**, **OpenAI**, **Anthropic**, **Alibaba**, а также локальные **Ollama** и **LM Studio**.
 
