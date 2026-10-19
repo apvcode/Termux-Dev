@@ -39,6 +39,7 @@ import { renderCleanStatus, renderPowerlineStatus, GitStatusCache } from './stat
 import { formatDiffBox } from './diff.js';
 import { drawBanner, BannerMode } from './banner.js';
 import { getModeIndicator, formatPromptHeader } from './modeborder.js';
+import { reportRuntimeError } from './runtime_errors.js';
 
 const CONFIG_PATH = path.join(os.homedir(), '.devxrc.json');
 
@@ -469,7 +470,7 @@ process.on('exit', () => {
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false);
   }
-  process.stdout.write('\x1B[?25h');
+  if (process.stdout.isTTY) process.stdout.write('\x1B[?25h');
   resetTerminalTheme();
 });
 
@@ -800,11 +801,11 @@ export async function main() {
   process.on('uncaughtException', (err: any) => {
     const isIgnorableIo = err.code === 'EIO' || err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED';
     if (isIgnorableIo) return;
-    console.error('\n[devx runtime error]:', err.message);
+    reportRuntimeError(err, activeAbortHandler);
   });
 
   process.on('unhandledRejection', (reason: any) => {
-    // Prevent Node.js crash from unhandled network promise rejections
+    reportRuntimeError(reason, activeAbortHandler);
   });
 
   acquireWakeLock();
@@ -841,12 +842,16 @@ export async function main() {
 
   // If -p / --prompt is provided, execute one-shot headless mode and exit!
   if (isHeadless) {
+    const abortController = new AbortController();
+    activeAbortHandler = () => abortController.abort();
     const exitCode = await runHeadlessMode(options.prompt, config, {
       planMode: planModeInitial,
       yolo: !!options.yolo,
       quiet: !!options.quiet,
-      json: !!options.json
+      json: !!options.json,
+      signal: abortController.signal
     });
+    activeAbortHandler = null;
     process.exit(exitCode);
   }
 
@@ -2006,4 +2011,4 @@ process.on('exit', () => {
   } catch {}
 });
 
-main().catch(console.error);
+main().catch((err) => reportRuntimeError(err, activeAbortHandler));

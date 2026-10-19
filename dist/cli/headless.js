@@ -24,13 +24,18 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
     let isFatalError = false;
     let errorMessage = '';
     const abortController = new AbortController();
-    process.on('SIGINT', () => {
+    const onAbort = () => {
+        if (abortController.signal.aborted)
+            return;
         abortController.abort();
         if (!isJson) {
             console.error(pc.yellow('\n[devx headless] Aborted by user (SIGINT)'));
         }
-        process.exit(130);
-    });
+    };
+    process.on('SIGINT', onAbort);
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    if (options.signal?.aborted)
+        onAbort();
     try {
         await MCPManager.getInstance().init();
         const provider = createProvider(config);
@@ -70,10 +75,13 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
                 }
             }
         }
+        const cancelled = abortController.signal.aborted;
+        if (cancelled)
+            errorMessage = 'Operation cancelled by user';
         if (isJson) {
             const summary = UsageTracker.getInstance().getSummary();
             const output = {
-                success: !isFatalError,
+                success: !isFatalError && !cancelled,
                 model: config.model,
                 prompt: userPrompt,
                 result: accumulatedText,
@@ -85,7 +93,7 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
                     cost: summary.totalCost,
                     totalBytes: summary.totalBytes
                 },
-                error: isFatalError ? errorMessage : undefined
+                error: isFatalError || cancelled ? errorMessage : undefined
             };
             console.log(JSON.stringify(output, null, 2));
         }
@@ -98,7 +106,7 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
                 return 1;
             }
         }
-        return isFatalError ? 1 : 0;
+        return cancelled ? 130 : isFatalError ? 1 : 0;
     }
     catch (err) {
         if (isJson) {
@@ -107,9 +115,11 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
         else {
             console.error(pc.red(`\n❌ Fatal Headless Execution Error: ${err.message}`));
         }
-        return 1;
+        return abortController.signal.aborted ? 130 : 1;
     }
     finally {
+        process.removeListener('SIGINT', onAbort);
+        options.signal?.removeEventListener('abort', onAbort);
         globalSnapshotManager.finishTurn();
         MCPManager.getInstance().stopAll();
     }

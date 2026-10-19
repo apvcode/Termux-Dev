@@ -37,6 +37,7 @@ import { LiveTelemetryTracker } from './telemetry.js';
 import { renderCleanStatus, renderPowerlineStatus, GitStatusCache } from './statusline.js';
 import { formatDiffBox } from './diff.js';
 import { drawBanner } from './banner.js';
+import { reportRuntimeError } from './runtime_errors.js';
 const CONFIG_PATH = path.join(os.homedir(), '.devxrc.json');
 function maskApiKey(key) {
     if (!key)
@@ -452,7 +453,8 @@ process.on('exit', () => {
     if (process.stdin.isTTY) {
         process.stdin.setRawMode(false);
     }
-    process.stdout.write('\x1B[?25h');
+    if (process.stdout.isTTY)
+        process.stdout.write('\x1B[?25h');
     resetTerminalTheme();
 });
 process.on('SIGINT', () => {
@@ -776,10 +778,10 @@ export async function main() {
         const isIgnorableIo = err.code === 'EIO' || err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED';
         if (isIgnorableIo)
             return;
-        console.error('\n[devx runtime error]:', err.message);
+        reportRuntimeError(err, activeAbortHandler);
     });
     process.on('unhandledRejection', (reason) => {
-        // Prevent Node.js crash from unhandled network promise rejections
+        reportRuntimeError(reason, activeAbortHandler);
     });
     acquireWakeLock();
     const program = new Command();
@@ -810,12 +812,16 @@ export async function main() {
     }
     // If -p / --prompt is provided, execute one-shot headless mode and exit!
     if (isHeadless) {
+        const abortController = new AbortController();
+        activeAbortHandler = () => abortController.abort();
         const exitCode = await runHeadlessMode(options.prompt, config, {
             planMode: planModeInitial,
             yolo: !!options.yolo,
             quiet: !!options.quiet,
-            json: !!options.json
+            json: !!options.json,
+            signal: abortController.signal
         });
+        activeAbortHandler = null;
         process.exit(exitCode);
     }
     let planMode = planModeInitial;
@@ -1967,4 +1973,4 @@ process.on('exit', () => {
     }
     catch { }
 });
-main().catch(console.error);
+main().catch((err) => reportRuntimeError(err, activeAbortHandler));

@@ -17,55 +17,72 @@ export const bashTool: Tool = {
   validateArgs(args: any) {
     if (!args.command || typeof args.command !== 'string') throw new Error('command is required');
   },
-  async execute(args: any) {
-    return new Promise((resolve, reject) => {
+  async execute(args, _config, context) {
+    const signal = context?.signal;
+    if (signal?.aborted) return '[Operation cancelled by user]';
+
+    return new Promise<string>((resolve, reject) => {
       const isWin = process.platform === 'win32';
       const proc = spawn(args.command, { shell: true, detached: !isWin });
       let output = '';
-      let isTruncated = false;
-      
-      const killProc = () => {
+      let stopReason = '';
+      let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+      const killProcessTree = (force: boolean) => {
+        if (!proc.pid) return;
+        if (isWin) {
+          // Killing the shell alone leaves its child commands running on Windows.
+          const killer = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], {
+            windowsHide: true,
+            stdio: 'ignore',
+          });
+          killer.on('error', () => proc.kill());
+          return;
+        }
         try {
-          if (!isWin && proc.pid) {
-            process.kill(-proc.pid, 'SIGTERM');
-          } else {
-            proc.kill();
-          }
-        } catch {}
+          process.kill(-proc.pid, force ? 'SIGKILL' : 'SIGTERM');
+        } catch (err: any) {
+          if (err.code !== 'ESRCH') proc.kill(force ? 'SIGKILL' : 'SIGTERM');
+        }
       };
-      
-      const timeout = setTimeout(() => {
-        killProc();
-        resolve(output + '\n[Process killed due to timeout]');
-      }, 30000);
 
-      proc.stdout.on('data', (data) => {
-        if (isTruncated) return;
+      const stop = (reason: string) => {
+        if (stopReason) return;
+        stopReason = reason;
+        killProcessTree(false);
+        // Commands can ignore SIGTERM. Do not leave them running after cancellation.
+        killTimer = setTimeout(() => killProcessTree(true), 1000);
+      };
+
+      const onAbort = () => stop('[Operation cancelled by user]');
+      const timeout = setTimeout(() => stop('[Process killed due to timeout]'), 30000);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+
+      const collectOutput = (data: Buffer) => {
+        if (stopReason) return;
         output += data.toString();
         if (output.length > 20000) {
-          isTruncated = true;
-          output = output.substring(0, 20000) + '\n[Output truncated]';
-          killProc();
+          output = output.substring(0, 20000);
+          stop('[Output truncated]');
         }
-      });
+      };
+      proc.stdout.on('data', collectOutput);
+      proc.stderr.on('data', collectOutput);
 
-      proc.stderr.on('data', (data) => {
-        if (isTruncated) return;
-        output += data.toString();
-        if (output.length > 20000) {
-          isTruncated = true;
-          output = output.substring(0, 20000) + '\n[Output truncated]';
-          killProc();
-        }
-      });
+      const cleanup = () => {
+        clearTimeout(timeout);
+        clearTimeout(killTimer);
+        signal?.removeEventListener('abort', onAbort);
+      };
 
       proc.on('close', (code) => {
-        clearTimeout(timeout);
-        resolve(`${output}\n[Exit code: ${code}]`);
+        if (stopReason) killProcessTree(true);
+        cleanup();
+        resolve(`${output}\n${stopReason || `[Exit code: ${code}]`}`);
       });
-      
       proc.on('error', (err) => {
-        clearTimeout(timeout);
+        cleanup();
         reject(new Error(`Failed to start process: ${err.message}`));
       });
     });

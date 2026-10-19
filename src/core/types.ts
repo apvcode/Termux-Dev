@@ -27,11 +27,15 @@ export interface ToolDefinition {
   };
 }
 
+export interface ToolExecutionContext {
+  signal?: AbortSignal;
+}
+
 export interface Tool {
   name: string;
   definition: ToolDefinition;
   validateArgs(args: any): void;
-  execute(args: any, config?: any): Promise<string>;
+  execute(args: any, config?: any, context?: ToolExecutionContext): Promise<string>;
 }
 
 export interface LLMRequest {

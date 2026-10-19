@@ -184,57 +184,59 @@ export class Agent {
       }
 
       const executedToolCallIds = new Set<string>();
-      for (const call of response.toolCalls) {
-        if (signal?.aborted) {
-          // Add synthetic responses for ALL remaining unexecuted tool calls
-          for (const remaining of response.toolCalls) {
-            if (!executedToolCallIds.has(remaining.id)) {
-              this.history.addMessage({
-                role: 'tool',
-                content: '[Operation cancelled by user]',
-                tool_call_id: remaining.id,
-                name: remaining.name,
-              });
+      try {
+        for (const call of response.toolCalls) {
+          if (signal?.aborted) return;
+
+          const actionDesc = getActionDescription(call.name, call.arguments);
+          yield { type: 'tool_start', id: call.id, name: call.name, argsRaw: JSON.stringify(call.arguments), actionDesc };
+          if (signal?.aborted) return;
+
+          let result = '';
+          const tool = this.tools.get(call.name);
+
+          if (!tool) {
+            result = `Error: Tool '${call.name}' not found.`;
+          } else {
+            try {
+              tool.validateArgs(call.arguments);
+              const allowed = !this.guard.check(tool.name, call.arguments)
+                || await this.guard.askUser(tool.name, call.arguments);
+
+              // Cancellation may arrive while waiting for confirmation.
+              if (signal?.aborted) return;
+              result = allowed
+                ? await tool.execute(call.arguments, this.config, { signal })
+                : 'Action denied by user.';
+            } catch (err: any) {
+              result = signal?.aborted
+                ? '[Operation cancelled by user]'
+                : `Error executing tool: ${err.message}`;
             }
           }
-          return;
+
+          // Save the result before yielding: the UI can stop consuming at any event.
+          this.history.addMessage({
+            role: 'tool',
+            content: result,
+            tool_call_id: call.id,
+            name: call.name,
+          });
+          executedToolCallIds.add(call.id);
+          yield { type: 'tool_end', id: call.id, name: call.name, result };
         }
-        const actionDesc = getActionDescription(call.name, call.arguments);
-        yield { type: 'tool_start', id: call.id, name: call.name, argsRaw: JSON.stringify(call.arguments), actionDesc };
-
-        let result = '';
-        const tool = this.tools.get(call.name);
-
-        if (!tool) {
-          result = `Error: Tool '${call.name}' not found.`;
-        } else {
-          try {
-            tool.validateArgs(call.arguments);
-            
-            if (this.guard.check(tool.name, call.arguments)) {
-              const allowed = await this.guard.askUser(tool.name, call.arguments);
-              if (allowed) {
-                result = await tool.execute(call.arguments, this.config);
-              } else {
-                result = 'Action denied by user.';
-              }
-            } else {
-              result = await tool.execute(call.arguments, this.config);
-            }
-          } catch (err: any) {
-            result = `Error executing tool: ${err.message}`;
+      } finally {
+        // Keep every tool call paired with a response, even if the consumer exits early.
+        for (const call of response.toolCalls) {
+          if (!executedToolCallIds.has(call.id)) {
+            this.history.addMessage({
+              role: 'tool',
+              content: '[Operation cancelled by user]',
+              tool_call_id: call.id,
+              name: call.name,
+            });
           }
         }
-
-        yield { type: 'tool_end', id: call.id, name: call.name, result };
-
-        this.history.addMessage({
-          role: 'tool',
-          content: result,
-          tool_call_id: call.id,
-          name: call.name,
-        });
-        executedToolCallIds.add(call.id);
       }
 
       iterations++;

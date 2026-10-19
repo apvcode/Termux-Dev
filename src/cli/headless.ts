@@ -15,6 +15,7 @@ export interface HeadlessOptions {
   yolo?: boolean;
   quiet?: boolean;
   json?: boolean;
+  signal?: AbortSignal;
 }
 
 export async function runHeadlessMode(
@@ -39,13 +40,16 @@ export async function runHeadlessMode(
   let errorMessage = '';
 
   const abortController = new AbortController();
-  process.on('SIGINT', () => {
+  const onAbort = () => {
+    if (abortController.signal.aborted) return;
     abortController.abort();
     if (!isJson) {
       console.error(pc.yellow('\n[devx headless] Aborted by user (SIGINT)'));
     }
-    process.exit(130);
-  });
+  };
+  process.on('SIGINT', onAbort);
+  options.signal?.addEventListener('abort', onAbort, { once: true });
+  if (options.signal?.aborted) onAbort();
 
   try {
     await MCPManager.getInstance().init();
@@ -85,10 +89,13 @@ export async function runHeadlessMode(
       }
     }
 
+    const cancelled = abortController.signal.aborted;
+    if (cancelled) errorMessage = 'Operation cancelled by user';
+
     if (isJson) {
       const summary = UsageTracker.getInstance().getSummary();
       const output = {
-        success: !isFatalError,
+        success: !isFatalError && !cancelled,
         model: config.model,
         prompt: userPrompt,
         result: accumulatedText,
@@ -100,7 +107,7 @@ export async function runHeadlessMode(
           cost: summary.totalCost,
           totalBytes: summary.totalBytes
         },
-        error: isFatalError ? errorMessage : undefined
+        error: isFatalError || cancelled ? errorMessage : undefined
       };
       console.log(JSON.stringify(output, null, 2));
     } else {
@@ -113,15 +120,17 @@ export async function runHeadlessMode(
       }
     }
 
-    return isFatalError ? 1 : 0;
+    return cancelled ? 130 : isFatalError ? 1 : 0;
   } catch (err: any) {
     if (isJson) {
       console.log(JSON.stringify({ success: false, error: err.message }, null, 2));
     } else {
       console.error(pc.red(`\n❌ Fatal Headless Execution Error: ${err.message}`));
     }
-    return 1;
+    return abortController.signal.aborted ? 130 : 1;
   } finally {
+    process.removeListener('SIGINT', onAbort);
+    options.signal?.removeEventListener('abort', onAbort);
     globalSnapshotManager.finishTurn();
     MCPManager.getInstance().stopAll();
   }
