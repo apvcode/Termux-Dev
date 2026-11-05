@@ -4,6 +4,7 @@ import { History } from '../core/history.js';
 import { Agent } from '../core/loop.js';
 import { buildSystemPrompt } from '../prompts/builder.js';
 import { createProvider } from '../providers/index.js';
+import { refreshFormats } from '../core/formats.js';
 import { getTools } from '../tools/index.js';
 import { CLIConsoleGuard } from '../permissions/guard.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
@@ -37,13 +38,14 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
     if (options.signal?.aborted)
         onAbort();
     try {
-        await MCPManager.getInstance().init();
+        await MCPManager.getInstance().init(undefined, config.projectMcpTrusted === true);
+        await refreshFormats(config).catch(() => null);
         const provider = createProvider(config);
         const tools = getTools(planMode);
         const guard = new CLIConsoleGuard(isYolo);
         const agent = new Agent(config, provider, tools, history, guard);
         if (!isQuiet && !isJson) {
-            console.log(pc.bold(pc.cyan(`⚡ devx v${DEVX_VERSION} (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
+            console.log(pc.bold(pc.cyan(`devx v${DEVX_VERSION} (headless) | ${planMode ? 'PLAN' : 'AGENT'} | ${config.model}`)));
             console.log(pc.dim(`Task: ${userPrompt}\n`));
         }
         for await (const event of agent.run(abortController.signal)) {
@@ -102,7 +104,7 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
                 process.stdout.write('\n');
             }
             if (isFatalError) {
-                console.error(pc.red(`\n❌ Error: ${errorMessage}`));
+                console.error(pc.red(`\nError: ${errorMessage}`));
                 return 1;
             }
         }
@@ -113,7 +115,7 @@ export async function runHeadlessMode(userPrompt, config, options = {}) {
             console.log(JSON.stringify({ success: false, error: err.message }, null, 2));
         }
         else {
-            console.error(pc.red(`\n❌ Fatal Headless Execution Error: ${err.message}`));
+            console.error(pc.red(`\nFatal Headless Execution Error: ${err.message}`));
         }
         return abortController.signal.aborted ? 130 : 1;
     }

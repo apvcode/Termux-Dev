@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
+import { ensureSecureDir, writeSecureFile } from './secure-file.js';
 const SESSIONS_DIR = path.join(os.homedir(), '.devx', 'sessions');
 export class SessionManager {
     currentSession;
@@ -29,12 +30,14 @@ export class SessionManager {
         this.currentSession = this.createEmptySession(model, planMode);
         return this.currentSession;
     }
-    async save(messages, totalCost, model, planMode) {
-        if (!fsSync.existsSync(SESSIONS_DIR)) {
-            await fs.mkdir(SESSIONS_DIR, { recursive: true });
-        }
+    async save(messages, totalCost, model, planMode, costEstimated) {
+        // Transcripts contain file contents and pasted images: keep them private to the user.
+        await ensureSecureDir(path.dirname(SESSIONS_DIR));
+        await ensureSecureDir(SESSIONS_DIR);
         this.currentSession.messages = messages;
         this.currentSession.totalCost = totalCost;
+        if (costEstimated !== undefined)
+            this.currentSession.costEstimated = costEstimated;
         this.currentSession.updatedAt = Date.now();
         if (model)
             this.currentSession.model = model;
@@ -51,7 +54,7 @@ export class SessionManager {
             }
         }
         const filePath = path.join(SESSIONS_DIR, `${this.currentSession.id}.json`);
-        await fs.writeFile(filePath, JSON.stringify(this.currentSession, null, 2), 'utf8');
+        await writeSecureFile(filePath, JSON.stringify(this.currentSession, null, 2));
     }
     static async listSessions() {
         if (!fsSync.existsSync(SESSIONS_DIR)) {

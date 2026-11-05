@@ -19,7 +19,7 @@ export function formatTodoListCard(tasks: TaskItem[]): string {
   const borderChar = '─';
 
   const lines: string[] = [];
-  lines.push('\n' + pc.bold(pc.cyan('┌─ 📋 Plan & Tasks ' + borderChar.repeat(Math.max(2, boxWidth - 19)) + '┐')));
+  lines.push('\n' + pc.bold(pc.cyan('┌─ Plan & Tasks ' + borderChar.repeat(Math.max(2, boxWidth - 19)) + '┐')));
 
   for (const task of tasks) {
     let taskLine = '';

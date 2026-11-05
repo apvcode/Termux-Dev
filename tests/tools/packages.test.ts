@@ -14,4 +14,18 @@ describe('installPackageTool', () => {
     expect(() => installPackageTool.validateArgs({ package: 'pkg | whoami' })).toThrow(/potential command injection/i);
     expect(() => installPackageTool.validateArgs({ package: 'pkg `id`' })).toThrow(/potential command injection/i);
   });
+
+  it('rejects command line options disguised as package names', () => {
+    expect(() => installPackageTool.validateArgs({ package: '--registry=http://evil.example/ express' })).toThrow(/options are not allowed/i);
+    expect(() => installPackageTool.validateArgs({ package: 'express -g' })).toThrow(/options are not allowed/i);
+    expect(() => installPackageTool.validateArgs({ package: '--index-url=http://evil.example/simple requests' })).toThrow(/options are not allowed/i);
+    expect(() => installPackageTool.validateArgs({ package: '-r requirements.txt' })).toThrow(/options are not allowed/i);
+    // hyphens inside a name are fine
+    expect(() => installPackageTool.validateArgs({ package: 'react-dom lodash-es @scope/my-pkg' })).not.toThrow();
+  });
+
+  it('rejects an unknown package manager', () => {
+    expect(() => installPackageTool.validateArgs({ package: 'express', manager: 'apt' })).toThrow(/Unsupported package manager/);
+    expect(() => installPackageTool.validateArgs({ package: 'express', manager: 'pnpm' })).not.toThrow();
+  });
 });

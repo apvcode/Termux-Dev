@@ -1,6 +1,13 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
+/**
+ * Remembers the original state of every file changed through the file tools
+ * (write_file / edit_file) during a turn so that /undo can restore it.
+ *
+ * Limitations: snapshots live in memory only, and changes made by shell commands
+ * (the bash tool) are NOT tracked.
+ */
 export class SnapshotManager {
     history = [];
     currentTurn = null;
@@ -21,7 +28,7 @@ export class SnapshotManager {
         }
         try {
             if (fsSync.existsSync(resolved)) {
-                const content = await fs.readFile(resolved, 'utf8');
+                const content = await fs.readFile(resolved);
                 this.currentTurn.files.set(resolved, {
                     filePath: resolved,
                     existed: true,
@@ -60,7 +67,7 @@ export class SnapshotManager {
                     if (!fsSync.existsSync(parentDir)) {
                         await fs.mkdir(parentDir, { recursive: true });
                     }
-                    await fs.writeFile(filePath, snap.content, 'utf8');
+                    await fs.writeFile(filePath, snap.content);
                     revertedFiles.push(relPath);
                 }
                 else {
@@ -79,6 +86,11 @@ export class SnapshotManager {
     }
     getUndoCount() {
         return this.history.length;
+    }
+    /** Forgets every snapshot (a new session cannot undo the edits of the previous one). */
+    reset() {
+        this.history = [];
+        this.currentTurn = null;
     }
 }
 export const globalSnapshotManager = new SnapshotManager();

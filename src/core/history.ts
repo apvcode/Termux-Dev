@@ -2,8 +2,23 @@ import { Message } from './types.js';
 
 type Block = Message[];
 
+const IMAGE_TOKEN_ESTIMATE = 1500;
+// Last-resort size for tool output that is still too large once everything
+// that can be dropped has been dropped.
+const EMERGENCY_TOOL_CHARS = 4000;
+
+function shortenMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const head = Math.floor(maxChars * 0.4);
+  const tail = maxChars - head;
+  return `${text.slice(0, head)}\n[... ${text.length - maxChars} characters removed to fit the context window ...]\n${text.slice(text.length - tail)}`;
+}
+
 export class History {
   private messages: Message[] = [];
+  /** How often old messages had to be shortened or dropped, and how many were dropped (for /usage). */
+  compactions = 0;
+  droppedMessages = 0;
 
   constructor() {}
 
@@ -37,6 +52,8 @@ export class History {
 
   clear() {
     this.messages = [];
+    this.compactions = 0;
+    this.droppedMessages = 0;
   }
 
   public getTotalTokens(): number {
@@ -61,7 +78,9 @@ export class History {
         } else if (code > 0x07FF) {
           t += 1.2;
         } else {
-          t += 0.25;
+          // Source code and JSON average ~3 characters per token; 0.25 (4 chars/token)
+          // under-counts them and lets requests overflow the context window.
+          t += 0.33;
         }
       }
       return t;
@@ -69,6 +88,12 @@ export class History {
 
     for (const m of messages) {
       tokens += countStringTokens(m.content || '');
+      if (m.images && m.images.length > 0) {
+        tokens += m.images.length * IMAGE_TOKEN_ESTIMATE;
+      }
+      for (const t of m.thinking_blocks ?? []) {
+        tokens += countStringTokens(t.type === 'thinking' ? t.thinking : t.data);
+      }
       if (m.tool_calls) {
         for (const tc of m.tool_calls) {
           tokens += countStringTokens(tc.name);
@@ -146,6 +171,7 @@ export class History {
 
     if (this.estimateTokens(blocks.flat()) <= maxTokens) {
       this.messages = blocks.flat();
+      this.compactions++;
       return true;
     }
 
@@ -163,7 +189,27 @@ export class History {
       }
     }
 
+    // Фаза 3: остались только защищённые блоки, но они всё ещё не помещаются
+    // (например, огромный результат инструмента в последнем ходе). Сокращаем
+    // содержимое tool-сообщений, начиная со старых.
+    if (currentTokens > maxTokens) {
+      for (const block of blocks) {
+        if (currentTokens <= maxTokens) break;
+        for (const msg of block) {
+          if (currentTokens <= maxTokens) break;
+          if (msg.role === 'tool' && msg.content && msg.content.length > EMERGENCY_TOOL_CHARS) {
+            const before = this.estimateTokens([msg]);
+            msg.content = shortenMiddle(msg.content, EMERGENCY_TOOL_CHARS);
+            currentTokens -= before - this.estimateTokens([msg]);
+          }
+        }
+      }
+    }
+
+    const before = this.messages.length;
     this.messages = blocks.filter(b => b.length > 0).flat();
+    this.compactions++;
+    this.droppedMessages += before - this.messages.length;
     return true;
   }
 }

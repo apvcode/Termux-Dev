@@ -44,7 +44,7 @@ async function pingUrl(url: string): Promise<boolean> {
 
 export async function runDoctor(config: AgentConfig): Promise<void> {
   const theme = getCurrentTheme();
-  console.log('\n' + theme.boldFn('🩺 devx Doctor — System & Environment Health Diagnostics'));
+  console.log('\n' + theme.boldFn('devx Doctor — System & Environment Health Diagnostics'));
   console.log(pc.dim('──────────────────────────────────────────────────────────────────'));
 
   const envChecks: CheckItem[] = [];
@@ -149,7 +149,7 @@ export async function runDoctor(config: AgentConfig): Promise<void> {
   const renderSection = (title: string, items: CheckItem[]) => {
     console.log('\n' + theme.colorFn(pc.bold(`• ${title}`)));
     for (const item of items) {
-      let icon = pc.green('✔');
+      let icon = pc.green('✓');
       if (item.status === 'warn') icon = pc.yellow('▲');
       if (item.status === 'fail') icon = pc.red('✖');
       console.log(`  ${icon} ${pc.bold(item.name)}: ${pc.dim(item.details)}`);
@@ -164,9 +164,9 @@ export async function runDoctor(config: AgentConfig): Promise<void> {
   console.log('\n' + pc.dim('──────────────────────────────────────────────────────────────────'));
   const hasFailures = [...envChecks, ...toolChecks, ...keyChecks, ...netChecks].some(i => i.status === 'fail');
   if (hasFailures) {
-    console.log(pc.red(pc.bold('⚠ Doctor found critical issues that might prevent devx from functioning properly.')));
+    console.log(pc.red(pc.bold('Doctor found critical issues that might prevent devx from functioning properly.')));
   } else {
-    console.log(theme.boldFn('🎉 Everything looks healthy! devx is fully configured and ready for vibe-coding.'));
+    console.log(theme.boldFn('Everything looks healthy! devx is fully configured and ready for vibe-coding.'));
   }
   console.log();
 }

@@ -116,7 +116,7 @@ export function renderPowerlineStatus(opts) {
     }
     // Git info
     const git = GitStatusCache.getStatus();
-    const gitStr = git ? ` · ${pc.magenta(git.branch)}${git.isDirty ? pc.yellow('✱') : ''}` : '';
+    const gitStr = git ? ` · ${pc.magenta(git.branch)}${git.isDirty ? pc.yellow('*') : ''}` : '';
     // Context progress
     const usagePercent = Math.min(100, Math.round((opts.currentTokens / Math.max(1, opts.maxTokens)) * 100));
     const barWidth = cols < 60 ? 6 : 10;

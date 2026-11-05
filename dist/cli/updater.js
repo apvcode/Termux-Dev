@@ -37,20 +37,20 @@ export async function getCurrentVersion() {
 }
 export async function checkForUpdates(timeoutMs = 10000) {
     const currentVersion = await getCurrentVersion();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // One deadline for the whole check. The signal is passed to EVERY request: on a flaky
+    // mobile connection a stalled second request used to block devx at startup forever.
+    const signal = AbortSignal.timeout(timeoutMs);
     try {
         // 1. Try fetching latest package.json with cache-busting timestamp
         const cacheBusterUrl = `${REMOTE_PKG_URL}?t=${Date.now()}`;
         const res = await fetch(cacheBusterUrl, {
-            signal: controller.signal,
+            signal,
             headers: {
                 'User-Agent': 'devx-updater',
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache'
             }
         });
-        clearTimeout(timer);
         let latestVersion = '';
         let releaseNotes = '';
         if (res.ok) {
@@ -60,6 +60,7 @@ export async function checkForUpdates(timeoutMs = 10000) {
         // 2. Also check latest GitHub release tag
         try {
             const relRes = await fetch(`${REMOTE_RELEASE_URL}?t=${Date.now()}`, {
+                signal,
                 headers: { 'User-Agent': 'devx-updater' }
             });
             if (relRes.ok) {
@@ -87,12 +88,12 @@ export async function checkForUpdates(timeoutMs = 10000) {
         };
     }
     catch (err) {
-        clearTimeout(timer);
+        const timedOut = err.name === 'AbortError' || err.name === 'TimeoutError';
         return {
             updateAvailable: false,
             currentVersion,
             latestVersion: currentVersion,
-            error: err.name === 'AbortError' ? 'Timeout (10s)' : err.message
+            error: timedOut ? `Timeout (${Math.round(timeoutMs / 1000)}s)` : err.message
         };
     }
 }
@@ -109,10 +110,10 @@ export async function performSelfUpdate(latestVersion) {
     const __filename = fileURLToPath(import.meta.url);
     const projectRoot = path.resolve(path.dirname(__filename), '../../');
     const isGit = await isGitRepository(projectRoot);
-    console.log('\n' + pc.bold(pc.cyan('─── 🚀 Starting devx Update ──────────────────────────')));
+    console.log('\n' + pc.bold(pc.cyan('─── Starting devx Update ──────────────────────────')));
     if (!isGit) {
         // 1. Installed via global npm package: termux-dev
-        process.stdout.write(`  ${pc.cyan('⚡')} [1/1] ${pc.white(`Updating termux-dev via npm (v${latestVersion})...`)}\n`);
+        process.stdout.write(`  ${pc.cyan('›')} [1/1] ${pc.white(`Updating termux-dev via npm (v${latestVersion})...`)}\n`);
         const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let fIdx = 0;
         const interval = setInterval(() => {
@@ -121,12 +122,12 @@ export async function performSelfUpdate(latestVersion) {
         try {
             execSync('npm install -g termux-dev@latest --prefer-online', { stdio: 'pipe' });
             clearInterval(interval);
-            process.stdout.write(`\r  ${pc.green('✔')} ${pc.bold(pc.white(`Successfully updated termux-dev to v${latestVersion} via npm!`))}\n`);
+            process.stdout.write(`\r  ${pc.green('✓')} ${pc.bold(pc.white(`Successfully updated termux-dev to v${latestVersion} via npm!`))}\n`);
         }
         catch (err) {
             clearInterval(interval);
             process.stdout.write(`\r  ${pc.red('✖')} ${pc.red(`Update failed: ${err.message}`)}\n`);
-            console.log(pc.yellow(`\n💡 To update manually, run: ${pc.bold('npm install -g termux-dev@latest')}`));
+            console.log(pc.yellow(`\nTo update manually, run: ${pc.bold('npm install -g termux-dev@latest')}`));
             return false;
         }
     }
@@ -134,20 +135,20 @@ export async function performSelfUpdate(latestVersion) {
         // 2. Installed via git clone (Developer mode)
         const steps = [
             {
-                title: '📦 Pulling latest updates from GitHub repository...',
+                title: 'Pulling latest updates from GitHub repository...',
                 action: () => {
                     execSync('git pull origin main', { cwd: projectRoot, stdio: 'pipe' });
                 }
             },
             {
-                title: '🔨 Building and compiling TypeScript sources...',
+                title: 'Building and compiling TypeScript sources...',
                 action: () => {
                     execSync('npm install', { cwd: projectRoot, stdio: 'pipe' });
                     execSync('npm run build', { cwd: projectRoot, stdio: 'pipe' });
                 }
             },
             {
-                title: '🔑 Ensuring binary execution permissions & linking...',
+                title: 'Ensuring binary execution permissions & linking...',
                 action: () => {
                     try {
                         execSync('npm link', { cwd: projectRoot, stdio: 'pipe' });
@@ -158,7 +159,7 @@ export async function performSelfUpdate(latestVersion) {
         ];
         for (let i = 0; i < steps.length; i++) {
             const step = steps[i];
-            process.stdout.write(`  ${pc.cyan('⚡')} [${i + 1}/${steps.length}] ${pc.white(step.title)}\n`);
+            process.stdout.write(`  ${pc.cyan('›')} [${i + 1}/${steps.length}] ${pc.white(step.title)}\n`);
             const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
             let fIdx = 0;
             const interval = setInterval(() => {
@@ -168,18 +169,18 @@ export async function performSelfUpdate(latestVersion) {
                 await new Promise(resolve => setTimeout(resolve, 200));
                 step.action();
                 clearInterval(interval);
-                process.stdout.write(`\r  ${pc.green('✔')} ${pc.bold(pc.white(step.title))}\n`);
+                process.stdout.write(`\r  ${pc.green('✓')} ${pc.bold(pc.white(step.title))}\n`);
             }
             catch (err) {
                 clearInterval(interval);
                 process.stdout.write(`\r  ${pc.red('✖')} ${pc.red(step.title)} - ${err.message}\n`);
                 console.log(pc.red(`\nUpdate failed during step ${i + 1}: ${err.message}`));
-                console.log(pc.yellow(`\n💡 To update manually, run: ${pc.bold('npm install -g termux-dev')}`));
+                console.log(pc.yellow(`\nTo update manually, run: ${pc.bold('npm install -g termux-dev')}`));
                 return false;
             }
         }
     }
-    console.log(pc.bold(pc.green(`\n✅ Successfully updated to v${latestVersion}! Restarting devx...\n`)));
+    console.log(pc.bold(pc.green(`\nSuccessfully updated to v${latestVersion}! Restarting devx...\n`)));
     console.log(pc.bold(pc.cyan('──────────────────────────────────────────────────────\n')));
     await new Promise(r => setTimeout(r, 1000));
     try {
@@ -218,21 +219,22 @@ export async function runStartupUpdateCheck(config) {
     if (result.updateAvailable) {
         console.log();
         console.log(pc.bold(pc.cyan('  ┌───────────────────────────────────────────────────────────┐')));
-        console.log(pc.bold(pc.cyan('  │')) + pc.bold(pc.yellow(`  🚀 A new update is available: `)) + pc.dim(`v${result.currentVersion}`) + pc.bold(pc.green(` ➔ v${result.latestVersion}`)) + ' '.repeat(Math.max(1, 23 - result.currentVersion.length - result.latestVersion.length)) + pc.bold(pc.cyan('│')));
+        console.log(pc.bold(pc.cyan('  │')) + pc.bold(pc.yellow(`  A new update is available: `)) + pc.dim(`v${result.currentVersion}`) + pc.bold(pc.green(` → v${result.latestVersion}`)) + ' '.repeat(Math.max(1, 23 - result.currentVersion.length - result.latestVersion.length)) + pc.bold(pc.cyan('│')));
         console.log(pc.bold(pc.cyan('  │')) + pc.dim(`  Repository: https://github.com/apvcode/Termux-Dev          `) + pc.bold(pc.cyan('│')));
         console.log(pc.bold(pc.cyan('  └───────────────────────────────────────────────────────────┘')));
         console.log();
         try {
             const choice = await select({
                 message: pc.bold('Do you want to update devx now?'),
+                loop: false,
                 choices: [
                     {
-                        name: `⚡ Update now (Pull v${result.latestVersion}, rebuild & restart)`,
+                        name: `Update now (Pull v${result.latestVersion}, rebuild & restart)`,
                         value: 'update',
                         description: 'Download latest code, compile TypeScript, and restart devx'
                     },
                     {
-                        name: '⏭  Skip for now (Continue to chat)',
+                        name: 'Skip for now (Continue to chat)',
                         value: 'skip',
                         description: 'Keep current version and start session'
                     }
@@ -248,7 +250,7 @@ export async function runStartupUpdateCheck(config) {
     }
     else {
         // Briefly show up to date message
-        process.stdout.write(`  ${pc.green('✔')} ${pc.dim(`devx is up to date (v${result.currentVersion})`)}\n`);
+        process.stdout.write(`  ${pc.green('✓')} ${pc.dim(`devx is up to date (v${result.currentVersion})`)}\n`);
         await new Promise(r => setTimeout(r, 450));
         // Clean up line
         process.stdout.write('\x1b[1A\x1b[2K');

@@ -7,7 +7,9 @@ const root = path.join(__dirname, '..');
 
 const files = [
   ['src/core/model-limits.json', 'dist/core/model-limits.json'],
-  ['src/core/model-pricing.json', 'dist/core/model-pricing.json']
+  ['src/core/price-catalog.json', 'dist/core/price-catalog.json'],
+  ['src/core/vision-catalog.json', 'dist/core/vision-catalog.json'],
+  ['src/core/reasoning-catalog.json', 'dist/core/reasoning-catalog.json']
 ];
 
 for (const [src, dest] of files) {

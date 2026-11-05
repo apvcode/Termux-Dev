@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import { getCurrentTheme } from '../cli/theme.js';
+import { CostLedger, formatMoney } from './cost.js';
 function stripAnsi(str) {
     return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
 }
@@ -10,7 +11,10 @@ export class UsageTracker {
     requestsCount = 0;
     promptTokens = 0;
     completionTokens = 0;
-    totalCost = 0;
+    ledger = new CostLedger();
+    cacheReadTokens = 0;
+    cacheWriteTokens = 0;
+    lastPromptTokens = 0;
     dataSaverLimitMB;
     warnedThreshold = false;
     constructor() { }
@@ -23,6 +27,19 @@ export class UsageTracker {
     setLimit(limitMB) {
         this.dataSaverLimitMB = limitMB;
     }
+    /** Starts counting from zero (new session). The data saver limit itself is kept. */
+    reset() {
+        this.bytesSent = 0;
+        this.bytesReceived = 0;
+        this.requestsCount = 0;
+        this.promptTokens = 0;
+        this.completionTokens = 0;
+        this.ledger.reset();
+        this.cacheReadTokens = 0;
+        this.cacheWriteTokens = 0;
+        this.lastPromptTokens = 0;
+        this.warnedThreshold = false;
+    }
     recordRequest(payloadBytes) {
         this.bytesSent += payloadBytes;
         this.requestsCount += 1;
@@ -30,10 +47,18 @@ export class UsageTracker {
     recordResponseChunk(chunkBytes) {
         this.bytesReceived += chunkBytes;
     }
-    recordTokens(promptTokens, completionTokens, cost) {
+    /** Records the tokens of one request; an undefined cost means the price is not known. */
+    recordTokens(promptTokens, completionTokens, cost, costSource) {
         this.promptTokens += promptTokens;
         this.completionTokens += completionTokens;
-        this.totalCost += cost;
+        this.ledger.add({ cost, costSource });
+    }
+    recordUsage(usage) {
+        this.recordTokens(usage.promptTokens, usage.completionTokens, usage.cost, usage.costSource);
+        this.cacheReadTokens += usage.cacheReadTokens || 0;
+        this.cacheWriteTokens += usage.cacheWriteTokens || 0;
+        if (!usage.tokensEstimated)
+            this.lastPromptTokens = usage.promptTokens;
     }
     getSummary() {
         return {
@@ -44,7 +69,10 @@ export class UsageTracker {
             promptTokens: this.promptTokens,
             completionTokens: this.completionTokens,
             totalTokens: this.promptTokens + this.completionTokens,
-            totalCost: this.totalCost,
+            totalCost: this.ledger.total,
+            costState: this.ledger.state(),
+            cacheReadTokens: this.cacheReadTokens,
+            lastPromptTokens: this.lastPromptTokens,
             dataSaverLimitMB: this.dataSaverLimitMB
         };
     }
@@ -74,7 +102,7 @@ export class UsageTracker {
             const spaces = Math.max(1, innerWidth - plainLen);
             return `│  ${pc.bold(label)}${' '.repeat(spaces)}${value}  │`;
         };
-        const header = theme.colorFn('┌─ ') + pc.bold('📊 Session Bandwidth & Usage Monitor') + ' ' + theme.colorFn('─'.repeat(Math.max(2, boxWidth - 41)) + '┐');
+        const header = theme.colorFn('┌─ ') + pc.bold('Session Bandwidth & Usage Monitor') + ' ' + theme.colorFn('─'.repeat(Math.max(2, boxWidth - 41)) + '┐');
         const divider = theme.colorFn('├' + '─'.repeat(boxWidth - 2) + '┤');
         const footer = theme.colorFn('└' + '─'.repeat(boxWidth - 2) + '┘');
         const totalBandwidthStr = pc.cyan(UsageTracker.formatBytes(summary.totalBytes));
@@ -84,7 +112,7 @@ export class UsageTracker {
         const tokenStr = pc.magenta(`${UsageTracker.formatTokens(summary.totalTokens)} tokens`);
         const promptTokenStr = pc.dim(`${UsageTracker.formatTokens(summary.promptTokens)} in`);
         const compTokenStr = pc.dim(`${UsageTracker.formatTokens(summary.completionTokens)} out`);
-        const costStr = pc.green(`$${summary.totalCost.toFixed(4)}`);
+        const costStr = pc.green(formatMoney(summary.totalCost, summary.costState));
         const lines = [
             header,
             padRow('Total Network Traffic:', totalBandwidthStr),
@@ -96,6 +124,14 @@ export class UsageTracker {
             padRow('  • Breakdown:', `${promptTokenStr} / ${compTokenStr}`),
             padRow('Session Cost:', costStr)
         ];
+        if (summary.cacheReadTokens > 0) {
+            lines.push(padRow('  • Cached input:', pc.dim(`${UsageTracker.formatTokens(summary.cacheReadTokens)} read`)));
+        }
+        if (summary.costState.estimated)
+            lines.push(padRow('  • Prices:', pc.dim('catalogue (estimate)')));
+        if ((summary.costState.unpriced ?? 0) > 0) {
+            lines.push(padRow('  • No price for:', pc.dim(`${summary.costState.unpriced} request${summary.costState.unpriced === 1 ? '' : 's'}`)));
+        }
         if (summary.dataSaverLimitMB) {
             const usedMB = summary.totalBytes / (1024 * 1024);
             const pct = Math.min(100, Math.round((usedMB / summary.dataSaverLimitMB) * 100));
@@ -112,7 +148,7 @@ export class UsageTracker {
         const usedMB = (this.bytesSent + this.bytesReceived) / (1024 * 1024);
         if (usedMB >= this.dataSaverLimitMB) {
             this.warnedThreshold = true;
-            return `⚠️  [DATA SAVER WARNING] Session network traffic has reached ${usedMB.toFixed(1)} MB (Limit: ${this.dataSaverLimitMB} MB)!`;
+            return `[DATA SAVER WARNING] Session network traffic has reached ${usedMB.toFixed(1)} MB (Limit: ${this.dataSaverLimitMB} MB)!`;
         }
         return null;
     }

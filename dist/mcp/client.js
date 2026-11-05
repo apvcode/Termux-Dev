@@ -137,6 +137,16 @@ export class MCPClient {
                 continue;
             try {
                 const msg = JSON.parse(trimmed);
+                if (!msg || typeof msg !== 'object')
+                    continue;
+                // Messages carrying a "method" come FROM the server: a request (has an id)
+                // or a notification. Their ids live in the server's own id space and must
+                // never be matched against our pending requests.
+                if (typeof msg.method === 'string') {
+                    if (msg.id !== undefined && msg.id !== null)
+                        this.answerServerRequest(msg);
+                    continue;
+                }
                 if ('id' in msg && msg.id !== undefined) {
                     const pending = this.pendingRequests.get(msg.id);
                     if (pending) {
@@ -155,6 +165,18 @@ export class MCPClient {
                 // Ignore non-JSON line outputs (e.g. startup banner)
             }
         }
+    }
+    /** Replies to requests initiated by the server (we only support `ping`). */
+    answerServerRequest(msg) {
+        if (!this.process || !this.process.stdin)
+            return;
+        const reply = msg.method === 'ping'
+            ? { jsonrpc: '2.0', id: msg.id, result: {} }
+            : { jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } };
+        try {
+            this.process.stdin.write(JSON.stringify(reply) + '\n');
+        }
+        catch { }
     }
     sendRequest(method, params, timeoutMs = 15000) {
         return new Promise((resolve, reject) => {

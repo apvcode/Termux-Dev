@@ -1,15 +1,75 @@
 import { LLMProvider, LLMRequest, LLMResponse } from '../core/types.js';
-import { calculateCost } from '../core/pricing.js';
 import { UsageTracker } from '../core/usage.js';
+import { PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, openAiUsage, parseToolArguments, toolTargetHint } from './shared.js';
+
+export { parseToolArguments };
+
+// Fields the extra parameters may never overwrite.
+const PROTECTED_FIELDS = new Set(['model', 'messages', 'stream', 'tools', 'stream_options']);
 
 export class OpenAIProvider implements LLMProvider {
   id = 'openai-compatible';
   
+  /** Set once the endpoint has refused the extra (reasoning) parameters: they are not sent again. */
+  private extrasRejected = false;
+  private notices: string[] = [];
+  private imageNoticeShown = false;
+
   constructor(
     private baseUrl: string,
     private apiKey: string,
-    private model: string
+    private model: string,
+    /** Extra request parameters, e.g. the reasoning setting from /effort. */
+    private extraBody?: Record<string, unknown>,
+    private options: ProviderOptions = {}
   ) {}
+
+  private priceContext() {
+    return { ...this.options.price, model: this.model, baseUrl: this.baseUrl };
+  }
+
+  /** Messages for the user produced while talking to the endpoint (shown once). */
+  drainNotices(): string[] {
+    return this.notices.splice(0);
+  }
+
+  private hasActiveExtras(): boolean {
+    return !this.extrasRejected && !!this.extraBody && Object.keys(this.extraBody).length > 0;
+  }
+
+  /**
+   * Posts the request. If the endpoint answers 400/422 and complains about a parameter
+   * while reasoning parameters are being sent, the request is repeated once without them:
+   * an unknown setting must never make the whole session unusable.
+   */
+  private async send(request: LLMRequest, stream: boolean): Promise<Response> {
+    const url = `${this.baseUrl}/chat/completions`;
+    const post = () => {
+      const bodyStr = JSON.stringify(this.buildPayload(request, stream));
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
+      UsageTracker.getInstance().recordRequest(Buffer.byteLength(bodyStr, 'utf8'));
+      return fetch(url, { method: 'POST', headers, body: bodyStr, signal: request.signal });
+    };
+
+    const res = await post();
+    if (res.ok || !this.hasActiveExtras() || (res.status !== 400 && res.status !== 422)) return res;
+
+    const text = await res.clone().text().catch(() => '');
+    if (!PARAMETER_REJECTED.test(text)) return res;
+
+    this.extrasRejected = true;
+    let reason = text;
+    try {
+      const parsed = JSON.parse(text);
+      reason = parsed.error?.message || parsed.message || text;
+    } catch {}
+    this.notices.push(
+      `The endpoint rejected the reasoning setting (${String(reason).replace(/\s+/g, ' ').slice(0, 110)}). ` +
+      `Continuing without it. /effort auto stops sending it for good.`
+    );
+    return post();
+  }
 
   private buildPayload(request: LLMRequest, stream: boolean) {
     const totalMsgs = request.messages.length;
@@ -27,7 +87,14 @@ export class OpenAIProvider implements LLMProvider {
       messages: request.messages.map((m, idx) => {
         let content: any = m.content || "";
         if (m.images && m.images.length > 0) {
-          if (idx === lastImageMsgIdx) {
+          if (this.options.images === false) {
+            const note = imageNotSentText(m.images.map(img => img.path));
+            content = m.content ? `${m.content}\n${note}` : note;
+            if (!this.imageNoticeShown) {
+              this.imageNoticeShown = true;
+              this.notices.push(`${this.model} cannot read images, so the image was not sent. Switch to a model with vision (/model).`);
+            }
+          } else if (idx === lastImageMsgIdx) {
             content = [
               { type: 'text', text: m.content || "" },
               ...m.images.map(img => ({
@@ -63,42 +130,22 @@ export class OpenAIProvider implements LLMProvider {
       payload.stream_options = { include_usage: true };
     }
 
+    if (this.hasActiveExtras()) {
+      for (const [key, value] of Object.entries(this.extraBody!)) {
+        if (!PROTECTED_FIELDS.has(key)) payload[key] = value;
+      }
+    }
+
     return payload;
   }
 
   async chat(request: LLMRequest): Promise<LLMResponse> {
-    const url = `${this.baseUrl}/chat/completions`;
-    const payload = this.buildPayload(request, false);
-    const bodyStr = JSON.stringify(payload);
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
-    }
-
-    UsageTracker.getInstance().recordRequest(Buffer.byteLength(bodyStr, 'utf8'));
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: bodyStr,
-      signal: request.signal
-    });
+    const res = await this.send(request, false);
 
     if (!res.ok) {
       const errText = await res.text();
       UsageTracker.getInstance().recordResponseChunk(Buffer.byteLength(errText, 'utf8'));
-      let errMsg = errText;
-      try {
-        const parsed = JSON.parse(errText);
-        if (parsed.error?.message) {
-          errMsg = parsed.error.message;
-        } else if (parsed.message) {
-          errMsg = parsed.message;
-        }
-      } catch {}
+      const errMsg = errorMessageOf(errText);
       const err: any = new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
       err.status = res.status;
       throw err;
@@ -122,35 +169,24 @@ export class OpenAIProvider implements LLMProvider {
 
     let usage;
     if (data.usage) {
-      const promptTokens = data.usage.prompt_tokens || 0;
-      const completionTokens = data.usage.completion_tokens || 0;
-      const totalTokens = data.usage.total_tokens || (promptTokens + completionTokens);
-      const cost = typeof data.usage.total_cost === 'number'
-        ? data.usage.total_cost
-        : calculateCost(this.model, promptTokens, completionTokens);
-
-      usage = {
-        promptTokens,
-        completionTokens,
-        totalTokens,
-        cost
-      };
-      UsageTracker.getInstance().recordTokens(promptTokens, completionTokens, cost);
+      // LiteLLM puts the cost of the request into a header instead of the body.
+      const headerCost = Number(res.headers?.get?.('x-litellm-response-cost'));
+      const raw = Number.isFinite(headerCost) && res.headers.get('x-litellm-response-cost') !== null && data.usage.cost === undefined
+        ? { ...data.usage, cost: headerCost }
+        : data.usage;
+      usage = openAiUsage(raw, this.priceContext());
+      UsageTracker.getInstance().recordUsage(usage);
     }
 
     return {
       content: choice.content || null,
       toolCalls: choice.tool_calls ? choice.tool_calls.map((tc: any) => {
-        let parsedArgs = {};
-        try {
-          parsedArgs = JSON.parse(tc.function.arguments);
-        } catch {
-          parsedArgs = {};
-        }
+        const parsed = parseToolArguments(tc.function.arguments);
         return {
           id: tc.id || `call_${Math.random().toString(36).substring(2, 9)}`,
           name: tc.function.name,
-          arguments: parsedArgs
+          arguments: parsed.args,
+          ...(parsed.error ? { argsError: parsed.error } : {})
         };
       }) : undefined,
       usage
@@ -158,38 +194,12 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async *chatStream(request: LLMRequest): AsyncGenerator<any, LLMResponse, unknown> {
-    const url = `${this.baseUrl}/chat/completions`;
-    const payload = this.buildPayload(request, true);
-    const bodyStr = JSON.stringify(payload);
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
-    }
-
-    UsageTracker.getInstance().recordRequest(Buffer.byteLength(bodyStr, 'utf8'));
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: bodyStr,
-      signal: request.signal
-    });
+    const res = await this.send(request, true);
 
     if (!res.ok) {
       const errText = await res.text();
       UsageTracker.getInstance().recordResponseChunk(Buffer.byteLength(errText, 'utf8'));
-      let errMsg = errText;
-      try {
-        const parsed = JSON.parse(errText);
-        if (parsed.error?.message) {
-          errMsg = parsed.error.message;
-        } else if (parsed.message) {
-          errMsg = parsed.message;
-        }
-      } catch {}
+      const errMsg = errorMessageOf(errText);
       const err: any = new Error(`Provider HTTP Error ${res.status}: ${errMsg}`);
       err.status = res.status;
       throw err;
@@ -197,7 +207,11 @@ export class OpenAIProvider implements LLMProvider {
 
     const reader = res.body?.getReader();
     if (!reader) {
-      return await this.chat(request);
+      // No streaming body: fall back to a regular request. The agent loop only reads
+      // the final response from the 'done' chunk, so it has to be yielded.
+      const fallback = await this.chat(request);
+      yield { type: 'done', response: fallback };
+      return fallback;
     }
 
     if (request.signal) {
@@ -328,25 +342,7 @@ export class OpenAIProvider implements LLMProvider {
                   if (tc.function?.arguments) existing.argsStr += tc.function.arguments;
                   toolMap.set(idx, existing);
 
-                  // Extract live target hint (e.g. path or command being generated)
-                  let targetHint: string | undefined = undefined;
-                  const args = existing.argsStr;
-                  if (args) {
-                    const pathMatch = args.match(/"(?:path|filePath|targetFile)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
-                    if (pathMatch && pathMatch[1]) {
-                      targetHint = pathMatch[1];
-                    } else {
-                      const cmdMatch = args.match(/"(?:command|cmd)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
-                      if (cmdMatch && cmdMatch[1]) {
-                        targetHint = cmdMatch[1].length > 30 ? cmdMatch[1].slice(0, 27) + '...' : cmdMatch[1];
-                      } else {
-                        const qMatch = args.match(/"(?:query|pattern)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
-                        if (qMatch && qMatch[1]) {
-                          targetHint = `"${qMatch[1]}"`;
-                        }
-                      }
-                    }
-                  }
+                  const targetHint = toolTargetHint(existing.argsStr);
 
                   yield {
                     type: 'tool_generating',
@@ -379,16 +375,12 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     const toolCalls = Array.from(toolMap.values()).map(tc => {
-      let parsedArgs = {};
-      try {
-        parsedArgs = JSON.parse(tc.argsStr);
-      } catch {
-        parsedArgs = {};
-      }
+      const parsed = parseToolArguments(tc.argsStr);
       return {
         id: tc.id || `call_${Math.random().toString(36).substring(2, 9)}`,
         name: tc.name,
-        arguments: parsedArgs
+        arguments: parsed.args,
+        ...(parsed.error ? { argsError: parsed.error } : {})
       };
     });
 
@@ -396,21 +388,11 @@ export class OpenAIProvider implements LLMProvider {
       throw new Error(`Provider returned empty response (0 tokens generated). Please check your model '${this.model}', balance, or API key.`);
     }
 
-    let usage;
-    const promptTokens = usageData?.prompt_tokens || Math.ceil(JSON.stringify(request.messages).length / 3.5);
-    const completionTokens = usageData?.completion_tokens || Math.ceil((accumulatedContent.length + accumulatedReasoning.length) / 3.5);
-    const totalTokens = usageData?.total_tokens || (promptTokens + completionTokens);
-    const cost = typeof usageData?.total_cost === 'number'
-      ? usageData.total_cost
-      : calculateCost(this.model, promptTokens, completionTokens);
-
-    usage = {
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      cost
-    };
-    UsageTracker.getInstance().recordTokens(promptTokens, completionTokens, cost);
+    const usage = openAiUsage(usageData, this.priceContext(), {
+      prompt: Math.ceil(JSON.stringify(request.messages).length / 3.5),
+      completion: Math.ceil((accumulatedContent.length + accumulatedReasoning.length) / 3.5),
+    });
+    UsageTracker.getInstance().recordUsage(usage);
 
     const finalResponse: LLMResponse = {
       content: accumulatedContent || null,

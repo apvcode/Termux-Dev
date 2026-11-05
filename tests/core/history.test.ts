@@ -69,3 +69,49 @@ describe('History', () => {
     expect(messages[messages.length - 1].content).toBe('Latest response');
   });
 });
+
+describe('compaction bookkeeping (for /usage)', () => {
+  const big = (n: number) => 'x'.repeat(n);
+  const build = () => {
+    const h = new History();
+    h.addMessage({ role: 'system', content: 'sys' });
+    h.addMessage({ role: 'user', content: 'task' });
+    for (let i = 0; i < 12; i++) {
+      h.addMessage({ role: 'assistant', content: '', tool_calls: [{ id: `c${i}`, name: 'read_file', arguments: { path: `f${i}` } }] });
+      h.addMessage({ role: 'tool', content: big(6000), tool_call_id: `c${i}`, name: 'read_file' });
+    }
+    return h;
+  };
+
+  it('counts how often it compacted and how many messages were dropped', () => {
+    const h = build();
+    expect(h.compactions).toBe(0);
+    // (the latest two exchanges are protected, so the target must leave room for them)
+    expect(h.pruneToLimit(3000)).toBe(true);
+    expect(h.compactions).toBe(1);
+    expect(h.droppedMessages).toBeGreaterThan(0);
+    expect(h.getTotalTokens()).toBeLessThanOrEqual(3000);
+  });
+
+  it('keeps the system prompt, the first task and the latest exchange', () => {
+    const h = build();
+    h.pruneToLimit(3000);
+    const msgs = h.getMessages();
+    expect(msgs[0].role).toBe('system');
+    expect(msgs[1].content).toBe('task');
+    expect(msgs[msgs.length - 1].tool_call_id).toBe('c11');
+    // no tool result is left without its call
+    const calls = new Set(msgs.flatMap((m) => (m.tool_calls ?? []).map((c) => c.id)));
+    for (const m of msgs) if (m.role === 'tool') expect(calls.has(m.tool_call_id!)).toBe(true);
+  });
+
+  it('does not count when nothing had to be done, and clear() resets the counters', () => {
+    const h = build();
+    expect(h.pruneToLimit(10_000_000)).toBe(false);
+    expect(h.compactions).toBe(0);
+    h.pruneToLimit(3000);
+    h.clear();
+    expect(h.compactions).toBe(0);
+    expect(h.droppedMessages).toBe(0);
+  });
+});

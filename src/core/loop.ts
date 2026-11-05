@@ -1,5 +1,6 @@
 import { AgentConfig, AgentEvent, LLMProvider, Message, PermissionGuard, Tool } from './types.js';
 import { History } from './history.js';
+import { CONTEXT_USAGE_RATIO, toolSchemaTokens } from './context-stats.js';
 import { isNetworkOrRetryableError, getHumanReadableNetworkError, waitDelay } from './network.js';
 
 function getActionDescription(toolName: string, args: any): string {
@@ -40,6 +41,24 @@ function getActionDescription(toolName: string, args: any): string {
   return `→ Executing ${toolName}...`;
 }
 
+
+const CONTEXT_LENGTH_ERROR =
+  /context[_ ]length|maximum context|context window|too many tokens|prompt is too long|reduce the length|input is too long|exceeds? the (?:model|maximum|max)/i;
+
+function isContextLengthError(err: any): boolean {
+  const status = err?.status;
+  if (status !== undefined && status !== 400 && status !== 413 && status !== 422) return false;
+  return CONTEXT_LENGTH_ERROR.test(String(err?.message || ''));
+}
+
+/** Lets the caller hand the agent new user messages while it works. */
+export interface RunHooks {
+  /** Messages typed since the last step (oldest first); asked before every request. */
+  takePending?: () => Promise<Message[]> | Message[];
+  /** True when a message is waiting: the agent keeps going instead of ending the turn. */
+  hasPending?: () => boolean;
+}
+
 export class Agent {
   private config: AgentConfig;
   private provider: LLMProvider;
@@ -61,31 +80,49 @@ export class Agent {
     this.guard = guard;
   }
 
-  async *run(signal?: AbortSignal): AsyncGenerator<AgentEvent, void, unknown> {
+  async *run(signal?: AbortSignal, hooks?: RunHooks): AsyncGenerator<AgentEvent, void, unknown> {
     let iterations = 0;
+    // A config without maxIterations used to make the loop exit immediately and silently.
+    const maxIterations = this.config.maxIterations > 0 ? this.config.maxIterations : 100;
 
-    while (iterations < this.config.maxIterations) {
+    while (iterations < maxIterations) {
       if (signal?.aborted) {
         return;
       }
 
-      const wasCompacted = this.history.pruneToLimit(this.config.maxContextTokens);
+      // Messages the user typed while the previous step ran join the conversation here, between
+      // the tool results and the next request, so the model sees them before it decides what to do.
+      for (const message of (await hooks?.takePending?.()) ?? []) {
+        this.history.addMessage(message);
+        yield { type: 'user_message', content: message.content };
+      }
+
+      const toolDefinitions = Array.from(this.tools.values()).map((t) => t.definition);
+      // Tool schemas are sent with every request and count against the context window.
+      const schemaTokens = toolSchemaTokens(toolDefinitions);
+      const promptBudget = Math.max(
+        1000,
+        Math.floor(this.config.maxContextTokens * CONTEXT_USAGE_RATIO) - schemaTokens
+      );
+
+      const wasCompacted = this.history.pruneToLimit(promptBudget);
       if (wasCompacted) {
         yield { type: 'system', message: 'Context compacted to fit model context window.' };
       }
 
       const request: any = {
         messages: this.history.getMessages(),
-        tools: Array.from(this.tools.values()).map((t) => t.definition),
+        tools: toolDefinitions,
         signal,
       };
-      
+
       if (request.tools.length === 0) {
         delete request.tools;
       }
 
       let response: any;
       let attempt = 0;
+      let contextRetries = 0;
       const maxRetries = 4;
 
       while (true) {
@@ -124,6 +161,17 @@ export class Agent {
             return;
           }
 
+          // The provider says the prompt is too long (our estimate was too optimistic):
+          // shrink the history harder and retry instead of failing the whole session.
+          if (contextRetries < 2 && isContextLengthError(err)) {
+            contextRetries++;
+            const target = Math.floor(this.history.getTotalTokens() * (contextRetries === 1 ? 0.6 : 0.35));
+            this.history.pruneToLimit(Math.max(500, target));
+            request.messages = this.history.getMessages();
+            yield { type: 'system', message: 'Provider reported the context is too long. Compacted history, retrying.' };
+            continue;
+          }
+
           const isNetwork = isNetworkOrRetryableError(err);
           if (isNetwork && attempt < maxRetries) {
             attempt++;
@@ -155,6 +203,10 @@ export class Agent {
         return;
       }
 
+      for (const notice of this.provider.drainNotices?.() ?? []) {
+        yield { type: 'system', message: notice };
+      }
+
       if (!response) {
         response = { content: '' };
       }
@@ -166,6 +218,9 @@ export class Agent {
 
       if (response.toolCalls && response.toolCalls.length > 0) {
         assistantMsg.tool_calls = response.toolCalls;
+      }
+      if (response.thinkingBlocks && response.thinkingBlocks.length > 0) {
+        assistantMsg.thinking_blocks = response.thinkingBlocks;
       }
 
       this.history.addMessage(assistantMsg);
@@ -180,6 +235,11 @@ export class Agent {
       }
 
       if (!response.toolCalls || response.toolCalls.length === 0) {
+        // The user wrote something while the model was finishing: answer it instead of stopping.
+        if (hooks?.hasPending?.()) {
+          iterations++;
+          continue;
+        }
         break;
       }
 
@@ -197,6 +257,9 @@ export class Agent {
 
           if (!tool) {
             result = `Error: Tool '${call.name}' not found.`;
+          } else if (call.argsError) {
+            // Never run a tool with arguments we could not parse ({} could mean something else).
+            result = `Error: ${call.argsError}`;
           } else {
             try {
               tool.validateArgs(call.arguments);
@@ -242,8 +305,8 @@ export class Agent {
       iterations++;
     }
 
-    if (iterations >= this.config.maxIterations) {
-      yield { type: 'system', message: `Reached max iterations (${this.config.maxIterations}).` };
+    if (iterations >= maxIterations) {
+      yield { type: 'system', message: `Reached max iterations (${maxIterations}).` };
     }
   }
 }

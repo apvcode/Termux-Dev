@@ -9,7 +9,7 @@ export class SessionExporter {
                 fileName += '.md';
             const filePath = path.resolve(process.cwd(), fileName);
             const lines = [
-                `# 📝 devx Session Transcript`,
+                `# devx Session Transcript`,
                 ``,
                 `- **Date:** ${new Date().toLocaleString()}`,
                 `- **Model:** \`${model}\``,
@@ -23,7 +23,7 @@ export class SessionExporter {
                 if (msg.role === 'system')
                     continue; // Skip raw system prompt
                 if (msg.role === 'user') {
-                    lines.push(`## 👤 User\n`);
+                    lines.push(`## User\n`);
                     lines.push(msg.content || '');
                     if (msg.images && msg.images.length > 0) {
                         lines.push(`\n*Attached Images: ${msg.images.map(i => i.path).join(', ')}*`);
@@ -31,7 +31,7 @@ export class SessionExporter {
                     lines.push(`\n---\n`);
                 }
                 else if (msg.role === 'assistant') {
-                    lines.push(`## 🤖 Assistant\n`);
+                    lines.push(`## Assistant\n`);
                     if (msg.content) {
                         lines.push(msg.content);
                     }

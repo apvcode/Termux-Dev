@@ -3,6 +3,7 @@ import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
 import { Message } from './types.js';
+import { ensureSecureDir, writeSecureFile } from './secure-file.js';
 
 export interface ChatSession {
   id: string;
@@ -13,6 +14,8 @@ export interface ChatSession {
   planMode: boolean;
   messages: Message[];
   totalCost: number;
+  /** Part of totalCost is a catalogue estimate. */
+  costEstimated?: boolean;
 }
 
 const SESSIONS_DIR = path.join(os.homedir(), '.devx', 'sessions');
@@ -47,13 +50,14 @@ export class SessionManager {
     return this.currentSession;
   }
 
-  public async save(messages: Message[], totalCost: number, model?: string, planMode?: boolean): Promise<void> {
-    if (!fsSync.existsSync(SESSIONS_DIR)) {
-      await fs.mkdir(SESSIONS_DIR, { recursive: true });
-    }
+  public async save(messages: Message[], totalCost: number, model?: string, planMode?: boolean, costEstimated?: boolean): Promise<void> {
+    // Transcripts contain file contents and pasted images: keep them private to the user.
+    await ensureSecureDir(path.dirname(SESSIONS_DIR));
+    await ensureSecureDir(SESSIONS_DIR);
 
     this.currentSession.messages = messages;
     this.currentSession.totalCost = totalCost;
+    if (costEstimated !== undefined) this.currentSession.costEstimated = costEstimated;
     this.currentSession.updatedAt = Date.now();
     if (model) this.currentSession.model = model;
     if (planMode !== undefined) this.currentSession.planMode = planMode;
@@ -70,7 +74,7 @@ export class SessionManager {
     }
 
     const filePath = path.join(SESSIONS_DIR, `${this.currentSession.id}.json`);
-    await fs.writeFile(filePath, JSON.stringify(this.currentSession, null, 2), 'utf8');
+    await writeSecureFile(filePath, JSON.stringify(this.currentSession, null, 2));
   }
 
   public static async listSessions(): Promise<ChatSession[]> {

@@ -34,7 +34,7 @@ async function pingUrl(url) {
 }
 export async function runDoctor(config) {
     const theme = getCurrentTheme();
-    console.log('\n' + theme.boldFn('🩺 devx Doctor — System & Environment Health Diagnostics'));
+    console.log('\n' + theme.boldFn('devx Doctor — System & Environment Health Diagnostics'));
     console.log(pc.dim('──────────────────────────────────────────────────────────────────'));
     const envChecks = [];
     const toolChecks = [];
@@ -124,7 +124,7 @@ export async function runDoctor(config) {
     const renderSection = (title, items) => {
         console.log('\n' + theme.colorFn(pc.bold(`• ${title}`)));
         for (const item of items) {
-            let icon = pc.green('✔');
+            let icon = pc.green('✓');
             if (item.status === 'warn')
                 icon = pc.yellow('▲');
             if (item.status === 'fail')
@@ -139,10 +139,10 @@ export async function runDoctor(config) {
     console.log('\n' + pc.dim('──────────────────────────────────────────────────────────────────'));
     const hasFailures = [...envChecks, ...toolChecks, ...keyChecks, ...netChecks].some(i => i.status === 'fail');
     if (hasFailures) {
-        console.log(pc.red(pc.bold('⚠ Doctor found critical issues that might prevent devx from functioning properly.')));
+        console.log(pc.red(pc.bold('Doctor found critical issues that might prevent devx from functioning properly.')));
     }
     else {
-        console.log(theme.boldFn('🎉 Everything looks healthy! devx is fully configured and ready for vibe-coding.'));
+        console.log(theme.boldFn('Everything looks healthy! devx is fully configured and ready for vibe-coding.'));
     }
     console.log();
 }

@@ -20,24 +20,39 @@ import { startServer, stopServer, displayServerBanner } from './server.js';
 import { notifyDevice, acquireWakeLock } from '../core/notify.js';
 import { runDoctor } from './doctor.js';
 import { ALL_PROVIDERS } from './providers.js';
-import { getModelContextLimit } from '../core/models.js';
+import { getModelContextInfo, getModelContextLimit } from '../core/models.js';
 import { SessionManager } from '../core/session.js';
 import { MarkdownStreamer, renderMarkdown } from './markdown.js';
 import { SmoothStreamer } from './smooth.js';
 import { askPrompt } from './prompt.js';
 import { resolveAtMentions } from './files.js';
 import { runStartupUpdateCheck, checkForUpdates, performSelfUpdate } from './updater.js';
-import { setActiveTheme, getCurrentTheme, listThemes, findTheme } from './theme.js';
+import { setActiveTheme, getCurrentTheme, listThemes, findTheme, renderSwatch, renderThemePreview } from './theme.js';
 import { runHeadlessMode } from './headless.js';
 import { CustomCommandManager } from '../core/commands.js';
 import { UsageTracker } from '../core/usage.js';
+import { CostLedger } from '../core/cost.js';
 import { SessionExporter } from './export.js';
-import { MCPManager } from '../mcp/manager.js';
+import { MCPManager, discoverProjectMcpServers, hashProjectMcpServers } from '../mcp/manager.js';
+import { writeSecureFile } from '../core/secure-file.js';
+import { applyLocalConfig } from '../core/local-config.js';
 import { LiveTelemetryTracker } from './telemetry.js';
-import { renderCleanStatus, renderPowerlineStatus, GitStatusCache } from './statusline.js';
+import { renderPowerlineStatus, GitStatusCache } from './statusline.js';
 import { formatDiffBox } from './diff.js';
 import { drawBanner } from './banner.js';
 import { reportRuntimeError } from './runtime_errors.js';
+import { GutterWriter, UiSpinner, formatTokens as formatTokensShort, palette, pickTip, renderHeader, renderNotice, renderResultBlock, renderResultLine, renderToolLine, renderTurnSummary, registerPauseHook, easeToward, renderStatusLine, renderUserEcho, resolveMode, summarizeToolResult, } from './ui.js';
+import { runSettings } from './settings.js';
+import { runPicker } from './picker.js';
+import { chooseEffort, effortCommand } from './effort.js';
+import { effectiveReasoning, parseEffortArg, detectRoute, thinkLabel } from '../core/reasoning.js';
+import { catalogInfo, installCapabilities, refreshCapabilities, refreshCatalog } from '../core/capabilities.js';
+import { modelAcceptsImages } from '../core/vision.js';
+import { contextBreakdown } from '../core/context-stats.js';
+import { runUsagePanel } from './usage-panel.js';
+import { TurnComposer } from './typeahead.js';
+import { anthropicOnlyModels, formatFromBaseUrl, refreshFormats } from '../core/formats.js';
+import { providerFormat } from '../providers/index.js';
 const CONFIG_PATH = path.join(os.homedir(), '.devxrc.json');
 function maskApiKey(key) {
     if (!key)
@@ -55,14 +70,24 @@ async function saveConfig(config) {
     if (config.provider && config.baseUrl) {
         config.baseUrls[config.provider] = config.baseUrl;
     }
-    await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
+    // Runtime-only flags must not end up in the user's config file.
+    const { projectMcpTrusted: _projectMcpTrusted, effortOverride: _effortOverride, ...persisted } = config;
+    // The file holds API keys: owner-only permissions (0600).
+    await writeSecureFile(CONFIG_PATH, JSON.stringify(persisted, null, 2));
 }
 async function fetchModels(baseUrl, apiKey) {
     try {
         const url = baseUrl.endsWith('/') ? `${baseUrl}models` : `${baseUrl}/models`;
         const headers = {};
-        if (apiKey && apiKey !== 'ollama')
+        if (formatFromBaseUrl(baseUrl) === 'anthropic') {
+            // Anthropic's own API wants x-api-key and a version, not a Bearer token.
+            headers['anthropic-version'] = '2023-06-01';
+            if (apiKey)
+                headers['x-api-key'] = apiKey;
+        }
+        else if (apiKey && apiKey !== 'ollama') {
             headers['Authorization'] = `Bearer ${apiKey}`;
+        }
         const res = await fetch(url, { headers });
         if (!res.ok) {
             if (res.status === 401 || res.status === 403) {
@@ -74,7 +99,7 @@ async function fetchModels(baseUrl, apiKey) {
         if (data && data.data && Array.isArray(data.data)) {
             const list = data.data.map((m) => ({
                 id: m.id,
-                name: m.name || m.id,
+                name: m.name || m.display_name || m.id,
                 contextLength: m.context_length || m.max_context_length || m.limit?.context || m.limit?.input
             }));
             return { ok: true, status: res.status, models: list };
@@ -85,6 +110,12 @@ async function fetchModels(baseUrl, apiKey) {
         return { ok: false, status: 0, models: [], error: e.message || 'Network error' };
     }
 }
+/** Asks the endpoint what the model can do and which wire formats it speaks (cached for a day). */
+function refreshEndpoint(config, options) {
+    return Promise.all([refreshCapabilities(config, options), refreshFormats(config, options)]).then(([record]) => record);
+}
+/** `"probeEndpoints": false` in the config: devx asks nothing but the plain model list. */
+let probeEndpointsAllowed = true;
 const POPULAR_PROVIDER_MODELS = {
     google: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'],
     openai: ['gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o1', 'gpt-4-turbo'],
@@ -98,6 +129,15 @@ async function selectModel(baseUrl, apiKey, currentModel, providerId = '', allow
     const s = p.spinner();
     s.start('Fetching available models from provider...');
     const result = await fetchModels(baseUrl, apiKey);
+    // The same gateway may list more models (Claude) in its Anthropic format, with the same key.
+    if (result.ok && probeEndpointsAllowed) {
+        await refreshFormats({ baseUrl, apiKey }, { force: true }).catch(() => null);
+        const known = new Set(result.models.map(m => m.id.toLowerCase()));
+        for (const id of anthropicOnlyModels(baseUrl)) {
+            if (!known.has(id.toLowerCase()))
+                result.models.push({ id, name: id, viaAnthropic: true, contextLength: getModelContextLimit(id) });
+        }
+    }
     s.stop();
     let models = result.models;
     if (models.length === 0 && providerId && POPULAR_PROVIDER_MODELS[providerId]) {
@@ -116,14 +156,14 @@ async function selectModel(baseUrl, apiKey, currentModel, providerId = '', allow
                     const q = (term || '').trim().toLowerCase();
                     const list = [];
                     if (allowCancel) {
-                        list.push({ name: pc.yellow('⬅️  Back / Cancel'), value: '__cancel__', description: 'Keep current model' });
+                        list.push({ name: pc.yellow('← Back / Cancel'), value: '__cancel__', description: 'Keep current model' });
                     }
-                    list.push({ name: pc.yellow('✏️  Type a custom model name...'), value: 'custom_input', description: 'Enter any model ID manually' });
+                    list.push({ name: pc.yellow('+ Type a custom model name...'), value: 'custom_input', description: 'Enter any model ID manually' });
                     for (const m of models) {
                         const isCurrent = m.id === currentModel;
                         const prefix = isCurrent ? pc.cyan('› ') : '  ';
                         const nameStr = isCurrent ? pc.bold(pc.cyan(m.id + ' (current)')) : m.id;
-                        const ctxStr = m.contextLength ? `${m.contextLength >= 1_000_000 ? (m.contextLength / 1_000_000).toFixed(1) + 'M' : Math.round(m.contextLength / 1000) + 'k'} context` : '';
+                        const ctxStr = (m.viaAnthropic ? 'Anthropic format' + (m.contextLength ? ', ' : '') : '') + (m.contextLength ? `${m.contextLength >= 1_000_000 ? (m.contextLength / 1_000_000).toFixed(1) + 'M' : Math.round(m.contextLength / 1000) + 'k'} context` : '');
                         list.push({
                             name: prefix + nameStr,
                             value: m.id,
@@ -205,7 +245,7 @@ async function selectProvider(currentConfig, allowCancel = true) {
                 });
                 if (allowCancel) {
                     list.unshift({
-                        name: pc.yellow('⬅️  Back / Cancel'),
+                        name: pc.yellow('← Back / Cancel'),
                         value: '__cancel__',
                         description: 'Keep current provider'
                     });
@@ -250,9 +290,9 @@ async function selectProvider(currentConfig, allowCancel = true) {
                 keyChoice = await search({
                     message: `API key found for ${selectedProvider.label} (${maskApiKey(savedKey)}):`,
                     source: async () => [
-                        { name: `🟢 Continue with saved API key (${maskApiKey(savedKey)})`, value: 'use_saved' },
-                        { name: '✏️  Enter a new API key', value: 'new_key' },
-                        { name: pc.yellow('⬅️  Cancel'), value: '__cancel__' }
+                        { name: `● Continue with saved API key (${maskApiKey(savedKey)})`, value: 'use_saved' },
+                        { name: '+ Enter a new API key', value: 'new_key' },
+                        { name: pc.yellow('← Cancel'), value: '__cancel__' }
                     ],
                     pageSize: 5
                 });
@@ -327,6 +367,23 @@ async function runOnboarding() {
     p.outro(pc.green('Setup complete! Configuration saved to ~/.devxrc.json'));
     return res;
 }
+/**
+ * The context window to use for the model of this config: a number the user wrote into
+ * `contextLimits`, else the catalogue's (the maker's own number), else what was saved when the
+ * model was chosen, else devx's table, rules and default.
+ */
+function resolveContextLimit(config) {
+    const own = config.contextLimits?.[config.model];
+    if (typeof own === 'number' && own >= 1024)
+        return { limit: own, source: 'config' };
+    const info = getModelContextInfo(config.model);
+    if (info.source === 'catalogue')
+        return info;
+    if (typeof config.maxContextTokens === 'number' && config.maxContextTokens > 0) {
+        return config.maxContextTokens === info.limit ? info : { limit: config.maxContextTokens, source: 'saved' };
+    }
+    return info;
+}
 async function loadConfig(interactive = true) {
     let globalConfig = {};
     try {
@@ -334,7 +391,7 @@ async function loadConfig(interactive = true) {
         globalConfig = JSON.parse(data);
         if (!globalConfig.model || !globalConfig.baseUrl)
             throw new Error('Invalid config');
-        globalConfig.maxContextTokens = globalConfig.maxContextTokens || getModelContextLimit(globalConfig.model);
+        globalConfig.maxContextTokens = resolveContextLimit(globalConfig).limit;
         globalConfig.apiKeys = globalConfig.apiKeys || {};
         globalConfig.baseUrls = globalConfig.baseUrls || {};
         globalConfig.trustedProjects = globalConfig.trustedProjects || {};
@@ -373,7 +430,7 @@ async function loadConfig(interactive = true) {
     if (isTrusted === undefined) {
         if (interactive) {
             console.log('');
-            p.log.warn(pc.bold(pc.yellow(`🛡️  [WORKSPACE TRUST] First time opening this workspace:`)));
+            p.log.warn(pc.bold(pc.yellow(`[WORKSPACE TRUST] First time opening this workspace:`)));
             console.log(pc.dim(`   Directory: ${cwd}`));
             if (localConfig) {
                 if (localConfig.autoApprove === true) {
@@ -385,7 +442,7 @@ async function loadConfig(interactive = true) {
             }
             const answer = await p.confirm({
                 message: 'Do you trust this workspace and allow agent operations?',
-                initialValue: true
+                initialValue: false
             });
             if (p.isCancel(answer) || answer !== true) {
                 resetTerminalTheme();
@@ -395,36 +452,47 @@ async function loadConfig(interactive = true) {
             globalConfig.trustedProjects = globalConfig.trustedProjects || {};
             globalConfig.trustedProjects[cwd] = true;
             await saveConfig(globalConfig);
+            isTrusted = true;
             p.log.success(pc.green('Workspace marked as trusted. Full capabilities enabled.'));
         }
         else {
             isTrusted = false; // Never auto-trust in non-interactive headless mode
         }
     }
-    if (localConfig && typeof localConfig === 'object') {
-        // Apply safe configuration overrides
-        if (localConfig.model)
-            effectiveConfig.model = localConfig.model;
-        if (localConfig.provider)
-            effectiveConfig.provider = localConfig.provider;
-        if (localConfig.apiKey)
-            effectiveConfig.apiKey = localConfig.apiKey;
-        if (localConfig.baseUrl)
-            effectiveConfig.baseUrl = localConfig.baseUrl;
-        if (localConfig.maxIterations)
-            effectiveConfig.maxIterations = localConfig.maxIterations;
-        if (localConfig.maxContextTokens)
-            effectiveConfig.maxContextTokens = localConfig.maxContextTokens;
-        if (localConfig.dataSaverLimitMB)
-            effectiveConfig.dataSaverLimitMB = localConfig.dataSaverLimitMB;
-        if (localConfig.pureBlackTheme !== undefined)
-            effectiveConfig.pureBlackTheme = localConfig.pureBlackTheme;
-        // Apply elevated permissions only if explicitly trusted
-        if (isTrusted) {
-            if (localConfig.autoApprove !== undefined)
-                effectiveConfig.autoApprove = localConfig.autoApprove;
-            if (Array.isArray(localConfig.bashAllowlist))
-                effectiveConfig.bashAllowlist = localConfig.bashAllowlist;
+    // Provider / API key / permission settings from the repository only count in a trusted workspace.
+    const ignoredLocalSettings = applyLocalConfig(effectiveConfig, localConfig, isTrusted === true);
+    if (ignoredLocalSettings.length > 0) {
+        console.error(pc.yellow(`Ignored ${ignoredLocalSettings.join(', ')} from the local project config: this workspace is not trusted.`));
+    }
+    // MCP servers declared by the project are arbitrary commands. They run only if the
+    // user approved exactly this set of commands (re-asked whenever the files change).
+    effectiveConfig.projectMcpTrusted = false;
+    const projectMcpServers = discoverProjectMcpServers(cwd);
+    if (projectMcpServers.length > 0) {
+        const fingerprint = hashProjectMcpServers(projectMcpServers);
+        globalConfig.trustedMcp = globalConfig.trustedMcp || {};
+        if (globalConfig.trustedMcp[cwd] === fingerprint) {
+            effectiveConfig.projectMcpTrusted = true;
+        }
+        else if (interactive) {
+            console.log('');
+            p.log.warn(pc.bold(pc.yellow('[MCP] This project wants to start the following MCP servers (they run as local programs):')));
+            for (const s of projectMcpServers) {
+                const cmdline = `${s.config.command} ${(s.config.args || []).join(' ')}`.trim();
+                console.log(`   ${pc.cyan(s.name)} ${pc.dim(`(${s.file})`)}  ${pc.green(cmdline)}`);
+            }
+            const allow = await p.confirm({ message: 'Allow these MCP servers to start?', initialValue: false });
+            if (allow === true) {
+                globalConfig.trustedMcp[cwd] = fingerprint;
+                await saveConfig(globalConfig);
+                effectiveConfig.projectMcpTrusted = true;
+            }
+            else {
+                p.log.info(pc.dim('Project MCP servers skipped. Servers from ~/.devxrc.json still start.'));
+            }
+        }
+        else {
+            console.error(pc.yellow(`Skipped ${projectMcpServers.length} project MCP server(s): not approved yet. Run devx interactively in this folder once to review and approve them.`));
         }
     }
     // Configure Data Saver threshold
@@ -480,9 +548,24 @@ function clearTerminalScreen() {
         console.clear();
     }
 }
+/** The model name and its reasoning setting: "o3 · think high", "mimo-v2.6-flash · think auto". */
+function modelLabel(config) {
+    const think = thinkLabel(config);
+    return think ? `${config.model} · ${think}` : config.model;
+}
+// Registered by main() once the config exists; lets every screen redraw show the live
+// model / mode / folder in the header card.
+let headerProvider = null;
 function drawLogo(bannerMode = 'full') {
     const cols = process.stdout.columns || 80;
     clearTerminalScreen();
+    if (bannerMode === 'clean' && headerProvider) {
+        console.log();
+        for (const line of renderHeader(headerProvider(), cols))
+            console.log(line);
+        console.log();
+        return;
+    }
     drawBanner(bannerMode, DEVX_VERSION, cols);
 }
 function formatSessionTime(timestamp) {
@@ -540,15 +623,15 @@ async function handleSessionDelete(bannerMode) {
                 source: async (term) => {
                     const q = (term || '').trim().toLowerCase();
                     const list = [
-                        { name: pc.yellow('⬅️  Done / Cancel'), value: '__cancel__', description: 'Return to chat' },
-                        { name: pc.red('🗑️  Delete ALL sessions'), value: '__all__', description: `Remove all ${sessions.length} saved sessions` }
+                        { name: pc.yellow('← Done / Cancel'), value: '__cancel__', description: 'Return to chat' },
+                        { name: pc.red('× Delete ALL sessions'), value: '__all__', description: `Remove all ${sessions.length} saved sessions` }
                     ];
                     for (const s of sessions) {
                         const timeStr = formatSessionTime(s.updatedAt);
                         const msgCount = s.messages.filter(m => m.role !== 'system').length;
                         const shortId = s.id.split('_').pop();
                         list.push({
-                            name: `${pc.red('🗑️ ')} ${pc.dim(`[#${shortId}]`)} ${s.title}`,
+                            name: `${pc.red('× ')} ${pc.dim(`[#${shortId}]`)} ${s.title}`,
                             value: s.id,
                             description: `${timeStr} • ${msgCount} msgs • ${s.model || 'default'}`
                         });
@@ -596,163 +679,71 @@ async function handleSessionDelete(bannerMode) {
 async function handleThemeSelect(config) {
     const currentTh = getCurrentTheme();
     const themeChoices = listThemes().map(t => ({
-        name: `${t.emoji} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)} ${t.id === currentTh.id ? pc.green('(Active)') : ''}`,
-        value: t.id,
-        description: `Apply ${t.name} color palette (${t.hex}) to banners, prompts, and actions`
+        theme: t,
+        choice: {
+            name: `${renderSwatch(t)} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)} ${t.id === currentTh.id ? pc.green('(Active)') : ''}`,
+            value: t.id,
+            description: `${renderThemePreview(t)}\n\n${pc.dim(`${t.name}  ${t.hex}`)}`
+        }
     }));
     try {
-        const selected = await select({
-            message: `${pc.bold('🎨 Select UI Theme / Выберите цветовую тему:')}`,
-            choices: themeChoices
+        const selected = await search({
+            message: `${pc.bold('Select UI Theme / Выберите цветовую тему')} ${pc.dim(`(${themeChoices.length} themes, type to filter):`)}`,
+            pageSize: 8,
+            source: async (term) => {
+                const q = (term || '').toLowerCase().trim();
+                return themeChoices
+                    .filter(({ theme: t }) => !q || `${t.id} ${t.name} ${t.desc}`.toLowerCase().includes(q))
+                    .map(({ choice }) => choice);
+            }
         });
         if (selected) {
             config.theme = selected;
             await saveConfig(config);
             const th = setActiveTheme(selected);
-            drawLogo(config.banner || 'full');
-            p.log.success(th.boldFn(`🎨 Theme switched to ${th.emoji} ${th.name}!`));
+            // No redraw of the screen: that would wipe the conversation. New output uses the new colours.
+            if (config.ui?.layout === 'classic')
+                p.log.success(th.boldFn(`Theme switched to ${th.colorFn(th.symbol)} ${th.name}!`));
+            else
+                console.log(renderNotice('ok', `theme ${th.name}`));
         }
     }
     catch { }
 }
 async function handleSettings(config) {
-    while (true) {
-        try {
-            const maxIter = config.maxIterations || 100;
-            const maxIterLabel = maxIter >= 9999 ? 'Unlimited' : `${maxIter} steps`;
-            const currentTh = getCurrentTheme();
-            const choice = await select({
-                message: `${pc.bold('⚙️  Settings')} ${pc.dim(`(devx v${DEVX_VERSION} • theme: ${currentTh.name})`)}`,
-                choices: [
-                    {
-                        name: `🎨 Color Theme: ${currentTh.emoji} ${currentTh.name}`,
-                        value: 'change_theme',
-                        description: `Switch UI accent colors (${currentTh.desc})`
-                    },
-                    {
-                        name: `Interface: ${config.ui?.layout === 'classic' ? 'Classic' : 'Clean'}`,
-                        value: 'toggle_layout',
-                        description: 'Switch between the compact layout and the original terminal UI'
-                    },
-                    {
-                        name: `${config.pureBlackTheme !== false ? pc.green('🖤 Pure Black Background: ON') : pc.yellow('🖤 Pure Black Background: OFF')}`,
-                        value: 'toggle_black_theme',
-                        description: config.pureBlackTheme !== false
-                            ? 'Apply deep OLED obsidian black background (#0a0a0c) like OpenCode'
-                            : 'Use standard system terminal background color'
-                    },
-                    {
-                        name: `${config.autoApprove ? pc.green('⚡ Auto-Approve (YOLO Mode): ON') : pc.yellow('🛡️  Auto-Approve (YOLO Mode): OFF')}`,
-                        value: 'toggle_auto_approve',
-                        description: config.autoApprove
-                            ? 'Permissions are automatically granted (no confirmation prompts for commands/files)'
-                            : 'Agent asks for confirmation before executing bash commands or writing files'
-                    },
-                    {
-                        name: `${config.enableMemory !== false ? pc.green('🧠 Project Memory Bank: ON') : pc.yellow('🧠 Project Memory Bank: OFF')}`,
-                        value: 'toggle_memory',
-                        description: config.enableMemory !== false
-                            ? 'Load persistent project rules and preferences from .devx/memory.md into AI context'
-                            : 'Start sessions with a clean state without loading project memory'
-                    },
-                    {
-                        name: `${config.checkUpdates !== false ? pc.green('🔔 Check for Updates on Startup: ON') : pc.yellow('🔔 Check for Updates on Startup: OFF')}`,
-                        value: 'toggle_check_updates',
-                        description: config.checkUpdates !== false
-                            ? 'Automatically check for updates from GitHub repository when launching devx'
-                            : 'Disable update checking on startup (run /update manually instead)'
-                    },
-                    {
-                        name: `🔄 Max Agent Iterations: ${currentTh.colorFn(maxIterLabel)}`,
-                        value: 'change_max_iterations',
-                        description: 'Limit how many tool steps (file edits, terminal commands) agent can do per request'
-                    },
-                    {
-                        name: `${currentTh.colorFn('✨ About devx')} ${pc.dim(`(v${DEVX_VERSION} by ApvCode)`)}`,
-                        value: 'about',
-                        description: 'Terminal-Native AI Coding Agent created by ApvCode (https://github.com/apvcode/Termux-Dev)'
-                    },
-                    {
-                        name: '⬅️ Back / Save',
-                        value: 'back',
-                        description: 'Return to chat'
-                    }
-                ]
-            });
-            if (choice === 'change_theme') {
-                await handleThemeSelect(config);
-                continue;
-            }
-            if (choice === 'toggle_layout') {
-                config.ui = config.ui || {};
-                config.ui.layout = config.ui.layout === 'classic' ? 'clean' : 'classic';
-                config.banner = config.ui.layout === 'clean' ? 'clean' : 'full';
-                await saveConfig(config);
-                drawLogo(config.banner);
-                continue;
-            }
-            if (choice === 'about') {
-                p.note(`⚡ devx v${DEVX_VERSION} — Terminal-Native AI Coding Agent\n` +
-                    `🎨 Theme: ${currentTh.emoji} ${currentTh.name}\n` +
-                    `👤 Author: ApvCode (https://github.com/apvcode)\n` +
-                    `🌟 Repository: https://github.com/apvcode/Termux-Dev\n` +
-                    `📜 License: MIT License (2026)\n` +
-                    `Built for Android Termux, Windows, macOS, and Linux.`, 'About devx');
-                continue;
-            }
-            if (choice === 'toggle_black_theme') {
-                config.pureBlackTheme = config.pureBlackTheme === false ? true : false;
-                await saveConfig(config);
-                if (config.pureBlackTheme) {
+    const initial = {
+        themeId: getCurrentTheme().id,
+        layout: config.ui?.layout === 'classic' ? 'classic' : 'clean',
+        pureBlack: config.pureBlackTheme !== false,
+        autoApprove: !!config.autoApprove,
+        maxIterations: config.maxIterations || 100,
+        memory: config.enableMemory !== false,
+        updates: config.checkUpdates !== false,
+    };
+    // One panel, redrawn in place; every change is visible at once and saved when it closes.
+    const final = await runSettings(initial, {
+        version: DEVX_VERSION,
+        onChange: (key, state) => {
+            if (key === 'theme')
+                setActiveTheme(state.themeId);
+            if (key === 'pureBlack') {
+                if (state.pureBlack)
                     enableDarkTheme(true);
-                }
-                else {
+                else
                     resetTerminalTheme();
-                }
-                drawLogo(config.banner || 'full');
-                p.log.success(`Pure Black background: ${config.pureBlackTheme ? pc.bold(pc.green('ON (Deep Black)')) : pc.bold(pc.yellow('OFF (System Default)'))}`);
-                continue;
             }
-            if (choice === 'toggle_auto_approve') {
-                config.autoApprove = !config.autoApprove;
-                await saveConfig(config);
-                p.log.success(`Auto-approve permissions: ${config.autoApprove ? pc.bold(pc.green('ON (Automatic Yes)')) : pc.bold(pc.yellow('OFF (Ask every time)'))}`);
-                continue;
-            }
-            if (choice === 'toggle_memory') {
-                config.enableMemory = config.enableMemory === false ? true : false;
-                await saveConfig(config);
-                p.log.success(`Project memory bank: ${config.enableMemory !== false ? pc.bold(pc.green('ON (Persistent .devx/memory.md)')) : pc.bold(pc.yellow('OFF'))}`);
-                continue;
-            }
-            if (choice === 'toggle_check_updates') {
-                config.checkUpdates = config.checkUpdates === false ? true : false;
-                await saveConfig(config);
-                p.log.success(`Check for updates: ${config.checkUpdates !== false ? pc.bold(pc.green('ON (Checked on startup)')) : pc.bold(pc.yellow('OFF (Manual only)'))}`);
-                continue;
-            }
-            if (choice === 'change_max_iterations') {
-                const val = await select({
-                    message: 'Select maximum iterations limit per prompt:',
-                    choices: [
-                        { name: '30 steps (Strict / Safe)', value: 30 },
-                        { name: '50 steps (Moderate)', value: 50 },
-                        { name: '100 steps (Recommended / Default)', value: 100 },
-                        { name: '200 steps (Very large refactors)', value: 200 },
-                        { name: 'Unlimited (No limit)', value: 9999 }
-                    ]
-                });
-                config.maxIterations = val;
-                await saveConfig(config);
-                p.log.success(`Max iterations updated to: ${pc.bold(val >= 9999 ? 'Unlimited' : `${val} steps`)}`);
-                continue;
-            }
-            break;
-        }
-        catch {
-            break;
-        }
-    }
+        },
+    });
+    config.theme = final.themeId;
+    config.ui = config.ui || {};
+    config.ui.layout = final.layout;
+    config.banner = final.layout === 'clean' ? (config.banner === 'off' ? 'off' : 'clean') : 'full';
+    config.pureBlackTheme = final.pureBlack;
+    config.autoApprove = final.autoApprove;
+    config.maxIterations = final.maxIterations;
+    config.enableMemory = final.memory;
+    config.checkUpdates = final.updates;
+    await saveConfig(config);
     process.stdin.resume();
     return config;
 }
@@ -795,20 +786,46 @@ export async function main() {
         .option('-q, --quiet', 'Quiet output in headless mode (suppress banners and tool logs)')
         .option('--json', 'Output structured JSON in headless mode')
         .option('--plan', 'Start in plan mode (architect & planner)')
+        .option('-e, --effort <level>', 'Reasoning effort for this run: off, low, normal, high, xhigh, max, or auto')
         .parse(process.argv);
     const options = program.opts();
     const planModeInitial = !!options.plan;
     const isHeadless = !!options.prompt;
     let config = await loadConfig(!isHeadless);
+    // What each model offers for reasoning: the stored answers of the endpoint and the catalogue.
+    installCapabilities();
+    probeEndpointsAllowed = config.probeEndpoints !== false;
     config.banner = config.ui?.layout === 'classic'
         ? config.banner || 'full'
         : config.banner === 'off' ? 'off' : 'clean';
     if (options.model) {
         config.model = options.model;
-        config.maxContextTokens = getModelContextLimit(options.model);
+        config.maxContextTokens = resolveContextLimit({ ...config, maxContextTokens: 0 }).limit;
     }
     if (options.yolo) {
         config.autoApprove = true;
+    }
+    if (options.effort !== undefined) {
+        // One run only (never saved). Anything the model does not offer is ignored with a warning.
+        // A custom endpoint is asked about the model first (cached, a few seconds at most).
+        await refreshEndpoint(config).catch(() => null);
+        const parsed = parseEffortArg(String(options.effort));
+        const { caps } = effectiveReasoning({ ...config, effortOverride: undefined });
+        if (parsed.kind === 'invalid') {
+            console.error(pc.yellow(`--effort: unknown level "${parsed.text}". Use off, low, normal, high, xhigh, max or auto.`));
+        }
+        else if (parsed.kind === 'auto') {
+            config.effortOverride = '';
+        }
+        else if (!caps.supported) {
+            console.error(pc.yellow(`--effort ignored: ${config.model} has no reasoning setting.`));
+        }
+        else if (!caps.levels.includes(parsed.level)) {
+            console.error(pc.yellow(`--effort ignored: ${config.model} does not offer "${parsed.level}" (it offers ${caps.levels.join(', ')}).`));
+        }
+        else {
+            config.effortOverride = parsed.level;
+        }
     }
     // If -p / --prompt is provided, execute one-shot headless mode and exit!
     if (isHeadless) {
@@ -825,27 +842,39 @@ export async function main() {
         process.exit(exitCode);
     }
     let planMode = planModeInitial;
+    headerProvider = () => {
+        const git = GitStatusCache.getStatus(true);
+        return {
+            version: DEVX_VERSION,
+            model: modelLabel(config),
+            provider: config.provider,
+            cwd: process.cwd(),
+            branch: git?.branch,
+            dirty: git?.isDirty,
+            yolo: !!config.autoApprove,
+            tip: pickTip(),
+        };
+    };
     if (!config.onboarded) {
-        const cols = Math.min(process.stdout.columns || 40, 42);
-        const fill = Math.max(2, cols - 16);
-        const topBorder = '┌─ preview.ts ' + '─'.repeat(fill) + '┐';
-        const bottomBorder = '└' + '─'.repeat(cols - 2) + '┘';
-        const themeChoices = listThemes().map(t => {
-            const addLine = t.diffAddBg(` + 1 | const theme = "${t.id}";`.padEnd(cols - 2));
-            const remLine = t.diffRemoveBg(` - 2 | const theme = "none";`.padEnd(cols - 2));
-            const preview = `${t.colorFn(topBorder)}\n${addLine}\n${remLine}\n${t.colorFn(bottomBorder)}\n\n${pc.dim('💡 You can change this anytime with /theme')}`;
-            return {
-                name: `${t.emoji} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)}`,
+        const themeChoices = listThemes().map(t => ({
+            theme: t,
+            choice: {
+                name: `${renderSwatch(t)} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)}`,
                 value: t.id,
-                description: preview
-            };
-        });
+                description: `${renderThemePreview(t)}\n\n${pc.dim('You can change this anytime with /theme')}`
+            }
+        }));
         try {
             clearTerminalScreen();
             const selected = await search({
-                message: `${pc.bold('🎨 Pick a theme to personalize your workspace:')}`,
-                source: async () => themeChoices,
-                pageSize: 6
+                message: `${pc.bold('Pick a theme to personalize your workspace:')}`,
+                source: async (term) => {
+                    const q = (term || '').toLowerCase().trim();
+                    return themeChoices
+                        .filter(({ theme: t }) => !q || `${t.id} ${t.name} ${t.desc}`.toLowerCase().includes(q))
+                        .map(({ choice }) => choice);
+                },
+                pageSize: 8
             });
             if (selected) {
                 config.theme = selected;
@@ -865,14 +894,39 @@ export async function main() {
     const sessionManager = new SessionManager(config.model, planMode);
     drawLogo(config.banner || 'full');
     await runStartupUpdateCheck(config);
-    await MCPManager.getInstance().init();
-    let totalSessionCost = 0;
+    await MCPManager.getInstance().init(undefined, config.projectMcpTrusted === true);
+    // Ask a custom endpoint what the current model can do (cached for a day; never blocks the prompt).
+    void refreshEndpoint(config).catch(() => null);
+    const sessionCost = new CostLedger();
+    const currentContext = () => contextBreakdown(history.getMessages(), getTools(planMode).map(t => t.definition), config.maxContextTokens || getModelContextLimit(config.model));
     let currentDraft = '';
     let autoTriggerPrompt = '';
+    // /clear and /new: leave the current conversation (it stays saved and can be resumed)
+    // and start from a clean slate: history, cost, usage counters, undo stack, screen.
+    const startFreshSession = async () => {
+        sessionManager.startNewSession(config.model, planMode);
+        history = new History();
+        history.addMessage({ role: 'system', content: await buildSystemPrompt(planMode) });
+        sessionCost.reset();
+        currentDraft = '';
+        UsageTracker.getInstance().reset();
+        globalSnapshotManager.reset();
+        GitStatusCache.invalidate();
+        drawLogo(config.banner || 'full');
+    };
+    const announce = (message) => {
+        if (config.ui?.layout === 'classic')
+            p.log.success(message);
+        else
+            console.log(renderNotice('ok', message));
+    };
     while (true) {
-        const currentTokens = history.getConversationTokens();
         const maxTokens = config.maxContextTokens || getModelContextLimit(config.model);
         config.maxContextTokens = maxTokens;
+        // The conversation only: the system prompt and tool schemas are fixed overhead that every
+        // chat has, so an empty chat shows 0%. /usage shows the full picture.
+        const ctxNow = currentContext();
+        const currentTokens = ctxNow.total - ctxNow.system - ctxNow.tools;
         const usagePercent = Math.min(100, Math.round((currentTokens / maxTokens) * 100));
         const formatTokens = (n) => {
             if (n >= 1_000_000)
@@ -881,21 +935,13 @@ export async function main() {
                 return `${(n / 1000).toFixed(1)}k`;
             return `${n}`;
         };
-        const costStr = totalSessionCost > 0 ? `Cost: $${totalSessionCost.toFixed(4)}` : 'Cost: $0.0000';
+        const costStr = `Cost: ${sessionCost.format()}`;
         const tokenStats = `Context: ${formatTokens(currentTokens)} / ${formatTokens(maxTokens)} (${usagePercent}%) • ${costStr}`;
         const cols = process.stdout.columns || 80;
         const modeName = planMode ? 'PLAN' : 'AGENT';
         const theme = getCurrentTheme();
         if (config.ui?.layout !== 'classic') {
-            console.log(renderCleanStatus({
-                mode: modeName,
-                model: config.model,
-                currentTokens,
-                maxTokens,
-                cost: totalSessionCost,
-                cols,
-                isYolo: !!config.autoApprove
-            }) + '\n');
+            // Clean layout: mode, model, context and cost live in the borders of the prompt frame.
         }
         else if (config.ui?.powerlineStatus) {
             const statusLine = renderPowerlineStatus({
@@ -903,7 +949,7 @@ export async function main() {
                 model: config.model,
                 currentTokens,
                 maxTokens,
-                cost: totalSessionCost,
+                cost: sessionCost.total,
                 cols,
                 maxCostUSD: config.maxCostUSD,
                 isYolo: !!config.autoApprove
@@ -936,7 +982,7 @@ export async function main() {
             autoTriggerPrompt = '';
             console.log(config.ui?.layout === 'classic'
                 ? theme.colorFn('◆') + '  ' + pc.bold(pc.white(answer))
-                : pc.cyan('›') + ' ' + answer);
+                : renderUserEcho(answer, cols).join('\n'));
         }
         else {
             const inputStr = await askPrompt({
@@ -947,16 +993,26 @@ export async function main() {
                 initialValue: currentDraft,
                 planMode,
                 isYolo: !!config.autoApprove,
-                ui: config.ui
+                ui: config.ui,
+                model: modelLabel(config),
+                cwd: process.cwd(),
+                branch: GitStatusCache.getStatus()?.branch,
+                dirty: GitStatusCache.getStatus()?.isDirty,
+                contextPercent: usagePercent,
+                cost: sessionCost.total,
+                costState: sessionCost.state()
             });
             if (inputStr.startsWith('__TOGGLE_MODE__:')) {
                 currentDraft = inputStr.slice('__TOGGLE_MODE__:'.length);
                 planMode = !planMode;
                 const newSys = await buildSystemPrompt(planMode);
                 history.updateSystemPrompt(newSys);
-                p.log.info(planMode
-                    ? pc.bold(pc.cyan('🔄 Mode: PLAN (Architect & Planner) — Press Tab to switch to AGENT'))
-                    : pc.bold(pc.green('🔄 Mode: AGENT (Coder & Executor) — Press Tab to switch to PLAN')));
+                // Clean layout: the prompt frame changes colour and label, no extra line needed.
+                if (config.ui?.layout === 'classic') {
+                    p.log.info(planMode
+                        ? pc.bold(pc.cyan('Mode: PLAN (Architect & Planner) — Press Tab to switch to AGENT'))
+                        : pc.bold(pc.green('Mode: AGENT (Coder & Executor) — Press Tab to switch to PLAN')));
+                }
                 continue;
             }
             currentDraft = '';
@@ -987,7 +1043,7 @@ export async function main() {
                 const cmdArgs = answer.slice(cmd.length).trim();
                 const expandedPrompt = CustomCommandManager.expandTemplate(customCmd.promptTemplate, cmdArgs);
                 answer = expandedPrompt;
-                p.log.info(pc.cyan(`⚡ Executing custom command: ${pc.bold(customCmd.cmd)} (${customCmd.desc})`));
+                p.log.info(pc.cyan(`Executing custom command: ${pc.bold(customCmd.cmd)} (${customCmd.desc})`));
             }
             else {
                 const VALID_COMMANDS = [
@@ -996,7 +1052,7 @@ export async function main() {
                     '/settings', '/update', '/model', '/provider', '/providers',
                     '/plan', '/agent', '/image', '/serve', '/memory', '/undo',
                     '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
-                    '/config', '/clear', '/exit', '/quit', '/help'
+                    '/config', '/clear', '/exit', '/quit', '/help', '/effort'
                 ];
                 if (!VALID_COMMANDS.includes(cmd)) {
                     const customList = await CustomCommandManager.listCommands();
@@ -1016,6 +1072,7 @@ export async function main() {
                         { name: '/settings     - Configure permissions & auto-approval', value: '/settings' },
                         { name: '/update       - Check and install updates from GitHub', value: '/update' },
                         { name: '/model        - Switch model for current provider', value: '/model' },
+                        { name: '/effort       - Set the reasoning effort for the current model', value: '/effort' },
                         { name: '/provider     - Change AI provider (Google, OpenRouter...)', value: '/provider' },
                         { name: '/plan         - Switch to PLAN mode (architect)', value: '/plan' },
                         { name: '/agent        - Switch to AGENT mode (coder)', value: '/agent' },
@@ -1027,7 +1084,7 @@ export async function main() {
                         { name: '/status       - Show git repository status', value: '/status' },
                         { name: '/compact      - Compact conversation context', value: '/compact' },
                         { name: '/config       - View current configuration', value: '/config' },
-                        { name: '/clear        - Clear message history', value: '/clear' },
+                        { name: '/clear        - Clear context and start a new session', value: '/clear' },
                         { name: '/help         - Show commands overview', value: '/help' },
                         { name: '/exit         - Exit devx', value: '/exit' },
                         ...customSlashItems
@@ -1038,7 +1095,7 @@ export async function main() {
                             source: async (term) => {
                                 const q = (term || '').trim().toLowerCase();
                                 const list = [
-                                    { name: pc.yellow('⬅️  Cancel'), value: '__cancel__' },
+                                    { name: pc.yellow('← Cancel'), value: '__cancel__' },
                                     ...SLASH_COMMANDS
                                 ];
                                 if (!q)
@@ -1062,8 +1119,8 @@ export async function main() {
                 }
             }
             if (cmd === '/settings') {
+                // The panel erases itself; the conversation above it stays where it is.
                 config = await handleSettings(config);
-                drawLogo(config.banner || 'full');
                 continue;
             }
             if (cmd === '/update') {
@@ -1072,7 +1129,7 @@ export async function main() {
                 const res = await checkForUpdates(10000);
                 s.stop();
                 if (res.updateAvailable) {
-                    p.log.info(pc.bold(pc.yellow(`🚀 Update available: v${res.currentVersion} ➔ v${res.latestVersion}`)));
+                    p.log.info(pc.bold(pc.yellow(`Update available: v${res.currentVersion} → v${res.latestVersion}`)));
                     const doUpdate = await p.confirm({
                         message: `Do you want to update devx to v${res.latestVersion} now?`,
                         initialValue: true
@@ -1087,7 +1144,7 @@ export async function main() {
                 continue;
             }
             if (cmd === '/help') {
-                p.note('/settings - Configure permissions (Auto-Approve / Ask every time)\n/resume - Resume previous chat session\n/session del - Select and delete saved sessions\n/new - Start a new chat session (or /new <prompt>)\n/model - Switch model for current provider\n/provider - Switch AI provider (with saved keys)\n/config - View configuration\n/plan - Switch to plan mode\n/agent - Switch to agent mode\n/clear - Clear history\n/exit - Exit', 'Commands');
+                p.note('/settings - Configure permissions (Auto-Approve / Ask every time)\n/resume - Resume previous chat session\n/session del - Select and delete saved sessions\n/new - Start a new chat session (or /new <prompt>)\n/model - Switch model for current provider\n/effort - Set the reasoning effort (only levels the model supports)\n/provider - Switch AI provider (with saved keys)\n/config - View configuration\n/plan - Switch to plan mode\n/agent - Switch to agent mode\n/clear - Clear context and start a new session\n/exit - Exit', 'Commands');
                 continue;
             }
             if (cmd === '/exit') {
@@ -1095,22 +1152,19 @@ export async function main() {
                 break;
             }
             if (cmd === '/clear') {
-                drawLogo(config.banner || 'full');
+                await startFreshSession();
+                announce('new session · context cleared');
                 continue;
             }
             if (cmd === '/new' || cmd === '/reset') {
-                sessionManager.startNewSession(config.model, planMode);
-                history = new History();
-                history.addMessage({ role: 'system', content: await buildSystemPrompt(planMode) });
-                totalSessionCost = 0;
-                drawLogo(config.banner || 'full');
+                await startFreshSession();
                 const initialPrompt = parts.slice(1).join(' ').trim();
                 if (initialPrompt) {
-                    p.log.success('Started new session with prompt.');
+                    announce('new session · starting with your prompt');
                     answer = initialPrompt;
                 }
                 else {
-                    p.log.success('Started a new chat session.');
+                    announce('new session started');
                     continue;
                 }
             }
@@ -1132,8 +1186,8 @@ export async function main() {
                         source: async (term) => {
                             const q = (term || '').trim().toLowerCase();
                             const list = [
-                                { name: pc.yellow('⬅️  Back / Cancel'), value: '__cancel__', description: 'Return to chat' },
-                                { name: pc.red('🗑️  Delete sessions... (/session del)'), value: '__delete_mode__', description: 'Selectively delete saved sessions' }
+                                { name: pc.yellow('← Back / Cancel'), value: '__cancel__', description: 'Return to chat' },
+                                { name: pc.red('× Delete sessions... (/session del)'), value: '__delete_mode__', description: 'Selectively delete saved sessions' }
                             ];
                             for (const s of sessions) {
                                 const timeStr = formatSessionTime(s.updatedAt);
@@ -1171,12 +1225,12 @@ export async function main() {
                     }
                     if (loaded.model) {
                         config.model = loaded.model;
-                        config.maxContextTokens = getModelContextLimit(loaded.model);
+                        config.maxContextTokens = resolveContextLimit({ ...config, maxContextTokens: 0 }).limit;
                     }
                     if (loaded.planMode !== undefined) {
                         planMode = loaded.planMode;
                     }
-                    totalSessionCost = loaded.totalCost || 0;
+                    sessionCost.restore(loaded.totalCost || 0, loaded.costEstimated === true);
                     drawLogo(config.banner || 'full');
                     const nonSysMessages = loaded.messages.filter(m => m.role !== 'system');
                     const totalMsgs = nonSysMessages.length;
@@ -1187,13 +1241,13 @@ export async function main() {
                     const countInfo = totalMsgs > displayLimit
                         ? `Loaded recent ${shownCount} messages of ${totalMsgs}`
                         : `Loaded all ${totalMsgs} messages`;
-                    console.log('\n' + pc.bold(pc.cyan(`─── 📜 ${countInfo} (Session: "${loaded.title}") ───`)) + '\n');
+                    console.log('\n' + pc.bold(pc.cyan(`─── ${countInfo} (Session: "${loaded.title}") ───`)) + '\n');
                     // Render each message in chronological order
                     for (const msg of recentMessages) {
                         if (msg.role === 'user') {
                             console.log(pc.cyan('◆') + '  ' + pc.bold(pc.white(msg.content)));
                             if (msg.images && msg.images.length > 0) {
-                                console.log(pc.magenta(`  [🖼️ ${msg.images.map(i => i.path).join(', ')}]`));
+                                console.log(pc.magenta(`  [${msg.images.map(i => i.path).join(', ')}]`));
                             }
                             console.log();
                         }
@@ -1203,7 +1257,7 @@ export async function main() {
                             }
                             if (msg.tool_calls && msg.tool_calls.length > 0) {
                                 for (const tc of msg.tool_calls) {
-                                    console.log(pc.dim(`  ⚡ ${tc.name}`));
+                                    console.log(pc.dim(`  ${tc.name}`));
                                 }
                             }
                             console.log();
@@ -1229,16 +1283,14 @@ export async function main() {
                 planMode = true;
                 const newSys = await buildSystemPrompt(true);
                 history.updateSystemPrompt(newSys);
-                drawLogo(config.banner || 'full');
-                p.log.success(pc.cyan('Switched to PLAN mode (Architect & Planner). Modifying tools are disabled.'));
+                announce('plan mode · designs and asks questions, does not touch files');
                 continue;
             }
             if (cmd === '/agent') {
                 planMode = false;
                 const newSys = await buildSystemPrompt(false);
                 history.updateSystemPrompt(newSys);
-                drawLogo(config.banner || 'full');
-                p.log.success(pc.green('Switched to AGENT mode (Coder & Executor). Full tools enabled.'));
+                announce('agent mode · edits files and runs commands');
                 continue;
             }
             if (cmd === '/undo') {
@@ -1248,16 +1300,17 @@ export async function main() {
                 }
                 else {
                     history.popLastTurn();
-                    p.log.success(pc.bold(pc.green(`⏪ Successfully reverted changes in ${count} file(s):`)));
+                    p.log.success(pc.bold(pc.green(`Successfully reverted changes in ${count} file(s):`)));
                     for (const f of revertedFiles) {
                         console.log(pc.cyan(`  • ${f}`));
                     }
+                    console.log(pc.dim('  Note: only edits made with the file tools are reverted. Changes made by shell commands (bash) are not tracked.'));
                 }
                 continue;
             }
             if (cmd === '/diff') {
                 try {
-                    const diffOutput = execSync('git diff', { encoding: 'utf8' });
+                    const diffOutput = execSync('git diff', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
                     if (!diffOutput.trim()) {
                         p.log.info('No uncommitted changes in git repository.');
                     }
@@ -1287,7 +1340,7 @@ export async function main() {
             }
             if (cmd === '/status') {
                 try {
-                    const statusOutput = execSync('git status --short', { encoding: 'utf8' });
+                    const statusOutput = execSync('git status --short', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
                     if (!statusOutput.trim()) {
                         p.log.success('Working directory clean, no modified files.');
                     }
@@ -1319,17 +1372,18 @@ export async function main() {
             }
             if (cmd === '/commit') {
                 try {
-                    const status = execSync('git status --short', { encoding: 'utf8' });
+                    const status = execSync('git status --short', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
                     if (!status.trim()) {
                         p.log.info('No changes to commit.');
                         continue;
                     }
-                    const diff = execSync('git diff', { encoding: 'utf8' });
+                    const diff = execSync('git diff', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
                     const userMsg = parts.slice(1).join(' ').trim();
                     let commitMsg = userMsg;
                     if (!commitMsg) {
                         const s = p.spinner();
                         s.start('Generating conventional commit message with AI...');
+                        await refreshFormats(config).catch(() => null);
                         const provider = createProvider(config);
                         const promptReq = {
                             messages: [
@@ -1354,7 +1408,7 @@ export async function main() {
                     if (!p.isCancel(confirmed) && confirmed) {
                         execFileSync('git', ['add', '-A'], { stdio: 'ignore' });
                         execFileSync('git', ['commit', '-m', commitMsg], { stdio: 'ignore' });
-                        p.log.success(pc.bold(pc.green(`✅ Committed: ${commitMsg}`)));
+                        p.log.success(pc.bold(pc.green(`Committed: ${commitMsg}`)));
                     }
                     else {
                         p.log.info('Commit cancelled.');
@@ -1374,26 +1428,35 @@ export async function main() {
                 const s = p.spinner();
                 s.start('Compacting conversation context with AI...');
                 try {
+                    await refreshFormats(config).catch(() => null);
                     const provider = createProvider(config);
+                    // The request itself must fit the window: shorten a copy of the history first.
+                    const forSummary = new History();
+                    for (const m of msgs)
+                        forSummary.addMessage({ ...m, images: undefined });
+                    forSummary.pruneToLimit(Math.floor((config.maxContextTokens || 100000) * 0.7));
                     const compactPrompt = {
                         messages: [
-                            ...msgs,
+                            ...forSummary.getMessages(),
                             {
                                 role: 'user',
-                                content: 'Please create a clear, comprehensive, and structured summary of our conversation so far, including all established requirements, decisions, modified files, and remaining tasks. Be concise and precise.'
+                                content: 'Write a short, structured summary of our conversation so far: what the user wants, decisions made, files created or changed, and what is left to do. Plain text, no filler.'
                             }
                         ]
                     };
                     const res = await provider.chat(compactPrompt);
                     s.stop();
+                    if (!res.content || !res.content.trim())
+                        throw new Error('the model returned an empty summary');
                     const sysPrompt = await buildSystemPrompt(planMode);
                     history.clear();
                     history.addMessage({ role: 'system', content: sysPrompt });
+                    // A user message, not an assistant one: the Anthropic format cannot start with the assistant.
                     history.addMessage({
-                        role: 'assistant',
-                        content: `[CONVERSATION COMPACTED]\n${res.content || ''}`
+                        role: 'user',
+                        content: `[CONVERSATION COMPACTED] Summary of our conversation so far:\n${res.content}`
                     });
-                    p.log.success(pc.bold(pc.green('🗜️ Context successfully compacted! Freed up tokens while retaining task summary.')));
+                    p.log.success(pc.bold(pc.green('Context successfully compacted! Freed up tokens while retaining task summary.')));
                 }
                 catch (err) {
                     s.stop();
@@ -1405,13 +1468,13 @@ export async function main() {
                 const cur = sessionManager.getSession();
                 const nonSys = history.getMessages().filter(m => m.role !== 'system');
                 const shortId = cur.id.split('_').pop();
-                console.log('\n' + pc.bold(pc.cyan('─── 🆔 Active Session Information ───')));
+                console.log('\n' + pc.bold(pc.cyan('─── Active Session Information ───')));
                 console.log(`  ${pc.bold('ID:')}        ${pc.cyan(cur.id)} ${pc.dim(`(#${shortId})`)}`);
                 console.log(`  ${pc.bold('Title:')}     "${cur.title}"`);
                 console.log(`  ${pc.bold('Model:')}     ${config.model}`);
                 console.log(`  ${pc.bold('Mode:')}      ${planMode ? pc.cyan('PLAN') : pc.green('AGENT')}`);
                 console.log(`  ${pc.bold('Messages:')}  ${nonSys.length} messages`);
-                console.log(`  ${pc.bold('Cost:')}      $${totalSessionCost.toFixed(4)}`);
+                console.log(`  ${pc.bold('Cost:')}      ${sessionCost.format()}`);
                 console.log(`  ${pc.bold('File:')}      ~/.devx/sessions/${cur.id}.json`);
                 console.log(pc.bold(pc.cyan('──────────────────────────────────────\n')));
                 continue;
@@ -1462,12 +1525,11 @@ export async function main() {
                         config.theme = matched.id;
                         await saveConfig(config);
                         const th = setActiveTheme(matched.id);
-                        drawLogo(config.banner || 'full');
-                        p.log.success(th.boldFn(`🎨 Theme switched to ${th.emoji} ${th.name}!`));
+                        announce(`theme ${th.name}`);
                     }
                     else {
                         const themes = listThemes();
-                        p.log.warn(`Unknown theme: "${themeArg}". Available themes: ${themes.map(t => `${t.emoji} ${t.id}`).join(', ')}`);
+                        p.log.warn(`Unknown theme: "${themeArg}". Available themes: ${themes.map(t => `${t.colorFn(t.symbol)} ${t.id}`).join(', ')}`);
                     }
                 }
                 else {
@@ -1497,22 +1559,32 @@ export async function main() {
                         p.log.info('Project memory is empty. AI will remember facts as you work, or use /memory add <fact>.');
                     }
                     else {
-                        p.note(mem, '🧠 Project Memory Bank (.devx/memory.md)');
+                        p.note(mem, 'Project Memory Bank (.devx/memory.md)');
                         console.log(pc.dim('Commands: /memory add <text> | /memory clear\n'));
                     }
                 }
                 continue;
             }
             if (cmd === '/usage') {
-                const card = UsageTracker.getInstance().renderUsageCard();
-                console.log('\n' + card);
+                await runUsagePanel({
+                    model: config.model,
+                    format: providerFormat(config),
+                    effort: thinkLabel(config) || undefined,
+                    context: currentContext(),
+                    compactions: history.compactions,
+                    dropped: history.droppedMessages,
+                    session: UsageTracker.getInstance().getSummary(),
+                    noVision: modelAcceptsImages(config.model) === false,
+                    limitSource: resolveContextLimit(config).source,
+                });
+                process.stdin.resume();
                 continue;
             }
             if (cmd === '/export') {
                 const targetName = parts.slice(1).join(' ').trim();
                 const res = await SessionExporter.exportToMarkdown(history.getMessages(), config.model, targetName || undefined);
                 if (res.success) {
-                    p.log.success(pc.bold(pc.green(`📄 Session exported to: ${res.filePath}`)));
+                    p.log.success(pc.bold(pc.green(`Session exported to: ${res.filePath}`)));
                 }
                 else {
                     p.log.error(`Failed to export session: ${res.error}`);
@@ -1548,24 +1620,82 @@ export async function main() {
             }
             if (cmd === '/model') {
                 const res = await selectModel(config.baseUrl, config.apiKey, config.model, config.provider || '', true);
-                drawLogo(config.banner || 'full');
                 if (res) {
                     config.model = res.model;
-                    config.maxContextTokens = res.contextLimit;
+                    config.maxContextTokens = config.contextLimits?.[config.model] ?? res.contextLimit;
                     await saveConfig(config);
-                    p.log.success(`Switched model to: ${pc.bold(config.model)}`);
+                    await refreshEndpoint(config).catch(() => null);
+                    announce(`model ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
                 }
                 else {
                     p.log.info('Model selection cancelled.');
                 }
                 continue;
             }
+            if (cmd === '/effort') {
+                const showSay = (say) => {
+                    if (config.ui?.layout === 'classic') {
+                        const text = say.detail ? `${say.text}\n${say.detail}` : say.text;
+                        if (say.kind === 'ok')
+                            p.log.success(text);
+                        else if (say.kind === 'warn')
+                            p.log.warn(text);
+                        else
+                            p.log.info(text);
+                    }
+                    else {
+                        console.log(renderNotice(say.kind, say.text));
+                        if (say.detail)
+                            console.log(renderResultBlock(say.detail, 'muted', process.stdout.columns || 80));
+                    }
+                };
+                const argText = parts.slice(1).join(' ').trim();
+                if (/^(refresh|update)$/i.test(argText)) {
+                    showSay({ kind: 'info', text: 'asking models.dev and the endpoint...' });
+                    try {
+                        const result = await refreshCatalog();
+                        showSay({ kind: 'ok', text: `catalogue updated: ${result.models} models from ${result.providers} providers, ${result.priced} prices`, detail: `models.dev, ${result.generated}` });
+                    }
+                    catch (e) {
+                        const info = catalogInfo();
+                        showSay({ kind: 'warn', text: 'could not download the catalogue.', detail: `${String(e?.message || e)}. Using the ${info.downloaded ? 'downloaded' : 'built-in'} one (${info.models} models, ${info.generated}).` });
+                    }
+                    const route = detectRoute(config.baseUrl);
+                    if (route === 'generic' || route === 'openrouter') {
+                        const record = await refreshEndpoint(config, { force: true }).catch(() => null);
+                        showSay(record?.data
+                            ? { kind: 'ok', text: `the endpoint described ${config.model}` }
+                            : { kind: 'info', text: `the endpoint says nothing about ${config.model}`, detail: 'levels come from the catalogue or from the model name' });
+                    }
+                    continue;
+                }
+                // A custom endpoint is asked about this model first (cached, a few seconds at most).
+                await refreshEndpoint(config).catch(() => null);
+                const outcome = effortCommand(config, argText);
+                if (outcome.type === 'say') {
+                    if (outcome.say.kind === 'ok')
+                        await saveConfig(config);
+                    showSay(outcome.say);
+                }
+                else {
+                    const choice = await runPicker(outcome.picker);
+                    if (choice === undefined) {
+                        showSay({ kind: 'info', text: 'effort unchanged' });
+                    }
+                    else {
+                        const say = chooseEffort(config, choice);
+                        await saveConfig(config);
+                        showSay(say);
+                    }
+                }
+                continue;
+            }
             if (cmd === '/provider' || cmd === '/providers') {
                 const newConfig = await selectProvider(config, true);
-                drawLogo(config.banner || 'full');
                 if (newConfig) {
                     config = newConfig;
-                    p.log.success(`Switched provider to: ${pc.bold(config.provider || 'custom')} (${config.model})`);
+                    await refreshEndpoint(config).catch(() => null);
+                    announce(`provider ${config.provider || 'custom'} · ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
                 }
                 else {
                     p.log.info('Provider selection cancelled.');
@@ -1604,21 +1734,28 @@ export async function main() {
                         planMode = false;
                         const newSys = await buildSystemPrompt(false);
                         history.updateSystemPrompt(newSys);
-                        p.log.success(pc.bold(pc.green('⚡ Plan approved! Auto-switched to AGENT mode. Starting execution...')));
+                        p.log.success(pc.bold(pc.green('Plan approved! Auto-switched to AGENT mode. Starting execution...')));
                     }
                 }
             }
         }
         // Resolve @file and @image mentions
-        const { text: cleanAnswer, attachments, images } = await resolveAtMentions(answer);
+        const { text: cleanAnswer, attachments, images, warnings: attachWarnings } = await resolveAtMentions(answer);
+        for (const warning of attachWarnings)
+            p.log.warn(warning);
         let finalContent = cleanAnswer;
         if (attachments.length > 0) {
             const attachBlocks = attachments.map(a => `[Attached file: ${a.path}]\n\`\`\`\n${a.content}\n\`\`\``).join('\n\n');
             finalContent = `${cleanAnswer}\n\n--- Attached Files ---\n${attachBlocks}`;
-            p.log.info(pc.cyan(`📎 Attached ${attachments.length} file(s): ${attachments.map(a => a.path).join(', ')}`));
+            p.log.info(pc.cyan(`Attached ${attachments.length} file(s): ${attachments.map(a => a.path).join(', ')}`));
         }
         if (images.length > 0) {
-            p.log.info(pc.cyan(`🖼️  Attached ${images.length} image(s): ${images.map(i => i.path).join(', ')}`));
+            if (modelAcceptsImages(config.model) === false) {
+                p.log.warn(`${config.model} cannot read images: ${images.length === 1 ? 'the image' : 'the images'} will not be sent. Switch to a model with vision (/model).`);
+            }
+            else {
+                p.log.info(pc.cyan(`Attached ${images.length} image(s): ${images.map(i => path.basename(i.path)).join(', ')}`));
+            }
         }
         globalSnapshotManager.beginTurn();
         history.addMessage({
@@ -1626,6 +1763,8 @@ export async function main() {
             content: finalContent,
             images: images.length > 0 ? images : undefined
         });
+        // The format of the gateway is learned once (cached); the first request waits for it.
+        await refreshFormats(config).catch(() => null);
         const provider = createProvider(config);
         const tools = getTools(planMode);
         const guard = new CLIConsoleGuard(config.autoApprove, config.bashAllowlist || []);
@@ -1644,25 +1783,93 @@ export async function main() {
         let thinkingActive = false;
         let thinkingStartTime = 0;
         let textActive = false;
-        const s = p.spinner();
+        const cleanUi = config.ui?.layout !== 'classic';
+        const s = (cleanUi ? new UiSpinner() : p.spinner());
+        const uiSpinner = cleanUi ? s : null;
+        const assistantGutter = new GutterWriter(palette.accent('●') + ' ', '  ');
+        const thoughtGutter = new GutterWriter(palette.faint('  │ '), palette.faint('  │ '));
         const streamer = new MarkdownStreamer();
+        if (cleanUi)
+            streamer.setSink((text) => assistantGutter.write(text));
         const thoughtStreamer = new SmoothStreamer((chunk) => {
-            process.stdout.write(pc.dim(chunk));
+            if (cleanUi)
+                thoughtGutter.write(palette.muted(chunk));
+            else
+                process.stdout.write(pc.dim(chunk));
         });
+        let turnOutputTokens = 0;
+        // Live token counter of this turn: exact numbers of finished requests plus an estimate for
+        // the request in flight: what the model has written for the user's request so far (↓).
+        let turnInputTokens = 0;
+        let requestOutEstimate = 0;
+        let toolArgsEstimate = 0;
+        // The shown number eases toward the real one: it climbs fast, then slows down, instead of jumping.
+        let shownOutput = 0;
+        let shownAt = Date.now();
+        const liveTokens = () => {
+            const target = turnOutputTokens + requestOutEstimate + toolArgsEstimate;
+            const now = Date.now();
+            shownOutput = easeToward(shownOutput, target, now - shownAt);
+            shownAt = now;
+            return `↓ ${formatTokensShort(Math.round(shownOutput))} tokens`;
+        };
+        const costAtTurnStart = sessionCost.total;
+        const turnCost = { estimated: false, unpriced: 0, priced: 0 };
+        let spacerBeforeText = false;
+        // Tool results in the clean layout: a quiet "╰ summary" line, a diff box for edits.
+        const renderCleanToolResult = (name, result) => {
+            const cols = process.stdout.columns || 80;
+            let handled = false;
+            try {
+                const parsed = JSON.parse(result);
+                if (parsed && typeof parsed === 'object') {
+                    if (parsed.type === 'todo_list' && parsed.displayCard) {
+                        process.stdout.write(parsed.displayCard);
+                        handled = true;
+                    }
+                    else if (parsed.action === 'edit' && parsed.diffLines) {
+                        const box = formatDiffBox(parsed.path, parsed.diffLines, Math.min(cols - 4, 80), undefined, !!config.ui?.diffColors);
+                        console.log(box.split('\n').map((l) => '    ' + l).join('\n'));
+                        if (parsed.summary)
+                            console.log(renderResultLine(parsed.summary, 'ok', cols));
+                        handled = true;
+                    }
+                    else if (parsed.summary) {
+                        console.log(renderResultLine(parsed.summary, 'ok', cols));
+                        handled = true;
+                    }
+                }
+            }
+            catch { }
+            if (!handled) {
+                const lines = summarizeToolResult(name, result, cols);
+                if (lines.length > 0)
+                    console.log(lines.join('\n'));
+            }
+        };
         const telemetry = new LiveTelemetryTracker();
         telemetry.start('connecting');
+        uiSpinner?.setMetaProvider(liveTokens);
         const finishThinking = (extraNewline = true) => {
             if (!thinkingActive)
                 return;
             thoughtStreamer.flush();
+            thoughtGutter.flush();
             const elapsedSec = thinkingStartTime > 0 ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : '0.0';
             const teleStats = config.ui?.liveTelemetry && telemetry.getTotalTokens() > 0
                 ? ` · ${LiveTelemetryTracker.formatTokenCount(telemetry.getTotalTokens())} tok · ${telemetry.getTokensPerSecond()} tok/s`
                 : '';
-            const width = Math.min(process.stdout.columns || 40, 52);
-            const label = `─── Thought for ${elapsedSec}s${teleStats} `;
-            const fillLen = Math.max(2, width - label.length);
-            process.stdout.write('\n\n' + pc.dim(label + '─'.repeat(fillLen)) + (extraNewline ? '\n\n' : '\n'));
+            if (cleanUi) {
+                process.stdout.write('\n' + palette.faint(`  ╰ thought for ${elapsedSec}s${teleStats}`) + '\n');
+                thoughtGutter.reset();
+                spacerBeforeText = true;
+            }
+            else {
+                const width = Math.min(process.stdout.columns || 40, 52);
+                const label = `─── Thought for ${elapsedSec}s${teleStats} `;
+                const fillLen = Math.max(2, width - label.length);
+                process.stdout.write('\n\n' + pc.dim(label + '─'.repeat(fillLen)) + (extraNewline ? '\n\n' : '\n'));
+            }
             thinkingActive = false;
             thinkingStartTime = 0;
         };
@@ -1682,21 +1889,70 @@ export async function main() {
             if (textActive) {
                 process.stdout.write('\n');
             }
-            if (isConnecting) {
-                console.log(pc.yellow('\n⏹  Подключение отменено / Connection cancelled (Ctrl+C).'));
+            if (cleanUi) {
+                console.log(renderNotice('warn', isConnecting ? 'connection cancelled' : 'stopped'));
+                console.log();
+            }
+            else if (isConnecting) {
+                console.log(pc.yellow('\nПодключение отменено / Connection cancelled (Ctrl+C).'));
             }
             else {
-                console.log(pc.yellow('\n⏹  Generation stopped / Ответ остановлен (Ctrl+C).'));
+                console.log(pc.yellow('\nGeneration stopped / Ответ остановлен (Ctrl+C).'));
             }
         };
         const onSigInt = () => {
             stopGeneration();
         };
+        // The input line at the bottom while the agent works: what is typed there is queued and
+        // reaches the model at its next step (see TurnComposer).
+        // The working line (time and tokens) stays above the frame for the whole turn.
+        let statusLabel = 'Waiting for the model';
+        let statusFrame = 0;
+        const statusStartedAt = Date.now();
+        const statusLine = () => renderStatusLine({
+            label: statusLabel,
+            elapsedMs: Date.now() - statusStartedAt,
+            meta: liveTokens(),
+            frame: statusFrame++,
+            columns: process.stdout.columns || 80,
+        });
+        const composer = new TurnComposer(process.stdout, () => {
+            const ctx = currentContext();
+            const used = ctx.total - ctx.system - ctx.tools;
+            const git = GitStatusCache.getStatus();
+            return {
+                mode: resolveMode(planMode, !!config.autoApprove),
+                model: modelLabel(config),
+                cwd: process.cwd(),
+                branch: git?.branch,
+                dirty: git?.isDirty,
+                contextPercent: Math.min(100, Math.round((used / (config.maxContextTokens || getModelContextLimit(config.model))) * 100)),
+                cost: sessionCost.total,
+                costState: sessionCost.state(),
+            };
+        }, undefined, statusLine);
+        const releasePauseHook = registerPauseHook(() => {
+            composer.suspend();
+            return () => composer.resume();
+        });
         const onRawData = (data) => {
             const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data));
             if (buf.includes(3) || buf.includes(0x03) || data === '\x03') {
                 stopGeneration();
+                return;
             }
+            composer.handleData(buf.toString('utf8'));
+        };
+        const onResize = () => composer.onResize();
+        /** What a queued message becomes in the conversation: its @files and images are attached like in a normal prompt. */
+        const queuedToMessage = async (text) => {
+            const resolved = await resolveAtMentions(text);
+            let content = resolved.text;
+            if (resolved.attachments.length > 0) {
+                const blocks = resolved.attachments.map(a => `[Attached file: ${a.path}]\n\`\`\`\n${a.content}\n\`\`\``).join('\n\n');
+                content = `${resolved.text}\n\n--- Attached Files ---\n${blocks}`;
+            }
+            return { role: 'user', content, images: resolved.images.length > 0 ? resolved.images : undefined };
         };
         activeAbortHandler = stopGeneration;
         process.on('SIGINT', onSigInt);
@@ -1705,28 +1961,39 @@ export async function main() {
                 process.stdin.resume();
                 process.stdin.setRawMode(true);
                 process.stdin.on('data', onRawData);
+                if (cleanUi && config.ui?.typeAhead !== false && composer.start()) {
+                    process.stdout.on('resize', onResize);
+                    uiSpinner?.mute(true);
+                }
             }
             catch { }
         }
-        s.start('Connecting...');
+        s.start(cleanUi ? 'Waiting for the model' : 'Connecting...');
         spinnerActive = true;
         const turnStartTime = Date.now();
         let toolsExecutedCount = 0;
         try {
-            for await (const event of agent.run(abortController.signal)) {
+            for await (const event of agent.run(abortController.signal, {
+                takePending: async () => Promise.all(composer.takeQueued().map(queuedToMessage)),
+                hasPending: () => composer.hasQueued(),
+            })) {
                 if (aborted)
                     break;
                 if (event.type === 'reasoning_delta') {
                     isConnecting = false;
                     telemetry.setPhase('thinking');
+                    statusLabel = 'Thinking';
                     telemetry.recordTokens(telemetry.estimateTokensFromText(event.delta));
+                    requestOutEstimate += telemetry.estimateTokensFromText(event.delta);
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
                     }
                     if (!thinkingActive) {
                         thinkingStartTime = Date.now();
-                        process.stdout.write('\n' + pc.bold(pc.white('› Thought:')) + '\n');
+                        process.stdout.write((cleanUi ? (spacerBeforeText ? '\n' : '') : '\n') + (cleanUi ? palette.muted('  ∴ thinking') : pc.bold(pc.white('› Thought:'))) + '\n');
+                        if (cleanUi)
+                            spacerBeforeText = false;
                         thinkingActive = true;
                     }
                     thoughtStreamer.push(event.delta);
@@ -1734,7 +2001,9 @@ export async function main() {
                 else if (event.type === 'text_delta') {
                     isConnecting = false;
                     telemetry.setPhase('generating');
+                    statusLabel = 'Writing';
                     telemetry.recordTokens(telemetry.estimateTokensFromText(event.delta));
+                    requestOutEstimate += telemetry.estimateTokensFromText(event.delta);
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
@@ -1742,6 +2011,12 @@ export async function main() {
                     finishThinking(true);
                     if (!textActive) {
                         textActive = true;
+                        if (cleanUi) {
+                            if (spacerBeforeText)
+                                process.stdout.write('\n');
+                            spacerBeforeText = false;
+                            assistantGutter.reset();
+                        }
                     }
                     streamer.push(event.delta);
                 }
@@ -1753,7 +2028,17 @@ export async function main() {
                     }
                     finishThinking(true);
                     if (!textActive) {
-                        console.log('\n' + renderMarkdown(event.content) + '\n');
+                        if (cleanUi) {
+                            if (spacerBeforeText)
+                                console.log();
+                            spacerBeforeText = false;
+                            assistantGutter.reset();
+                            assistantGutter.write(renderMarkdown(event.content) + '\n');
+                            console.log();
+                        }
+                        else {
+                            console.log('\n' + renderMarkdown(event.content) + '\n');
+                        }
                     }
                 }
                 else if (event.type === 'tool_generating') {
@@ -1761,6 +2046,7 @@ export async function main() {
                     telemetry.setPhase('tool');
                     const theme = getCurrentTheme();
                     const label = formatToolGeneratingLabel(event.name, event.targetHint);
+                    statusLabel = label;
                     const teleStats = telemetry.getTotalTokens() > 0
                         ? ` · ${LiveTelemetryTracker.formatTokenCount(telemetry.getTotalTokens())} tok · ${telemetry.getTokensPerSecond()} tok/s`
                         : '';
@@ -1768,16 +2054,42 @@ export async function main() {
                     if (!spinnerActive) {
                         streamer.finish();
                         finishThinking(false);
-                        s.start(theme.boldFn(label) + telemetrySuffix);
+                        s.start(cleanUi ? label : theme.boldFn(label) + telemetrySuffix);
                         spinnerActive = true;
                     }
                     else {
-                        s.message(theme.boldFn(label) + telemetrySuffix);
+                        s.message(cleanUi ? label : theme.boldFn(label) + telemetrySuffix);
                     }
+                    // The arguments written so far (about 3 bytes per token), on top of the text before them.
+                    toolArgsEstimate = Math.max(toolArgsEstimate, Math.round(event.bytes / 3));
+                }
+                else if (event.type === 'user_message') {
+                    // The message typed during the work reached the model: show it in the chat like any prompt.
+                    if (spinnerActive) {
+                        s.stop();
+                        spinnerActive = false;
+                    }
+                    finishThinking(true);
+                    streamer.finish();
+                    if (textActive) {
+                        process.stdout.write('\n');
+                        textActive = false;
+                    }
+                    statusLabel = 'Waiting for the model';
+                    const typed = event.content.split('\n\n--- Attached Files ---')[0];
+                    console.log();
+                    console.log(renderUserEcho(typed, process.stdout.columns || 80).join('\n'));
+                    console.log();
+                    s.start(cleanUi ? 'Waiting for the model' : 'Connecting...');
+                    spinnerActive = true;
                 }
                 else if (event.type === 'tool_start') {
                     isConnecting = false;
                     telemetry.reset();
+                    statusLabel = event.actionDesc || event.name;
+                    // A question to the user takes over the keyboard: the typing line steps aside.
+                    if (event.name === 'ask_questions')
+                        composer.suspend();
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
@@ -1788,20 +2100,35 @@ export async function main() {
                         process.stdout.write('\n');
                         textActive = false;
                     }
-                    console.log('\n' + pc.bold(pc.white(event.actionDesc)));
+                    if (cleanUi) {
+                        console.log(renderToolLine(event.actionDesc, process.stdout.columns || 80));
+                        assistantGutter.reset();
+                    }
+                    else {
+                        console.log('\n' + pc.bold(pc.white(event.actionDesc)));
+                    }
                     if (event.name !== 'ask_questions' && event.name !== 'todo_list') {
-                        s.start('Executing...');
+                        s.start(cleanUi ? 'Running' : 'Executing...');
                         spinnerActive = true;
                     }
                 }
                 else if (event.type === 'tool_end') {
+                    if (event.name === 'ask_questions')
+                        composer.resume();
+                    statusLabel = 'Waiting for the model';
+                    composer.refresh();
                     toolsExecutedCount++;
                     GitStatusCache.invalidate();
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
                     }
-                    if (event.result) {
+                    if (cleanUi) {
+                        if (event.result)
+                            renderCleanToolResult(event.name, event.result);
+                        spacerBeforeText = true;
+                    }
+                    else if (event.result) {
                         try {
                             const parsed = JSON.parse(event.result);
                             if (parsed.type === 'todo_list' && parsed.displayCard) {
@@ -1830,9 +2157,23 @@ export async function main() {
                     }
                 }
                 else if (event.type === 'usage') {
-                    totalSessionCost += event.usage.cost || 0;
+                    sessionCost.add(event.usage);
+                    composer.refresh();
+                    if (typeof event.usage.cost === 'number') {
+                        turnCost.priced = (turnCost.priced ?? 0) + 1;
+                        if (event.usage.costSource === 'estimated')
+                            turnCost.estimated = true;
+                    }
+                    else {
+                        turnCost.unpriced = (turnCost.unpriced ?? 0) + 1;
+                    }
+                    turnOutputTokens += event.usage.completionTokens || 0;
+                    turnInputTokens += event.usage.promptTokens || 0;
+                    requestOutEstimate = 0;
+                    toolArgsEstimate = 0;
                 }
                 else if (event.type === 'reconnecting') {
+                    statusLabel = 'Reconnecting';
                     telemetry.reset();
                     if (spinnerActive) {
                         s.stop();
@@ -1846,20 +2187,32 @@ export async function main() {
                         textActive = false;
                     }
                     streamer.reset();
-                    console.log();
-                    console.log(pc.bold(pc.yellow(`⚠️  Интернет-соединение нестабильно (${event.reason})`)));
-                    console.log(pc.cyan(`🔄 Попытка переподключения [${event.attempt}/${event.maxAttempts}] (пауза ${(event.delayMs / 1000).toFixed(1)}с)...`));
-                    s.start(pc.cyan(`Ожидание сети [${event.attempt}/${event.maxAttempts}]...`));
+                    if (cleanUi) {
+                        console.log(renderNotice('warn', `connection unstable (${event.reason})`));
+                        s.start(`reconnecting ${event.attempt}/${event.maxAttempts} · retry in ${(event.delayMs / 1000).toFixed(1)}s`);
+                    }
+                    else {
+                        console.log();
+                        console.log(pc.bold(pc.yellow(`Интернет-соединение нестабильно (${event.reason})`)));
+                        console.log(pc.cyan(`Попытка переподключения [${event.attempt}/${event.maxAttempts}] (пауза ${(event.delayMs / 1000).toFixed(1)}с)...`));
+                        s.start(pc.cyan(`Ожидание сети [${event.attempt}/${event.maxAttempts}]...`));
+                    }
                     spinnerActive = true;
                 }
                 else if (event.type === 'reconnected') {
+                    statusLabel = 'Waiting for the model';
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
                     }
-                    console.log(pc.bold(pc.green(`✔ Соединение восстановлено! Возобновляем генерацию...`)));
-                    console.log();
-                    s.start('Connecting...');
+                    if (cleanUi) {
+                        console.log(renderNotice('ok', 'connection restored'));
+                    }
+                    else {
+                        console.log(pc.bold(pc.green(`✓ Соединение восстановлено! Возобновляем генерацию...`)));
+                        console.log();
+                    }
+                    s.start(cleanUi ? 'Waiting for the model' : 'Connecting...');
                     spinnerActive = true;
                 }
                 else if (event.type === 'error') {
@@ -1869,14 +2222,20 @@ export async function main() {
                     }
                     finishThinking(true);
                     streamer.finish();
-                    p.log.error(pc.bold(pc.red(`❌ ${event.message}`)));
+                    if (cleanUi)
+                        console.log(renderNotice('error', event.message));
+                    else
+                        p.log.error(pc.bold(pc.red(`${event.message}`)));
                 }
                 else if (event.type === 'system') {
                     if (spinnerActive) {
                         s.stop();
                         spinnerActive = false;
                     }
-                    p.log.info(event.message);
+                    if (cleanUi)
+                        console.log(renderNotice('info', event.message));
+                    else
+                        p.log.info(event.message);
                 }
             }
             finishThinking(true);
@@ -1888,20 +2247,43 @@ export async function main() {
             if (textActive) {
                 process.stdout.write('\n');
             }
+            // Hand the bottom of the screen back. Whatever was typed but not sent waits in the next prompt;
+            // a message that arrived too late for the agent starts the next turn by itself.
+            const leftover = composer.stop();
+            if (leftover.queued.length > 0) {
+                if (aborted)
+                    currentDraft = [...leftover.queued, leftover.draft].filter(Boolean).join(' ');
+                else
+                    autoTriggerPrompt = leftover.queued.join('\n');
+            }
+            else if (leftover.draft) {
+                currentDraft = leftover.draft;
+            }
             const turnElapsedMs = Date.now() - turnStartTime;
+            if (cleanUi && !aborted) {
+                console.log(renderTurnSummary({
+                    ms: turnElapsedMs,
+                    tools: toolsExecutedCount,
+                    outputTokens: turnOutputTokens,
+                    inputTokens: turnInputTokens,
+                    cost: sessionCost.total - costAtTurnStart,
+                    costState: turnCost
+                }));
+                console.log();
+            }
             const shouldNotify = (turnElapsedMs >= 15000) || (toolsExecutedCount > 0) || (planMode && lastPlanReady !== null);
             if (shouldNotify && !aborted) {
                 const secs = Math.round(turnElapsedMs / 1000);
                 notifyDevice('devx', `Task completed in ${secs}s!`);
             }
             // Auto-save session
-            await sessionManager.save(history.getMessages(), totalSessionCost, config.model, planMode);
+            await sessionManager.save(history.getMessages(), sessionCost.total, config.model, planMode, sessionCost.estimated);
             // Check if plan was finalized in PLAN mode
             if (planMode && !aborted) {
                 const lastMsg = history.getMessages().slice(-1)[0];
                 const hasPlanReadyTool = lastPlanReady !== null;
-                const hasPlanText = lastMsg && lastMsg.role === 'assistant' && (lastMsg.content.includes('🎯 Цель') ||
-                    lastMsg.content.includes('📁 Пошаговый') ||
+                const hasPlanText = lastMsg && lastMsg.role === 'assistant' && (lastMsg.content.includes('Цель и архитектурный обзор') ||
+                    lastMsg.content.includes('Пошаговый список изменений') ||
                     lastMsg.content.includes('FINAL PLAN') ||
                     lastMsg.content.includes('План готов') ||
                     lastMsg.content.includes('Архитектурный план') ||
@@ -1912,15 +2294,16 @@ export async function main() {
                     let choice = '';
                     try {
                         choice = await select({
-                            message: pc.bold(pc.cyan('📋 Plan is ready! What would you like to do?')),
+                            message: pc.bold(pc.cyan('Plan is ready! What would you like to do?')),
+                            loop: false,
                             choices: [
                                 {
-                                    name: pc.bold(pc.green('🚀 Go (Switch to AGENT mode and start execution)')),
+                                    name: pc.bold(pc.green('Go (Switch to AGENT mode and start execution)')),
                                     value: 'go',
                                     description: 'Automatically switch to AGENT mode and start implementing the plan immediately'
                                 },
                                 {
-                                    name: pc.bold(pc.yellow('✏️  Other (Modify, add details, or ask questions)')),
+                                    name: pc.bold(pc.yellow('+ Other (Modify, add details, or ask questions)')),
                                     value: 'other',
                                     description: 'Stay in PLAN mode and open prompt to type adjustments or additions'
                                 }
@@ -1932,7 +2315,7 @@ export async function main() {
                         planMode = false;
                         const newSys = await buildSystemPrompt(false);
                         history.updateSystemPrompt(newSys);
-                        p.log.success(pc.bold(pc.green('🚀 Switched to AGENT mode! Starting execution of approved plan...')));
+                        p.log.success(pc.bold(pc.green('Switched to AGENT mode! Starting execution of approved plan...')));
                         currentDraft = '';
                         autoTriggerPrompt = 'Go!';
                         continue;
@@ -1952,10 +2335,19 @@ export async function main() {
                 spinnerActive = false;
             }
             if (!aborted && err.name !== 'AbortError' && !err.message?.includes('aborted')) {
-                p.log.error(pc.bold(pc.red(`❌ ${err.message}`)));
+                if (cleanUi)
+                    console.log(renderNotice('error', err.message));
+                else
+                    p.log.error(pc.bold(pc.red(`${err.message}`)));
             }
         }
         finally {
+            const unsent = composer.stop();
+            releasePauseHook();
+            process.stdout.removeListener('resize', onResize);
+            if (!currentDraft && (unsent.draft || unsent.queued.length > 0)) {
+                currentDraft = [...unsent.queued, unsent.draft].filter(Boolean).join(' ');
+            }
             globalSnapshotManager.finishTurn();
             activeAbortHandler = null;
             process.removeListener('SIGINT', onSigInt);

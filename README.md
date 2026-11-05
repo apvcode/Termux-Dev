@@ -16,7 +16,7 @@ Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**
 
 <br/>
 
-[🇬🇧 **English**](#-highlights) &nbsp;•&nbsp; [🇷🇺 **Русский**](#-русский)
+[**English**](#highlights) &nbsp;•&nbsp; [**Русский**](#русский)
 
 <br/><br/>
 
@@ -26,50 +26,50 @@ Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**
 
 ---
 
-## 🌟 Highlights
+## Highlights
 
-The terminal interface uses a compact layout on both desktop and Termux. Switch to the original ASCII layout in `/settings` → `Interface`.
+The terminal interface is built around a framed prompt that carries the status in its borders — mode (`agent` / `plan` / `yolo`), model, folder, git branch, context meter and cost — a header card, a shaded echo of your message, a `●` gutter for the assistant, `◆` lines for tool calls with quiet one-line results and diff boxes for edits, and a live working indicator. Every layout has a narrow variant for Termux in portrait and measures emoji and CJK text correctly. Switch to the original ASCII layout in `/settings` → `Interface`.
 
-- **🧠 Dual-Brain Architecture (PLAN & AGENT Modes):**  
+- **Dual-Brain Architecture (PLAN & AGENT Modes):**  
   Instantly toggle between **PLAN** (safe architect, interactive requirements questionnaire, no code dumps) and **AGENT** (autonomous file edits, terminal commands, auto-installer).
-- **🚀 One-Click Plan Approval (`[🚀 Go / ✏️ Other]`):**  
+- **One-Click Plan Approval (`[Go / Other]`):**  
   When an architectural plan is finalized, review and confirm with `Go` to immediately unleash the coder agent.
-- **🖼️ Multimodal Vision Attachments:**  
-  Paste screenshots directly from clipboard (`/image` or `Ctrl+P`) with smart duplicate badges `[1.png 203kb]`, `[1(copy).png 421kb]`.
-- **🌐 Built-in Live Web Server (`/serve`):**  
+- **Multimodal Vision Attachments:**  
+  Paste screenshots straight from the clipboard with `Ctrl+V` or `Alt+V` (also `/image`, or a pasted file path). They appear as badges like `[Image #1 203kb]` and are sent to the model as real images, unless the model is known to read text only. Needs `wl-clipboard` on Wayland, `xclip` on X11, `pngpaste` on macOS.
+- **Built-in Live Web Server (`/serve`):**  
   Instantly preview web apps and HTML5 games on port 3000. Seamlessly opens on Android via `termux-open-url`.
-- **⏪ Instant Snapshot Rollback (`/undo`):**  
-  Every change made by the AI is recorded. Roll back unwanted edits cleanly with a single command.
-- **🩺 Self-Healing Diagnostics & Auto-Installer:**  
+- **Instant Snapshot Rollback (`/undo`):**  
+  Every edit made with the file tools (`write_file`, `edit_file`) is recorded and can be rolled back with a single command. Changes made by shell commands (`bash`) are **not** tracked, and snapshots live in memory for the current session only.
+- **Self-Healing Diagnostics & Auto-Installer:**  
   Built-in support for TypeScript (`tsc`), JavaScript (`node --check`), Python (`py_compile`), and Rust (`cargo check`). The AI automatically finds and fixes errors before finishing turns.
-- **🧠 Project Memory Bank (`.devx/memory.md`):**  
+- **Project Memory Bank (`.devx/memory.md`):**  
   Persistent project context across sessions with `/memory add <rule>`.
-- **🎨 Pure Black Obsidian Theme (`#0a0a0c`):**  
-  Deep OLED black background designed for distraction-free CLI vibe-coding.
-- **📜 Smart Session History (`/resume` & `/session`):**  
+- **18 Colour Themes on a Pure Black Background (`#0a0a0c`):**  
+  Deep OLED black for distraction-free CLI vibe-coding, with full palettes instead of a single accent: Cyan Cyber, Synthwave Purple, Matrix Hacker, Solar Amber, Ruby Crimson, Pure Monochrome, Nord Frost, Dracula, Tokyo Night, Gruvbox, Catppuccin Mocha, Solarized Dark, Rose Pine, Monokai, GitHub Dark, Deep Ocean, Sunset Glow and Forest Moss. See [Themes](#themes).
+- **Smart Session History (`/resume` & `/session`):**  
   Resume sessions with last 20 messages neatly rendered in full Markdown and track unique session IDs (`#a8f9z`).
-- **🔍 Smart Multi-Line Editor (`edit_file 2.0`):**  
+- **Smart Multi-Line Editor (`edit_file 2.0`):**  
   Collision-safe code editing with line-number error reporting on duplicate matches and `replaceAll` support.
-- **🧪 Comprehensive Test Suite (Vitest):**  
+- **Comprehensive Test Suite (Vitest):**  
   Full test coverage across core agent loop, file systems, security guard, snapshots, and context history with automated CI.
-- **⚡ Universal AI Provider Support:**  
+- **Universal AI Provider Support:**  
   **OpenRouter**, **Google Gemini**, **DeepSeek**, **Groq**, **Mistral**, **OpenAI**, **Anthropic**, **Alibaba**, and local models (**Ollama**, **LM Studio**).
 
 ---
 
-## 📦 Installation & Setup
+## Installation & Setup
 
 ### Prerequisites
 - **Node.js**: `v20.0.0` or higher
 - **npm**, **pnpm**, or **yarn**
 
-### ⚡ Fast Global Install (Recommended)
+### Fast Global Install (Recommended)
 
 ```bash
 npm install -g termux-dev
 ```
 
-### 📱 Android (Termux) Setup
+### Android (Termux) Setup
 
 ```bash
 # 1. Update packages & install NodeJS
@@ -82,7 +82,7 @@ npm install -g termux-dev
 devx
 ```
 
-### 🛠️ Build from Source (Developers)
+### Build from Source (Developers)
 
 ```bash
 git clone https://github.com/apvcode/Termux-Dev.git
@@ -91,7 +91,7 @@ npm install
 npm link
 ```
 
-### 🗑️ Complete Uninstallation
+### Complete Uninstallation
 
 To completely remove `devx` along with all configuration, saved sessions, and data:
 
@@ -108,7 +108,7 @@ Remove-Item -Recurse -Force "$HOME\.devx", "$HOME\.devxrc.json" -ErrorAction Sil
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 Launch `devx` in any project folder:
 
@@ -129,7 +129,7 @@ devx
 
 ---
 
-## ⌨️ Slash Commands
+## Slash Commands
 
 Type `/` in the prompt to open the autocomplete command palette:
 
@@ -138,11 +138,11 @@ Type `/` in the prompt to open the autocomplete command palette:
 | **`/plan`** | Switch to **PLAN** mode (architect & requirements planner) |
 | **`/agent`** | Switch to **AGENT** mode (coder & autonomous executor) |
 | **`/mcp`** | Manage Model Context Protocol (MCP) servers & external tools (`/mcp reload`) |
-| **`/usage`** | View live network bandwidth (KB/MB), token costs, and API request counts |
+| **`/usage`** | A panel (close with `Esc`): what fills the context window (system prompt, tool schemas, messages, tool results, images), the session cost and how sure it is, tokens, cached input, traffic |
 | **`/export`** | Export session conversation to a clean GitHub-Flavored Markdown transcript |
-| **`/theme`** | Switch UI color theme (Cyan, Purple, Matrix, Amber, Crimson, Monochrome) |
+| **`/theme [name]`** | Switch the UI theme: searchable list of 18 palettes with a live preview (see [Themes](#themes)) |
 | **`/doctor`** | Run environment health diagnostics (Node, Termux, Compilers, API keys) |
-| **`/image`** | Paste image from clipboard as `[1.png 203kb]` |
+| **`/image`** | Paste the image from the clipboard (same as `Ctrl+V` / `Alt+V`) |
 | **`/serve [port]`** | Start local HTTP server for web/game preview (`/serve stop` to halt) |
 | **`/memory`** | View, add (`/memory add <fact>`), or clear project memory bank |
 | **`/undo`** | Revert all file changes from the last AI turn |
@@ -155,16 +155,17 @@ Type `/` in the prompt to open the autocomplete command palette:
 | **`/settings`** | Configure YOLO auto-approve, project memory, theme, and update checks |
 | **`/update`** | Check and install latest updates from GitHub |
 | **`/model`** | Switch model for the active provider with live search |
+| **`/effort [level]`** | Set the reasoning effort. Only the levels the current model supports are offered (see [Reasoning effort](#reasoning-effort)) |
 | **`/provider`** | Switch provider (OpenRouter, Gemini, Groq, DeepSeek, Local) |
 | **`/compact`** | Compact and summarize chat context tokens |
-| **`/clear`** | Clear screen without deleting conversation history |
+| **`/clear`** | Clear the context and start a new session (the old one stays saved, see `/resume`) |
 | **`/init`** | Generate `AGENTS.md` developer guide in project root |
 | **`/help`** | Display all available commands |
 | **`/exit`** | Exit devx cleanly |
 
 ---
 
-## ⌨️ Keybindings
+## Keybindings
 
 - **`Tab`** — Instantly toggle between **PLAN** and **AGENT** modes without losing your draft text.
 - **`Ctrl+P`** / **`Ctrl+V`** — Paste image from clipboard directly into prompt.
@@ -174,60 +175,216 @@ Type `/` in the prompt to open the autocomplete command palette:
 
 ---
 
-## ⭐️ Support the Project
+## Reasoning effort
 
-If you find **devx** useful, please consider giving it a ⭐️ star on [GitHub](https://github.com/apvcode/Termux-Dev) — it helps the project grow and motivates further development!
+`/effort` sets how much the model thinks before it answers: `off`, `low`, `normal`, `high`, `xhigh`, `max` or `auto` (the model's own default, nothing is sent). Models differ, so the menu offers **only the levels the current model supports**:
+
+```
+╭─ effort ─────────────────────────────────── claude-sonnet-4-5 ─╮
+│  ❯ ● auto    model default, nothing is sent                     │
+│    ○ off     no reasoning                                       │
+│    ○ normal  balanced (~6k thinking tokens)                     │
+│    ○ high    deep reasoning (~16k thinking tokens)              │
+│                                                                 │
+│   Not offered by this model: max.                               │
+╰─────────────────────────────────────────────────────────────────╯
+```
+
+- `/effort` opens the menu, `/effort high` sets a level directly (`medium`, `none`, `maximum` and similar work as aliases), `/effort auto` goes back to the model default, `/effort refresh` updates the data the menu is built from (see below).
+- The choice is remembered **per model**. After switching to a model that does not offer a saved level, nothing is sent. The current level is shown next to the model name (`o3 · think high`; `think auto` means the model's own default). While the agent works, the status line shows how many tokens the model has written for your request so far (`↓ 364 tokens`), and the line after the turn sums it up (`18.1k in · 59 out`).
+- `devx -p "task" --effort high` sets a level for one run only (it is never saved).
+- If an endpoint answers 400 and complains about the reasoning parameter, devx repeats the request once without it, tells you, and stops sending it.
+
+**Where the levels come from** (the first source that knows the model wins; the menu says which one it used):
+
+1. **Your own profile** in `~/.devxrc.json` (`reasoningProfiles`, below).
+2. **The endpoint itself.** OpenRouter lists reasoning metadata for every model (which efforts it accepts, whether it can be switched off); Ollama reports a "thinking" capability; LiteLLM and many gateways add flags to their model list. A **custom or third-party provider is asked once**: a few small requests to *its own* base URL, with the key you configured (`GET /models`, on a local machine also `POST /api/show`, for LiteLLM `GET /model/info`). The answer is cached for a day in `~/.devx/capabilities.json`. The big vendors (OpenAI, Anthropic, Google...) are not asked, their lists say nothing about reasoning. Turn it off with `"probeEndpoints": false` in `~/.devxrc.json`.
+3. **The [models.dev](https://models.dev) catalogue**: reasoning options of about 5700 models of 213 providers (efforts, toggle, token budgets). A snapshot ships with devx, so nothing is downloaded by default. `/effort refresh` fetches the current one into `~/.devx/` and asks the endpoint again; it is the only time devx contacts models.dev, and only because you ran that command. The same download refreshes the prices used for the cost display (see Cost).
+4. **Rules by model name**, the fallback for everything the sources do not describe (table below).
+
+How a level is written into the request still depends on the API in your base URL, so that part is built into devx.
+
+Rules by model name (the fallback):
+
+| Model | Levels | Sent as |
+| :--- | :--- | :--- |
+| OpenAI o-series, gpt-oss | low, normal, high | `reasoning_effort` (`reasoning.effort` on OpenRouter) |
+| GPT-5, 5.1, 5.2 | off (minimal on GPT-5), low, normal, high, plus xhigh from 5.2 | `reasoning_effort` |
+| Grok 3 mini | low, high | `reasoning_effort` |
+| Claude 3.7 / 4 / 4.5 | off, low, normal, high, xhigh, max (Opus 4 and 4.1 without max) | `thinking.budget_tokens` (Anthropic), `reasoning.max_tokens` (OpenRouter) |
+| Gemini 2.5 Pro / Flash | low to max (Flash also off) | `thinking_budget` (Google), `reasoning.max_tokens` (OpenRouter) |
+| Qwen3 | off, low, normal, high, max | `enable_thinking` / `thinking_budget` (DashScope) |
+| DeepSeek V3.1+, GLM 4.5+ | off, normal | `reasoning.enabled`, `thinking.type` |
+| DeepSeek-R1, QwQ, Grok 4, Magistral | none: they always reason | nothing |
+
+A model that none of the sources describes gets no levels instead of a guess. If you know how it takes a reasoning setting, describe it in `~/.devxrc.json`:
+
+```json
+{
+  "reasoningProfiles": {
+    "my-model": {
+      "levels": ["off", "normal", "high"],
+      "param": "reasoning_effort",
+      "values": { "off": "none", "normal": "medium", "high": "high" }
+    }
+  }
+}
+```
+
+`param` may be nested (`"reasoning.effort"`). A profile also overrides the built-in table for that model id.
+
+---
+
+## Typing while the agent works
+
+The prompt frame stays at the bottom of the terminal during a task (with the live context and cost), and the agent's work scrolls above it. Type into it while the agent reads files, runs commands or thinks, and press Enter: the message is queued and the agent receives it **at its next step**, between two tool calls, so it carries on with its work but takes your remark into account. A message typed while the model writes its final answer gets an answer of its own instead of being dropped. `Esc` clears the line, `Ctrl+C` still stops the agent and puts what you typed back into the next prompt. `@file` mentions work in these messages too. While an approval card or a question is on screen the line steps aside, so your `y` / `n` never ends up in the message. Turn it off with `"ui": { "typeAhead": false }` in `~/.devxrc.json`.
+
+---
+
+## Context window
+
+The size of the window is looked up, not made up. In this order: `contextLimits` in `~/.devxrc.json` (your own number per model id), the [models.dev](https://models.dev) catalogue (the maker's own number for about 5000 models; a snapshot ships with devx, `/effort refresh` downloads the current one), the value saved when you chose the model, devx's table of models, a rule by model name, and only then a default of 128k. `/usage` says which of them was used and warns when it is a guess. Old messages are dropped above 85% of the window, so a window that is too small makes devx forget too early, and one that is too large makes the provider refuse the request (devx then shortens the history and tries again).
+
+```json
+{ "contextLimits": { "my-model": 65536 } }
+```
+
+---
+
+## API formats (OpenAI and Anthropic)
+
+Two wire formats exist: **OpenAI** (`/v1/chat/completions`) and **Anthropic** (`/v1/messages`). The native Anthropic format carries signed reasoning blocks, prompt caching and exact cache accounting, so Claude models work best through it. devx speaks both and picks the format **per model, by itself, with one key**:
+
+- `api.anthropic.com` and base URLs with an `/anthropic/` path (MiniMax, Z.ai and similar) use the Anthropic format.
+- For any other custom gateway devx asks for the model list twice (a few small `GET {root}/v1/models` requests to your own base URL with your own key): once as an OpenAI client and once as an Anthropic client. Models that only the second list has (typically Claude) are sent through the Anthropic format, everything else through the OpenAI format. `/model` shows both lists in one picker and marks the Anthropic ones. Set the base URL once (`https://gateway.example.com/v1` or without `/v1`); there is nothing to configure per model.
+- The answer is cached for a day in `~/.devx/formats.json` (model ids only, never the key). `"probeEndpoints": false` turns the probing off, `"apiFormat": "openai"` or `"anthropic"` in `~/.devxrc.json` forces one format for everything.
+- Reasoning levels (`/effort`) are written the way the Anthropic API expects (`thinking.budget_tokens`) whenever the Anthropic format is used, even behind a gateway. Reasoning blocks are kept and sent back with the next request, so the model does not lose its thread between tool calls. If a gateway rejects them, the cache markers, a too large `max_tokens` or the reasoning setting, devx retries once without the offending part and says so.
+
+## Cost
+
+The number next to the context meter is the money spent in this session. It says how sure devx is:
+
+| Shown | Meaning |
+| :--- | :--- |
+| `$0.0123` | exact: reported by the provider, or priced from the vendor's own price list |
+| `~$0.0123` | an estimate: priced with the [models.dev](https://models.dev) price of the same model (a gateway may charge differently) |
+| `$0.0123+` | at least this much: some requests have no known price and are not counted |
+| `n/a` | no price is known for the model |
+
+Prices are looked up in this order, the first that knows the model wins: the cost the provider put into its response (OpenRouter `usage.cost`, LiteLLM) - your own `prices` in `~/.devxrc.json` - the endpoint's own price list (OpenRouter, LiteLLM) - the models.dev catalogue (about 8500 models; a snapshot ships with devx, `/effort refresh` downloads the current one). Cached input tokens, cache writes and long-context tiers are priced separately, as the vendors do. A model that is not found is never shown as free: only `:free` models and local servers cost nothing. `/usage` also lists the cached input and how many requests could not be priced.
+
+```json
+{
+  "prices": {
+    "my-model": { "input": 0.5, "output": 2.0, "cacheRead": 0.05 }
+  }
+}
+```
+
+Values are USD per one million tokens.
+
+---
+
+## Themes
+
+`/theme` opens a list you can filter by typing; the highlighted theme is previewed in its own colours below the list. `/theme nord` (or an alias such as `tokyo`, `mocha`, `gh`, or a number from 1 to 18) switches directly, and the choice is saved.
+
+A theme is a complete palette: accent, a second colour for plan mode, success / warning / error colours, a colour for YOLO mode, four steps of grey for text, secondary text, hints and borders, and the background of your echoed message. Every theme is checked in the tests for readable contrast on the dark background.
+
+| Theme | Character |
+| :--- | :--- |
+| `cyan` Cyan Cyber (default) | electric cyan and obsidian |
+| `purple` Synthwave Purple | neon magenta, retro violet |
+| `matrix` Matrix Hacker | phosphor green |
+| `amber` Solar Amber | warm CRT gold |
+| `crimson` Ruby Crimson | scarlet red |
+| `monochrome` Pure Monochrome | white and grey only |
+| `nord` Nord Frost | arctic blues |
+| `dracula` Dracula | purple with pink and green |
+| `tokyonight` Tokyo Night | indigo and blue |
+| `gruvbox` Gruvbox | retro yellow and orange |
+| `catppuccin` Catppuccin Mocha | pastel mauve |
+| `solarized` Solarized Dark | low-glare teal and olive |
+| `rosepine` Rose Pine | soft rose and gold |
+| `monokai` Monokai | lime and magenta |
+| `github` GitHub Dark | clean blue and green |
+| `ocean` Deep Ocean | deep sea cyan |
+| `sunset` Sunset Glow | coral and violet |
+| `forest` Forest Moss | mossy greens |
+
+Colours are exact on terminals with truecolor support (`COLORTERM=truecolor`); on 256-colour terminals each colour is mapped to the closest palette entry. Set `DEVX_COLOR=256` or `DEVX_COLOR=truecolor` to force one of the two.
+
+---
+
+## Security Model
+
+`devx` runs commands and edits files on your machine on behalf of an AI model, so it is conservative by default:
+
+- **Workspace trust.** The first time you open a folder you are asked whether to trust it (default: no). In an untrusted folder, `provider`, `apiKey`, `baseUrl`, `autoApprove` and `bashAllowlist` from the project's `.devx.json` are **ignored**. A cloned repository cannot redirect your API key to its own server or switch on YOLO.
+- **Project MCP servers need approval.** MCP servers declared by a project (`.mcp.json`, `.devx/mcp.json`, `.claude/mcp.json`, `.devx.json`) are programs that would run on your machine. You review the exact commands once; if they change, you are asked again. In headless mode (`-p`) unapproved project servers are skipped. Servers from `~/.devxrc.json` and `~/.devx/mcp.json` always start.
+- **Confirmations.** In safe mode `bash`, `install_package`, MCP tools, the preview server and every read or write **outside the project folder** require confirmation.
+- **YOLO (`--yolo`) is not a sandbox.** It skips routine confirmations, but still asks before dangerous shell commands (recursive deletes outside the project, `find -delete` on broad paths, `curl … | sh`, `sudo`, `git push --force`, …) and before touching credentials (`~/.ssh`, `~/.aws`, `~/.devxrc.json`, `.env`, private keys). The shell check analyses commands token by token, but a deliberately obfuscated command can still slip through, so use YOLO only in folders and environments you can afford to lose. In headless mode those confirmations cannot be shown, so the action is denied.
+- **`fetch_url`** refuses localhost, private networks and cloud metadata addresses (also after redirects). Set `DEVX_ALLOW_PRIVATE_NETWORK=1` to allow local documentation servers.
+- **`/serve`** listens on your local network (that is how the phone QR code works). It never serves dotfiles, keys, `node_modules`, or symlinks leaving the project, does not send permissive CORS headers and rejects requests addressed to a public host name.
+- **Secrets at rest.** `~/.devxrc.json`, `~/.devx/` and saved sessions are created readable by you only (`0600` / `0700`). Session files contain the full conversation, including file contents the agent read.
+- **Limits.** `bash` stops commands after 120 s by default (the model can pass `timeout_seconds`, max 1800) and closes stdin. Long output keeps its beginning and its end. `read_file` returns at most ~60 000 characters per call and supports `startLine` / `endLine`.
+
+---
+
+## Support the Project
+
+If you find **devx** useful, please consider giving it a star on [GitHub](https://github.com/apvcode/Termux-Dev) — it helps the project grow and motivates further development!
 
 <br/>
 <hr/>
 <br/>
 
-# 🇷🇺 Русский
+# Русский
 
-Компактный интерфейс используется по умолчанию и на ПК, и в Termux. Исходный ASCII-вариант можно включить в `/settings` → `Interface`.
+Интерфейс построен вокруг рамки ввода, в границах которой видно состояние: режим (`agent` / `plan` / `yolo`), модель, папка, git-ветка, индикатор контекста и стоимость. Плюс карточка-шапка, затенённое эхо вашего сообщения, gutter `●` у ответа ассистента, строки `◆` для вызовов инструментов с тихими однострочными результатами и diff-блоки для правок, а также живой индикатор работы. У каждого экрана есть узкий вариант для Termux в портрете, эмодзи и CJK считаются корректно. Исходный ASCII-вариант можно включить в `/settings` → `Interface`.
 
-## 🌟 Главные возможности
+## Главные возможности
 
-- **🧠 Двухрежимная архитектура (PLAN и AGENT):**  
+- **Двухрежимная архитектура (PLAN и AGENT):**  
   Мгновенное переключение между **PLAN** (безопасный архитектор, интерактивные опросники, запрет на несанкционированные правки) и **AGENT** (автономное создание/редактирование файлов, выполнение bash-команд, авто-установка пакетов).
-- **🚀 Утверждение плана в 1 клик (`[🚀 Go / ✏️ Other]`):**  
+- **Утверждение плана в 1 клик (`[Go / Other]`):**  
   Когда архитектурный план готов, подтвердите его кнопкой `Go` — агент мгновенно переключится в режим кодера и приступит к реализации.
-- **🖼️ Мультимодальное зрение и вставка скриншотов:**  
-  Вставляйте изображения прямо из буфера обмена (`/image` или `Ctrl+P`) с авто-бейджами `[1.png 203kb]`, `[1(copy).png 421kb]`.
-- **🌐 Встроенный локальный веб-сервер (`/serve`):**  
+- **Мультимодальное зрение и вставка скриншотов:**  
+  Вставляйте скриншоты прямо из буфера обмена по `Ctrl+V` или `Alt+V` (также `/image` или вставка пути к файлу). Они показываются бейджами вида `[Image #1 203kb]` и уходят модели как настоящие картинки, если только модель не читает один текст. Нужен `wl-clipboard` на Wayland, `xclip` на X11, `pngpaste` на macOS.
+- **Встроенный локальный веб-сервер (`/serve`):**  
   Мгновенный предпросмотр веб-приложений и HTML5-игр на порту 3000. На Android автоматически открывается через `termux-open-url`.
-- **⏪ Мгновенный откат изменений (`/undo`):**  
-  Каждое действие AI логируется в снимки состояния. Любые нежелательные правки отменяются одной командой.
-- **🩺 Самодиагностика и авто-исправление ошибок:**  
+- **Мгновенный откат изменений (`/undo`):**  
+  Каждая правка через файловые инструменты (`write_file`, `edit_file`) сохраняется в снимок и отменяется одной командой. Изменения, сделанные shell-командами (`bash`), **не отслеживаются**, а снимки хранятся только в памяти текущей сессии.
+- **Самодиагностика и авто-исправление ошибок:**  
   Встроенная проверка кода для TypeScript (`tsc`), JavaScript (`node --check`), Python (`py_compile`) и Rust (`cargo check`). AI сам находит и исправляет синтаксические ошибки перед завершением ответа.
-- **🧠 Банк памяти проекта (`.devx/memory.md`):**  
+- **Банк памяти проекта (`.devx/memory.md`):**  
   Долгосрочная память правил и архитектурных решений между сессиями (`/memory add <правило>`).
-- **🎨 Чисто чёрная тема Obsidian Black (`#0a0a0c`):**  
-  Глубокий OLED-чёрный фон в стиле OpenCode для комфортной ночной разработки.
-- **📜 История сессий с уникальными ID (`/resume` и `/session`):**  
+- **18 цветовых тем на чисто чёрном фоне (`#0a0a0c`):**  
+  Глубокий OLED-чёрный фон для комфортной ночной разработки. Темы — это полные палитры, а не один акцентный цвет: Cyan Cyber, Synthwave Purple, Matrix Hacker, Solar Amber, Ruby Crimson, Pure Monochrome, Nord Frost, Dracula, Tokyo Night, Gruvbox, Catppuccin Mocha, Solarized Dark, Rose Pine, Monokai, GitHub Dark, Deep Ocean, Sunset Glow и Forest Moss. См. [Темы](#темы).
+- **История сессий с уникальными ID (`/resume` и `/session`):**  
   Восстановление сессий с предпросмотром последних 20 сообщений в Markdown и короткими хэш-ID (`#a8f9z`).
-- **🔍 Умный редактор `edit_file 2.0`:**  
+- **Умный редактор `edit_file 2.0`:**  
   Безопасная замена фрагментов кода с защитой от коллизий при дубликатах, указанием номеров строк и поддержкой `replaceAll`.
-- **🧪 Тестовый фундамент (Vitest):**  
+- **Тестовый фундамент (Vitest):**  
   Полное покрытие юнит-тестами ядра агента, файловой системы, безопасности, снимков и истории контекста с авто-тестами в CI.
-- **⚡ Поддержка любых провайдеров:**  
+- **Поддержка любых провайдеров:**  
   **OpenRouter**, **Google Gemini**, **DeepSeek**, **Groq**, **Mistral**, **OpenAI**, **Anthropic**, **Alibaba**, а также локальные **Ollama** и **LM Studio**.
 
 ---
 
-## 📦 Установка и запуск
+## Установка и запуск
 
 ### Требования
 - **Node.js**: `v20.0.0` или выше
 - **npm**, **pnpm** или **yarn**
 
-### ⚡ Быстрая глобальная установка (Рекомендуется)
+### Быстрая глобальная установка (Рекомендуется)
 
 ```bash
 npm install -g termux-dev
 ```
 
-### 📱 Установка на Android (Termux)
+### Установка на Android (Termux)
 
 ```bash
 # 1. Обновляем пакеты и ставим NodeJS
@@ -240,7 +397,7 @@ npm install -g termux-dev
 devx
 ```
 
-### 🛠️ Сборка из исходников (Для разработчиков)
+### Сборка из исходников (Для разработчиков)
 
 ```bash
 git clone https://github.com/apvcode/Termux-Dev.git
@@ -249,7 +406,7 @@ npm install
 npm link
 ```
 
-### 🗑️ Полное удаление
+### Полное удаление
 
 Чтобы полностью удалить `devx` вместе с конфигурацией, историей сессий и сохранёнными данными:
 
@@ -266,7 +423,7 @@ Remove-Item -Recurse -Force "$HOME\.devx", "$HOME\.devxrc.json" -ErrorAction Sil
 
 ---
 
-## 🚀 Начало работы
+## Начало работы
 
 Запустите команду в папке любого вашего проекта:
 
@@ -287,7 +444,7 @@ devx
 
 ---
 
-## ⌨️ Слэш-команды
+## Слэш-команды
 
 Напишите `/` в строке ввода, чтобы открыть интерактивное меню команд:
 
@@ -296,11 +453,11 @@ devx
 | **`/plan`** | Переключиться в режим архитектора (**PLAN**) |
 | **`/agent`** | Переключиться в режим исполнителя (**AGENT**) |
 | **`/mcp`** | Управление MCP-серверами и внешними инструментами (`/mcp reload`) |
-| **`/usage`** | Показать сетевой трафик (КБ/МБ), токены, число запросов и расходы ($) |
+| **`/usage`** | Панель (закрывается по `Esc`): чем заполнено окно контекста (системный промпт, схемы инструментов, сообщения, результаты инструментов, картинки), стоимость сессии и насколько она точна, токены, кешированный ввод, трафик |
 | **`/export`** | Экспортировать сессию диалога в чистый GitHub Markdown файл |
-| **`/theme`** | Сменить цветовую тему (Cyan, Purple, Matrix, Amber, Crimson, Monochrome) |
+| **`/theme [имя]`** | Сменить тему: список из 18 палитр с поиском и предпросмотром (см. [Темы](#темы)) |
 | **`/doctor`** | Запустить системную диагностику (Node, Termux, Компиляторы, Ключи) |
-| **`/image`** | Вставить картинку из буфера обмена как `[1.png 203kb]` |
+| **`/image`** | Вставить картинку из буфера обмена (то же, что `Ctrl+V` / `Alt+V`) |
 | **`/serve [порт]`** | Запустить локальный веб-сервер (`/serve stop` для остановки) |
 | **`/memory`** | Посмотреть, добавить (`/memory add <факт>`) или очистить банк памяти |
 | **`/undo`** | Откатить все изменения файлов за последний шаг AI |
@@ -313,16 +470,17 @@ devx
 | **`/settings`** | Настройки авто-подтверждения, памяти, темы и проверки обновлений |
 | **`/update`** | Проверить и установить последние обновления с GitHub |
 | **`/model`** | Сменить модель текущего провайдера с живым поиском |
+| **`/effort [уровень]`** | Задать глубину размышления. Предлагаются только уровни, которые поддерживает текущая модель (см. [Глубина размышления](#глубина-размышления)) |
 | **`/provider`** | Сменить AI-провайдера (OpenRouter, Gemini, Groq, DeepSeek, Local) |
 | **`/compact`** | Сжать контекст диалога для экономии токенов |
-| **`/clear`** | Очистить экран терминала, сохранив историю диалога |
+| **`/clear`** | Очистить контекст и начать новую сессию (старая остаётся сохранённой, см. `/resume`) |
 | **`/init`** | Создать файл инструкций `AGENTS.md` в корне проекта |
 | **`/help`** | Показать список всех доступных команд |
 | **`/exit`** | Завершить работу devx |
 
 ---
 
-## ⌨️ Горячие клавиши
+## Горячие клавиши
 
 - **`Tab`** — Мгновенное переключение между режимами **PLAN** и **AGENT** без потери набранного текста.
 - **`Ctrl+P`** / **`Ctrl+V`** — Вставка скриншота/картинки из буфера обмена.
@@ -332,13 +490,108 @@ devx
 
 ---
 
-## ⭐️ Поддержите проект
+## Глубина размышления
 
-Если вам понравился **devx**, пожалуйста, поставьте ⭐️ звёздочку на [GitHub](https://github.com/apvcode/Termux-Dev) — это помогает проекту расти и мотивирует добавлять новые крутые возможности!
+`/effort` задаёт, насколько долго модель думает перед ответом: `off`, `low`, `normal`, `high`, `xhigh`, `max` или `auto` (поведение модели по умолчанию, ничего не отправляется). Модели отличаются, поэтому меню предлагает **только уровни, которые поддерживает текущая модель**.
+
+- `/effort` открывает меню, `/effort high` задаёт уровень сразу (подходят и синонимы: `medium`, `none`, `maximum`), `/effort auto` возвращает умолчание модели.
+- Выбор запоминается **для каждой модели отдельно**. После перехода на модель, у которой нет сохранённого уровня, ничего не отправляется. Текущий уровень показан рядом с названием модели (`o3 · think high`; `think auto` означает умолчание модели). Пока агент работает, строка статуса показывает, сколько токенов модель написала на ваш запрос к этому моменту (`↓ 364 tokens`), а строка после хода подводит итог (`18.1k in · 59 out`).
+- `devx -p "задача" --effort high` задаёт уровень только на один запуск (не сохраняется).
+- Если эндпоинт отвечает 400 и жалуется на параметр размышления, devx один раз повторяет запрос без него, сообщает вам и больше его не отправляет.
+
+**Откуда берутся уровни** (побеждает первый источник, знающий модель; меню называет, какой использован):
+
+1. **Ваш профиль** в `~/.devxrc.json` (`reasoningProfiles`, пример выше).
+2. **Сам эндпоинт.** OpenRouter отдаёт метаданные размышления для каждой модели, Ollama сообщает возможность «thinking», LiteLLM и многие шлюзы добавляют флаги в список моделей. **Сторонний или свой провайдер опрашивается один раз:** несколько небольших запросов на *его собственный* base URL с вашим ключом (`GET /models`, на локальной машине ещё `POST /api/show`, для LiteLLM `GET /model/info`). Ответ кешируется на сутки в `~/.devx/capabilities.json`. Крупных вендоров (OpenAI, Anthropic, Google) не опрашиваем: их списки моделей ничего не говорят о размышлении. Отключить можно строкой `"probeEndpoints": false` в `~/.devxrc.json`.
+3. **Каталог [models.dev](https://models.dev):** варианты размышления примерно 5700 моделей 213 провайдеров. Снимок поставляется вместе с devx, поэтому по умолчанию ничего не скачивается. `/effort refresh` загружает актуальный каталог в `~/.devx/` и заново спрашивает эндпоинт. Это единственный случай, когда devx обращается к models.dev, и только потому, что вы сами выполнили команду. Та же загрузка обновляет цены для показа стоимости (см. «Стоимость»).
+4. **Правила по имени модели** — запасной вариант для всего, что источники не описывают (таблица в английской части выше).
+
+Как именно уровень попадает в запрос, по-прежнему зависит от API в вашем base URL, эта часть встроена в devx. Модель, которую не описывает ни один источник, не получает уровней. Если вы знаете, как она принимает настройку, опишите её в `~/.devxrc.json` в разделе `reasoningProfiles` (пример выше).
 
 ---
 
-## 📄 License
+## Ввод во время работы агента
+
+Рамка ввода остаётся внизу терминала во время задачи (с живым контекстом и стоимостью), а работа агента прокручивается над ней. Пишите в неё, пока агент читает файлы, запускает команды или думает, и жмите Enter: сообщение встаёт в очередь, и агент получает его **на следующем шаге**, между двумя вызовами инструментов. Он продолжает работу, но учитывает вашу реплику. Сообщение, набранное пока модель пишет финальный ответ, получает собственный ответ, а не теряется. `Esc` очищает строку, `Ctrl+C` по-прежнему останавливает агента и возвращает набранное в следующий ввод. `@файлы` в таких сообщениях тоже работают. Пока на экране карточка подтверждения или вопрос, строка уступает место, и ваши `y` / `n` не попадут в сообщение. Отключить можно через `"ui": { "typeAhead": false }` в `~/.devxrc.json`.
+
+---
+
+## Окно контекста
+
+Размер окна не придумывается, а ищется. По порядку: `contextLimits` в `~/.devxrc.json` (ваше число для id модели), каталог [models.dev](https://models.dev) (число самого производителя для примерно 5000 моделей; снимок идёт вместе с devx, `/effort refresh` скачивает актуальный), значение, сохранённое при выборе модели, таблица devx, правило по имени модели и только потом умолчание 128k. `/usage` показывает, какой источник сработал, и предупреждает, если это догадка. Старые сообщения отбрасываются выше 85% окна: слишком маленькое окно заставляет devx забывать раньше времени, слишком большое приводит к отказу провайдера (тогда devx сокращает историю и повторяет запрос).
+
+```json
+{ "contextLimits": { "my-model": 65536 } }
+```
+
+---
+
+## Форматы API (OpenAI и Anthropic)
+
+Есть два формата запросов: **OpenAI** (`/v1/chat/completions`) и **Anthropic** (`/v1/messages`). Нативный формат Anthropic передаёт подписанные блоки размышления, кеш промпта и точный учёт кеша, поэтому модели Claude лучше всего работают через него. devx умеет оба и выбирает формат **для каждой модели сам, с одним ключом**:
+
+- `api.anthropic.com` и base URL с путём `/anthropic/` (MiniMax, Z.ai и подобные) используют формат Anthropic.
+- Для любого другого шлюза devx запрашивает список моделей дважды (пара небольших `GET {корень}/v1/models` на ваш собственный base URL с вашим ключом): как клиент OpenAI и как клиент Anthropic. Модели, которые есть только во втором списке (обычно Claude), идут через формат Anthropic, остальные через OpenAI. `/model` показывает оба списка в одном меню и помечает модели формата Anthropic. Base URL задаётся один раз (`https://gateway.example.com/v1` или без `/v1`), для каждой модели ничего настраивать не нужно.
+- Ответ кешируется на сутки в `~/.devx/formats.json` (только id моделей, ключ туда не попадает). `"probeEndpoints": false` отключает опрос, `"apiFormat": "openai"` или `"anthropic"` в `~/.devxrc.json` принудительно задаёт один формат для всего.
+- Уровни размышления (`/effort`) при формате Anthropic записываются так, как ждёт API Anthropic (`thinking.budget_tokens`), даже за шлюзом. Блоки размышления сохраняются и отправляются обратно со следующим запросом, поэтому модель не теряет нить между вызовами инструментов. Если шлюз отвергает их, метки кеша, слишком большой `max_tokens` или настройку размышления, devx один раз повторяет запрос без этой части и сообщает об этом.
+
+## Стоимость
+
+Число рядом со шкалой контекста показывает потраченные в сессии деньги и честно говорит, насколько devx в нём уверен:
+
+| Вид | Значение |
+| :--- | :--- |
+| `$0.0123` | точно: сообщил провайдер или посчитано по официальному прайсу вендора |
+| `~$0.0123` | оценка: посчитано по цене этой модели из каталога [models.dev](https://models.dev) (шлюз может брать иначе) |
+| `$0.0123+` | не меньше этого: у части запросов цена неизвестна, они не учтены |
+| `n/a` | цена модели неизвестна |
+
+Цена ищется по порядку, побеждает первый источник, знающий модель: стоимость, которую провайдер сам вернул в ответе (OpenRouter `usage.cost`, LiteLLM) - ваши `prices` в `~/.devxrc.json` - собственный прайс эндпоинта (OpenRouter, LiteLLM) - каталог models.dev (около 8500 моделей; снимок идёт вместе с devx, `/effort refresh` скачивает актуальный). Кешированные входные токены, запись в кеш и тарифы длинного контекста считаются отдельно, как у вендоров. Модель, которую не нашли, никогда не показывается бесплатной: ноль стоят только модели `:free` и локальные серверы. `/usage` дополнительно показывает кешированный ввод и число запросов без цены.
+
+```json
+{
+  "prices": {
+    "my-model": { "input": 0.5, "output": 2.0, "cacheRead": 0.05 }
+  }
+}
+```
+
+Значения в долларах США за миллион токенов.
+
+---
+
+## Темы
+
+`/theme` открывает список, который можно фильтровать вводом; выделенная тема сразу показывается под списком в своих цветах. `/theme nord` (или алиас вроде `tokyo`, `mocha`, `gh`, либо номер от 1 до 18) переключает напрямую, выбор сохраняется.
+
+Тема — это полная палитра: акцент, второй цвет для режима plan, цвета успеха, предупреждения и ошибки, цвет режима YOLO, четыре ступени серого для текста, второстепенного текста, подсказок и рамок, а также фон эха вашего сообщения. Каждая тема проверяется тестами на читаемый контраст на тёмном фоне.
+
+Цвета точные в терминалах с truecolor (`COLORTERM=truecolor`); в 256-цветных терминалах каждый цвет заменяется ближайшим из палитры. Переменная `DEVX_COLOR=256` или `DEVX_COLOR=truecolor` включает нужный режим принудительно.
+
+---
+
+## Модель безопасности
+
+`devx` выполняет команды и правит файлы на вашей машине по указаниям ИИ-модели, поэтому по умолчанию он осторожен:
+
+- **Доверие к рабочей папке.** При первом открытии папки спрашивается, доверять ли ей (по умолчанию «нет»). В недоверенной папке `provider`, `apiKey`, `baseUrl`, `autoApprove` и `bashAllowlist` из `.devx.json` проекта **игнорируются**: клонированный репозиторий не сможет перенаправить ваш API-ключ на свой сервер или включить YOLO.
+- **MCP-серверы проекта требуют одобрения.** MCP-серверы из проекта (`.mcp.json`, `.devx/mcp.json`, `.claude/mcp.json`, `.devx.json`) — это программы, которые запустятся у вас на машине. Вы один раз просматриваете точные команды, а при их изменении вопрос задаётся снова. В headless-режиме (`-p`) неодобренные серверы пропускаются. Серверы из `~/.devxrc.json` и `~/.devx/mcp.json` запускаются всегда.
+- **Подтверждения.** В безопасном режиме подтверждения требуют `bash`, `install_package`, MCP-инструменты, сервер превью и любое чтение или запись **вне папки проекта**.
+- **YOLO (`--yolo`) — не песочница.** Он отключает обычные подтверждения, но всё равно спрашивает перед опасными shell-командами (рекурсивное удаление вне проекта, `find -delete` по широким путям, `curl … | sh`, `sudo`, `git push --force` и т. п.) и перед доступом к секретам (`~/.ssh`, `~/.aws`, `~/.devxrc.json`, `.env`, приватные ключи). Проверка разбирает команду по токенам, но намеренно запутанная команда всё же может её обойти, поэтому используйте YOLO только там, где вы готовы потерять содержимое. В headless-режиме такие подтверждения показать нельзя, поэтому действие отклоняется.
+- **`fetch_url`** отказывается ходить на localhost, в частные сети и на адреса облачных metadata-сервисов (в том числе после редиректов). Переменная `DEVX_ALLOW_PRIVATE_NETWORK=1` разрешает локальные серверы документации.
+- **`/serve`** слушает локальную сеть (так работает QR-код для телефона). Он не отдаёт dotfiles, ключи, `node_modules` и symlink'и за пределы проекта, не отправляет разрешающие CORS-заголовки и отклоняет запросы к публичным именам хоста.
+- **Секреты на диске.** `~/.devxrc.json`, `~/.devx/` и сохранённые сессии создаются с доступом только для вас (`0600` / `0700`). Файлы сессий содержат весь диалог, включая содержимое прочитанных агентом файлов.
+- **Лимиты.** `bash` останавливает команды через 120 с по умолчанию (модель может передать `timeout_seconds`, максимум 1800) и закрывает stdin. У длинного вывода сохраняются начало и конец. `read_file` отдаёт до ~60 000 символов за вызов и поддерживает `startLine` / `endLine`.
+
+---
+
+## Поддержите проект
+
+Если вам понравился **devx**, пожалуйста, поставьте звёздочку на [GitHub](https://github.com/apvcode/Termux-Dev) — это помогает проекту расти и мотивирует добавлять новые крутые возможности!
+
+---
+
+## License
 
 This project is licensed under the [MIT License](LICENSE).
 
@@ -346,6 +599,6 @@ This project is licensed under the [MIT License](LICENSE).
 
 <div align="center">
 
-Made with ❤️ by [ApvCode](https://github.com/ApvCode) for developers, vibe-coders, and Termux hackers.
+Made by [ApvCode](https://github.com/ApvCode) for developers, vibe-coders, and Termux hackers.
 
 </div>

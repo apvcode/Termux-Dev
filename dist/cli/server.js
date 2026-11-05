@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
+import net from 'net';
 import { spawn } from 'child_process';
 import pc from 'picocolors';
 import qrcode from 'qrcode-terminal';
@@ -62,10 +63,57 @@ export function stopServer() {
     }
     return false;
 }
+function escapeHtml(value) {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+const BLOCKED_EXTENSIONS = new Set(['.pem', '.key', '.p12', '.pfx', '.keystore', '.jks']);
+/** Names that must never be served: dotfiles, dependencies, keys and obvious secret stores. */
+export function isBlockedName(name) {
+    if (!name || name === '.')
+        return false;
+    const lower = name.toLowerCase();
+    return (lower.startsWith('.') ||
+        lower === 'node_modules' ||
+        BLOCKED_EXTENSIONS.has(path.extname(lower)) ||
+        /^id_(rsa|dsa|ecdsa|ed25519)/.test(lower) ||
+        /^(secrets?|credentials?)(\.[a-z0-9]+)*$/.test(lower));
+}
+/**
+ * Only answer requests addressed to an IP, localhost, a single-label host name or *.local.
+ * A public domain name in the Host header means a DNS-rebinding attempt from a web page.
+ */
+export function isAllowedHost(hostHeader) {
+    if (!hostHeader)
+        return false;
+    const host = hostHeader.startsWith('[')
+        ? hostHeader.slice(1, hostHeader.indexOf(']'))
+        : hostHeader.split(':')[0];
+    const lower = host.toLowerCase();
+    return net.isIP(lower) !== 0 || !lower.includes('.') || lower.endsWith('.local');
+}
+/** The real (symlink-resolved) location must stay inside the project and must not be a blocked file. */
+async function isServable(targetPath, cwd) {
+    try {
+        const [realTarget, realBase] = await Promise.all([fs.realpath(targetPath), fs.realpath(cwd)]);
+        const rel = path.relative(realBase, realTarget);
+        if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel))
+            return false;
+        return !rel.split(path.sep).some(isBlockedName);
+    }
+    catch {
+        return false;
+    }
+}
 function renderDirectoryHtml(dirPath, relPath, files, port) {
     const currentRel = relPath === '/' ? '' : relPath;
+    const safeRelPath = escapeHtml(relPath);
     const items = files
-        .filter(f => !f.name.startsWith('.') && f.name !== 'node_modules')
+        .filter(f => !isBlockedName(f.name))
         .sort((a, b) => {
         if (a.isDirectory() && !b.isDirectory())
             return -1;
@@ -75,44 +123,44 @@ function renderDirectoryHtml(dirPath, relPath, files, port) {
     })
         .map(f => {
         const isDir = f.isDirectory();
-        const href = `${currentRel}/${encodeURIComponent(f.name)}${isDir ? '/' : ''}`;
+        const href = escapeHtml(`${currentRel.split('/').map(encodeURIComponent).join('/')}/${encodeURIComponent(f.name)}${isDir ? '/' : ''}`);
         const ext = path.extname(f.name).toLowerCase();
-        let icon = isDir ? '📁' : '📄';
+        let icon = isDir ? '▸' : '·';
         let badge = '';
         if (ext === '.html' || ext === '.htm') {
-            icon = '🌐';
+            icon = '◆';
             badge = '<span class="badge">HTML</span>';
         }
         else if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].includes(ext)) {
-            icon = '🖼️';
+            icon = '·';
         }
         else if (['.js', '.ts', '.tsx', '.jsx', '.json'].includes(ext)) {
-            icon = '⚡';
+            icon = '·';
         }
         else if (ext === '.css') {
-            icon = '🎨';
+            icon = '·';
         }
         return `
         <li>
           <a class="file-item" href="${href}">
             <span class="icon">${icon}</span>
-            <span class="name">${f.name}</span>
+            <span class="name">${escapeHtml(f.name)}</span>
             ${badge}
-            <span class="type">${isDir ? 'Directory' : ext || 'File'}</span>
+            <span class="type">${isDir ? 'Directory' : escapeHtml(ext) || 'File'}</span>
           </a>
         </li>
       `;
     })
         .join('');
     const parentLink = currentRel && currentRel !== '/'
-        ? `<li><a class="file-item" href="${path.dirname(currentRel) === '/' ? '/' : path.dirname(currentRel) + '/'}"><span class="icon">⬆️</span><span class="name">.. (Parent Directory)</span></a></li>`
+        ? `<li><a class="file-item" href="${escapeHtml((path.posix.dirname(currentRel) === '/' ? '/' : path.posix.dirname(currentRel) + '/').split('/').map(encodeURIComponent).join('/'))}"><span class="icon">↑</span><span class="name">.. (Parent Directory)</span></a></li>`
         : '';
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>devx Live Preview &bull; ${relPath}</title>
+  <title>devx Live Preview &bull; ${safeRelPath}</title>
   <style>
     * { box-sizing: border-box; }
     body { background: #0a0a0c; color: #e1e4e8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; margin: 0; padding: 24px 16px; }
@@ -132,9 +180,9 @@ function renderDirectoryHtml(dirPath, relPath, files, port) {
 </head>
 <body>
   <div class="card">
-    <h1>⚡ devx Live Preview</h1>
+    <h1>devx Live Preview</h1>
     <div class="info">
-      Path: <code>${relPath}</code> &bull; Port: <code>${port}</code>
+      Path: <code>${safeRelPath}</code> &bull; Port: <code>${port}</code>
     </div>
     <ul>
       ${parentLink}
@@ -153,20 +201,32 @@ export async function startServer(preferredPort = 3000) {
     return new Promise((resolve, reject) => {
         const server = http.createServer(async (req, res) => {
             try {
+                // Security check: a public domain name here is a DNS-rebinding attempt.
+                if (!isAllowedHost(req.headers.host)) {
+                    res.writeHead(403, { 'Content-Type': 'text/plain' });
+                    res.end('Forbidden: unexpected Host header');
+                    return;
+                }
                 let rawPath = req.url?.split('?')[0] || '/';
                 let reqPath = decodeURIComponent(rawPath);
                 const cwd = process.cwd();
                 let targetPath = path.resolve(cwd, '.' + reqPath);
                 // Security check: ensure path is within cwd
                 const rel = path.relative(cwd, targetPath);
-                if (rel.startsWith('..') || path.isAbsolute(rel)) {
+                if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
                     res.writeHead(403, { 'Content-Type': 'text/plain' });
                     res.end('Forbidden');
                     return;
                 }
-                // Security check: block dotfiles, hidden directories (.env, .git, etc.) and node_modules
+                // Security check: block dotfiles, hidden directories (.env, .git, etc.), node_modules, keys and secret stores
                 const segments = reqPath.split(/[\/\\]/).filter(Boolean);
-                if (segments.some(seg => (seg.startsWith('.') && seg !== '.') || seg === 'node_modules')) {
+                if (segments.some(isBlockedName)) {
+                    res.writeHead(403, { 'Content-Type': 'text/plain' });
+                    res.end('Forbidden');
+                    return;
+                }
+                // Security check: symlinks must not lead out of the project or to a blocked file
+                if (fsSync.existsSync(targetPath) && !(await isServable(targetPath, cwd))) {
                     res.writeHead(403, { 'Content-Type': 'text/plain' });
                     res.end('Forbidden');
                     return;
@@ -184,11 +244,10 @@ export async function startServer(preferredPort = 3000) {
                             path.join(targetPath, 'build/index.html')
                         ];
                         for (const idxPath of possibleIndexes) {
-                            if (fsSync.existsSync(idxPath)) {
+                            if (fsSync.existsSync(idxPath) && await isServable(idxPath, cwd)) {
                                 const content = await fs.readFile(idxPath);
                                 res.writeHead(200, {
                                     'Content-Type': 'text/html; charset=utf-8',
-                                    'Access-Control-Allow-Origin': '*'
                                 });
                                 res.end(content);
                                 return;
@@ -199,7 +258,6 @@ export async function startServer(preferredPort = 3000) {
                         const dirHtml = renderDirectoryHtml(targetPath, reqPath, dirents, activePort);
                         res.writeHead(200, {
                             'Content-Type': 'text/html; charset=utf-8',
-                            'Access-Control-Allow-Origin': '*'
                         });
                         res.end(dirHtml);
                         return;
@@ -209,6 +267,11 @@ export async function startServer(preferredPort = 3000) {
                 if (!fsSync.existsSync(targetPath)) {
                     const withHtml = `${targetPath}.html`;
                     if (fsSync.existsSync(withHtml)) {
+                        if (!(await isServable(withHtml, cwd))) {
+                            res.writeHead(403, { 'Content-Type': 'text/plain' });
+                            res.end('Forbidden');
+                            return;
+                        }
                         targetPath = withHtml;
                     }
                 }
@@ -219,7 +282,6 @@ export async function startServer(preferredPort = 3000) {
                     const content = await fs.readFile(targetPath);
                     res.writeHead(200, {
                         'Content-Type': contentType,
-                        'Access-Control-Allow-Origin': '*'
                     });
                     res.end(content);
                     return;
@@ -228,11 +290,10 @@ export async function startServer(preferredPort = 3000) {
                 const hasAssetExt = path.extname(reqPath).length > 0;
                 if (!hasAssetExt) {
                     const rootIndex = path.join(cwd, 'index.html');
-                    if (fsSync.existsSync(rootIndex)) {
+                    if (fsSync.existsSync(rootIndex) && await isServable(rootIndex, cwd)) {
                         const content = await fs.readFile(rootIndex);
                         res.writeHead(200, {
                             'Content-Type': 'text/html; charset=utf-8',
-                            'Access-Control-Allow-Origin': '*'
                         });
                         res.end(content);
                         return;
@@ -297,7 +358,7 @@ export async function displayServerBanner(localUrl, networkUrl) {
     const cols = Math.min(process.stdout.columns || 80, 80);
     const cardWidth = Math.max(36, Math.min(cols - 4, 66));
     const innerWidth = cardWidth - 2;
-    const title = ' 🌐 Live Web Preview ';
+    const title = ' Live Web Preview ';
     const topFill = Math.max(2, cardWidth - 3 - title.length);
     console.log('\n' + th.colorFn('┌─') + pc.bold(title) + th.colorFn('─'.repeat(topFill) + '┐'));
     const printRow = (content) => {
@@ -308,7 +369,7 @@ export async function displayServerBanner(localUrl, networkUrl) {
     printRow(`  ${pc.bold('Local:')}   ${pc.cyan(localUrl)}`);
     printRow(`  ${pc.bold('Network:')} ${pc.green(networkUrl)}`);
     printRow(' ');
-    printRow(`  ${pc.bold('📱 Mobile QR:')}`);
+    printRow(`  ${pc.bold('Mobile QR:')}`);
     if (qr) {
         const qrLines = qr.trim().split('\n');
         for (const ql of qrLines) {

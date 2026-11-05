@@ -1,11 +1,16 @@
 import { marked } from 'marked';
 import { markedTerminal } from 'marked-terminal';
 import pc from 'picocolors';
+import { palette } from './ui.js';
 marked.use(markedTerminal({
     width: Math.min(process.stdout.columns || 80, 100),
     reflowText: false,
     tab: 2
 }));
+/** Width of horizontal rules / code frames: leaves room for the 2-column gutter. */
+function ruleWidth(max) {
+    return Math.max(10, Math.min((process.stdout.columns || 40) - 4, max));
+}
 export function renderMarkdown(content) {
     if (!content)
         return '';
@@ -21,11 +26,18 @@ export function renderMarkdown(content) {
  * Avoids heavy synchronous AST re-parsing on every chunk, keeping token streaming buttery smooth.
  */
 export class MarkdownStreamer {
+    sink = (text) => {
+        process.stdout.write(text);
+    };
     buffer = '';
     inCodeBlock = false;
     codeBlockLang = '';
     inTable = false;
     tableBuffer = [];
+    /** Redirects the output (e.g. through a GutterWriter). Defaults to stdout. */
+    setSink(sink) {
+        this.sink = sink;
+    }
     push(chunk) {
         this.buffer += chunk;
         // 1. Process completed lines
@@ -57,7 +69,7 @@ export class MarkdownStreamer {
                 if (lastSpaceIdx > 0) {
                     const wordsToFlush = this.buffer.slice(0, lastSpaceIdx + 1);
                     this.buffer = this.buffer.slice(lastSpaceIdx + 1);
-                    process.stdout.write(this.formatInline(wordsToFlush));
+                    this.sink(this.formatInline(wordsToFlush));
                 }
             }
         }
@@ -69,20 +81,20 @@ export class MarkdownStreamer {
             if (this.inCodeBlock) {
                 this.inCodeBlock = false;
                 this.codeBlockLang = '';
-                process.stdout.write(pc.dim('└' + '─'.repeat(Math.min(process.stdout.columns || 40, 50))) + '\n');
+                this.sink(palette.rule('└' + '─'.repeat(ruleWidth(50))) + '\n');
                 return;
             }
             else {
                 this.inCodeBlock = true;
                 this.codeBlockLang = trimmed.slice(3).trim();
                 const langTag = this.codeBlockLang ? ` [${this.codeBlockLang}] ` : ' ';
-                process.stdout.write('\n' + pc.cyan('┌─' + langTag + '─'.repeat(Math.max(2, Math.min(process.stdout.columns || 40, 50) - langTag.length - 2))) + '\n');
+                this.sink('\n' + palette.accent('┌─' + langTag + '─'.repeat(Math.max(2, ruleWidth(50) - langTag.length - 2))) + '\n');
                 return;
             }
         }
         // 2. Inside code block: fast syntax-tinted output
         if (this.inCodeBlock) {
-            process.stdout.write(pc.green('│ ') + pc.white(line) + '\n');
+            this.sink(palette.rule('│ ') + palette.text(line) + '\n');
             return;
         }
         // 3. Tables
@@ -101,58 +113,58 @@ export class MarkdownStreamer {
             const mark = todoMatch[2].toLowerCase();
             const taskText = this.formatInline(todoMatch[3]);
             if (mark === 'x' || mark === '✓') {
-                process.stdout.write('  ' + pc.green('[✓] ') + pc.dim(taskText) + '\n');
+                this.sink('  ' + palette.ok('[✓] ') + palette.faint(taskText) + '\n');
             }
             else if (mark === '/' || mark === '>') {
-                process.stdout.write('  ' + pc.bold(pc.green('[ ] ' + taskText)) + '\n');
+                this.sink('  ' + palette.bold(palette.ok('[ ] ' + taskText)) + '\n');
             }
             else {
-                process.stdout.write('  ' + pc.dim('[ ] ') + pc.white(taskText) + '\n');
+                this.sink('  ' + palette.faint('[ ] ') + palette.text(taskText) + '\n');
             }
             return;
         }
         // 5. OpenCode Action arrows (→ Read ..., → Edit ...)
         if (trimmed.startsWith('→ ')) {
-            process.stdout.write(pc.bold(pc.cyan('→ ')) + pc.white(this.formatInline(trimmed.slice(2))) + '\n');
+            this.sink(palette.bold(palette.accent('→ ')) + palette.text(this.formatInline(trimmed.slice(2))) + '\n');
             return;
         }
         // 6. Regular line fast formatting (Headers, Bullets, Bold, Dims)
         if (trimmed.startsWith('# ')) {
-            process.stdout.write('\n' + pc.bold(pc.cyan(trimmed.slice(2))) + '\n\n');
+            this.sink('\n' + palette.bold(palette.accent(trimmed.slice(2))) + '\n\n');
         }
         else if (trimmed.startsWith('## ')) {
-            process.stdout.write('\n' + pc.bold(pc.white(trimmed.slice(3))) + '\n');
+            this.sink('\n' + palette.bold(palette.text(trimmed.slice(3))) + '\n');
         }
         else if (trimmed.startsWith('### ')) {
-            process.stdout.write('\n' + pc.bold(pc.yellow(trimmed.slice(4))) + '\n');
+            this.sink('\n' + palette.bold(palette.warn(trimmed.slice(4))) + '\n');
         }
         else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-            process.stdout.write('  ' + pc.cyan('• ') + this.formatInline(line.slice(2)) + '\n');
+            this.sink('  ' + palette.accent('• ') + this.formatInline(line.slice(2)) + '\n');
         }
         else if (/^\d+\.\s/.test(trimmed)) {
             const match = trimmed.match(/^(\d+\.)\s*(.*)$/);
             if (match) {
-                process.stdout.write('  ' + pc.cyan(match[1]) + ' ' + this.formatInline(match[2]) + '\n');
+                this.sink('  ' + palette.accent(match[1]) + ' ' + this.formatInline(match[2]) + '\n');
             }
             else {
-                process.stdout.write(this.formatInline(line) + '\n');
+                this.sink(this.formatInline(line) + '\n');
             }
         }
         else if (trimmed.startsWith('> ')) {
-            process.stdout.write(pc.dim('  │ ' + trimmed.slice(2)) + '\n');
+            this.sink(palette.faint('  │ ' + trimmed.slice(2)) + '\n');
         }
         else if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
-            process.stdout.write(pc.dim('─'.repeat(Math.min(process.stdout.columns || 40, 60))) + '\n');
+            this.sink(palette.rule('─'.repeat(ruleWidth(60))) + '\n');
         }
         else {
-            process.stdout.write(this.formatInline(line) + '\n');
+            this.sink(this.formatInline(line) + '\n');
         }
     }
     formatInline(text) {
         if (!text)
             return '';
         // Format `code`
-        let formatted = text.replace(/`([^`]+)`/g, (_, c) => pc.yellow(c));
+        let formatted = text.replace(/`([^`]+)`/g, (_, c) => palette.warn(c));
         // Format **bold**
         formatted = formatted.replace(/\*\*([^*]+)\*\*/g, (_, b) => pc.bold(b));
         // Format *italic*
@@ -164,10 +176,10 @@ export class MarkdownStreamer {
             const tableMd = this.tableBuffer.join('\n');
             try {
                 const rendered = renderMarkdown(tableMd);
-                process.stdout.write(rendered + '\n');
+                this.sink(rendered + '\n');
             }
             catch {
-                process.stdout.write(tableMd + '\n');
+                this.sink(tableMd + '\n');
             }
             this.tableBuffer = [];
         }
@@ -190,12 +202,12 @@ export class MarkdownStreamer {
         this.flushTable();
         if (this.buffer) {
             if (this.inCodeBlock) {
-                process.stdout.write(pc.green('│ ') + pc.white(this.buffer) + '\n');
-                process.stdout.write(pc.dim('└' + '─'.repeat(Math.min(process.stdout.columns || 40, 50))) + '\n');
+                this.sink(palette.rule('│ ') + palette.text(this.buffer) + '\n');
+                this.sink(palette.rule('└' + '─'.repeat(ruleWidth(50))) + '\n');
                 this.inCodeBlock = false;
             }
             else {
-                process.stdout.write(this.formatInline(this.buffer) + '\n');
+                this.sink(this.formatInline(this.buffer) + '\n');
             }
             this.buffer = '';
         }

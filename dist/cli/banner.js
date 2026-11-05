@@ -11,7 +11,7 @@ export function renderBannerLines(mode = 'full', version = DEVX_VERSION, cols = 
     }
     if (mode === 'minimal') {
         return [
-            theme.colorFn('⚡ ') + theme.boldFn('TERMUX·DEV') + ' ' + pc.dim(`v${version}`) + pc.dim(' · Type /help for commands')
+            theme.boldFn('TERMUX·DEV') + ' ' + pc.dim(`v${version}`) + pc.dim(' · Type /help for commands')
         ];
     }
     // Full ASCII Banner

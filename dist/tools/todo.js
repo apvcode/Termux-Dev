@@ -10,7 +10,7 @@ export function formatTodoListCard(tasks) {
     const boxWidth = Math.max(30, Math.min(cols - 4, 65));
     const borderChar = '─';
     const lines = [];
-    lines.push('\n' + pc.bold(pc.cyan('┌─ 📋 Plan & Tasks ' + borderChar.repeat(Math.max(2, boxWidth - 19)) + '┐')));
+    lines.push('\n' + pc.bold(pc.cyan('┌─ Plan & Tasks ' + borderChar.repeat(Math.max(2, boxWidth - 19)) + '┐')));
     for (const task of tasks) {
         let taskLine = '';
         if (task.status === 'completed') {

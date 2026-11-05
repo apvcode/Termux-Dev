@@ -1,11 +1,13 @@
 import pc from 'picocolors';
 import { scanProjectFiles } from './files.js';
-import { saveClipboardImage, processPastedFilePath } from './clipboard.js';
+import { IMAGE_TAG_SOURCE, imageTag, pruneMedia, processPastedFilePath, readClipboardText, saveClipboardImage } from './clipboard.js';
 import { getCurrentTheme } from './theme.js';
 import { CustomCommandManager } from '../core/commands.js';
 import { formatPromptHeader } from './modeborder.js';
 import { filterCommandPalette, estimatePromptTokens, formatPromptTokenBadge } from './prompt_palette.js';
 import { PromptHistoryNavigator } from './history_search.js';
+import { buildPromptFrame, palette, renderUserEcho, resolveMode } from './ui.js';
+import { padEndWidth, truncateWidth } from './width.js';
 export const SLASH_COMMANDS = [
     { cmd: '/new', desc: 'Start a new clean chat session' },
     { cmd: '/resume', desc: 'Resume a previous chat session' },
@@ -14,15 +16,16 @@ export const SLASH_COMMANDS = [
     { cmd: '/usage', desc: 'Show network bandwidth, data saver & token cost' },
     { cmd: '/export', desc: 'Export session conversation to Markdown' },
     { cmd: '/mcp', desc: 'Manage Model Context Protocol (MCP) servers & tools' },
-    { cmd: '/theme', desc: 'Switch UI theme (Cyan, Purple, Matrix, Amber, etc.)' },
+    { cmd: '/theme', desc: 'Switch UI theme (18 palettes: Nord, Dracula, Tokyo Night...)' },
     { cmd: '/doctor', desc: 'Run system & environment health diagnostics' },
     { cmd: '/settings', desc: 'Configure permissions & auto-approval' },
     { cmd: '/update', desc: 'Check and install updates from GitHub' },
     { cmd: '/model', desc: 'Switch model for current provider' },
+    { cmd: '/effort', desc: 'Set the reasoning effort for the current model' },
     { cmd: '/provider', desc: 'Switch AI provider (OpenRouter, Google, etc.)' },
     { cmd: '/plan', desc: 'Switch to PLAN mode (architect & planner)' },
     { cmd: '/agent', desc: 'Switch to AGENT mode (coder & executor)' },
-    { cmd: '/image', desc: 'Paste image from clipboard as [1.png 203kb]' },
+    { cmd: '/image', desc: 'Paste the image from the clipboard (same as Ctrl+V or Alt+V)' },
     { cmd: '/serve', desc: 'Start local web server for web/game preview' },
     { cmd: '/memory', desc: 'View, add, or clear project memory bank' },
     { cmd: '/undo', desc: 'Revert last file changes made by AI' },
@@ -30,7 +33,7 @@ export const SLASH_COMMANDS = [
     { cmd: '/commit', desc: 'AI-generated git commit message & commit' },
     { cmd: '/status', desc: 'Show git repository file status' },
     { cmd: '/compact', desc: 'Compact & summarize chat context' },
-    { cmd: '/clear', desc: 'Clear screen' },
+    { cmd: '/clear', desc: 'Clear context and start a new session' },
     { cmd: '/init', desc: 'Generate AGENTS.md project instructions' },
     { cmd: '/config', desc: 'View current configuration' },
     { cmd: '/help', desc: 'Show all available commands' },
@@ -61,6 +64,7 @@ export function askPrompt(opts = {}) {
         let availableFiles = [];
         let customCommandsList = [];
         scanProjectFiles().then((f) => (availableFiles = f)).catch(() => { });
+        void pruneMedia().catch(() => { });
         CustomCommandManager.listCommands()
             .then((c) => (customCommandsList = c.map((x) => ({ cmd: x.cmd, desc: x.desc }))))
             .catch(() => { });
@@ -82,19 +86,99 @@ export function askPrompt(opts = {}) {
         let nextPasteId = 1;
         let inBracketedPaste = false;
         let bracketedBuffer = '';
-        const placeholder = opts.placeholder || 'Describe a task, @file, /help, paste image, or press Tab to switch mode';
+        const placeholder = opts.placeholder || 'Describe a task, @file, /help, Ctrl+V pastes an image, or press Tab to switch mode';
         let disposed = false;
         process.stdin.resume();
         if (process.stdin.isTTY) {
             process.stdin.setRawMode(true);
             process.stdout.write('\x1b[?2004h'); // Enable bracketed paste mode
         }
-        const onResize = () => { if (!disposed)
-            render(); };
+        // ── framed prompt (clean layout) ──
+        // The frame is a block of rows; the cursor rests on the input row. Redrawing moves up
+        // to the top of the block, rewrites every row and returns to the cursor position.
+        let frameRowsDrawn = 0;
+        let frameCursorRow = 0;
+        function cleanDropdownRows(items, cols, rows) {
+            if (items.length === 0)
+                return [];
+            if (selectedIndex >= items.length)
+                selectedIndex = items.length - 1;
+            if (selectedIndex < 0)
+                selectedIndex = 0;
+            const pageSize = Math.max(2, Math.min(6, rows - 7));
+            let startIndex = 0;
+            if (items.length > pageSize && selectedIndex >= pageSize) {
+                startIndex = Math.min(selectedIndex - pageSize + 1, items.length - pageSize);
+            }
+            const endIndex = Math.min(startIndex + pageSize, items.length);
+            const labelWidth = Math.min(22, Math.max(8, Math.floor(cols * 0.4)));
+            const descRoom = cols - 1 - 2 - 2 - labelWidth - 2;
+            const out = [];
+            for (let i = startIndex; i < endIndex; i++) {
+                const item = items[i];
+                const selected = i === selectedIndex;
+                const label = truncateWidth(item.label, labelWidth);
+                const labelCell = padEndWidth(selected ? palette.bold(palette.accent(label)) : palette.text(label), labelWidth);
+                const desc = descRoom >= 6 ? truncateWidth(item.desc, descRoom) : '';
+                out.push(`${selected ? palette.accent('›') : ' '} ${labelCell}${desc ? '  ' + palette.faint(desc) : ''}`);
+            }
+            return out;
+        }
+        function drawFrame() {
+            const cols = process.stdout.columns || 80;
+            const rows = process.stdout.rows || 24;
+            const frame = buildPromptFrame({
+                cols,
+                mode: resolveMode(!!opts.planMode, !!opts.isYolo),
+                model: opts.model,
+                cwd: opts.cwd,
+                branch: opts.branch,
+                dirty: opts.dirty,
+                contextPercent: opts.contextPercent ?? 0,
+                cost: opts.cost ?? 0,
+                costState: opts.costState,
+                input,
+                cursorPos,
+                placeholder,
+                below: cleanDropdownRows(getDropdownItems(), cols, rows),
+            });
+            let buf = '\x1b[0m';
+            if (frameRowsDrawn > 0 && frameCursorRow > 0)
+                buf += `\x1b[${frameCursorRow}A`;
+            buf += '\r';
+            frame.lines.forEach((line, i) => {
+                buf += '\x1b[2K' + line + '\x1b[0m' + (i < frame.lines.length - 1 ? '\n' : '');
+            });
+            let rowNow = frame.lines.length - 1;
+            for (let k = frame.lines.length; k < frameRowsDrawn; k++) {
+                buf += '\n\x1b[2K'; // wipe rows left over from a taller previous frame
+                rowNow++;
+            }
+            if (rowNow > frame.cursorRow)
+                buf += `\x1b[${rowNow - frame.cursorRow}A`;
+            buf += '\r' + (frame.cursorCol > 0 ? `\x1b[${frame.cursorCol}C` : '');
+            process.stdout.write(buf);
+            frameRowsDrawn = frame.lines.length;
+            frameCursorRow = frame.cursorRow;
+        }
+        function eraseFrame() {
+            if (frameRowsDrawn === 0)
+                return;
+            process.stdout.write(`\x1b[0m${frameCursorRow > 0 ? `\x1b[${frameCursorRow}A` : ''}\r\x1b[J`);
+            frameRowsDrawn = 0;
+            frameCursorRow = 0;
+        }
+        const onResize = () => {
+            if (disposed)
+                return;
+            if (cleanLayout)
+                eraseFrame();
+            render();
+        };
         process.stdout.on('resize', onResize);
         function getTagSpans() {
             const spans = [];
-            const regex = /\[(?:Pasted text #\d+ \+\d+ lines|\d+\.png \d+kb)\]/g;
+            const regex = new RegExp(`\\[Pasted text #\\d+ \\+\\d+ lines\\]|${IMAGE_TAG_SOURCE}`, 'g');
             let match;
             while ((match = regex.exec(input)) !== null) {
                 spans.push({ start: match.index, end: match.index + match[0].length });
@@ -102,7 +186,7 @@ export function askPrompt(opts = {}) {
             return spans;
         }
         function formatInputWithBadges(str) {
-            return str.replace(/(\[(?:Pasted text #\d+ \+\d+ lines|\d+\.png \d+kb)\])/g, (match) => (cleanLayout ? pc.dim(match) : theme.badgeFn(` ${match.slice(1, -1)} `)) + '\x1b[0m');
+            return str.replace(new RegExp(`(\\[Pasted text #\\d+ \\+\\d+ lines\\]|${IMAGE_TAG_SOURCE})`, 'g'), (match) => (cleanLayout ? pc.dim(match) : theme.badgeFn(` ${match.slice(1, -1)} `)) + '\x1b[0m');
         }
         function expandPastes(text) {
             let expanded = text;
@@ -110,37 +194,88 @@ export function askPrompt(opts = {}) {
                 expanded = expanded.split(block.tag).join(block.text);
             }
             for (const img of imageAttachments) {
-                expanded = expanded.split(img.tag).join(`@${img.filePath.replace(/\\/g, '/')} `);
+                const p = img.filePath.replace(/\\/g, '/');
+                expanded = expanded.split(img.tag).join(/^[A-Za-z0-9_\-./\u0400-\u04FF]+$/.test(p) ? `@${p} ` : `@"${p}" `);
             }
             return expanded;
         }
-        function handlePaste(text) {
+        let imageCounter = 0;
+        let pasting = false;
+        /** Puts an image into the input as a badge; the file path goes into the message when it is sent. */
+        function attachImage(img) {
+            const tag = imageTag(++imageCounter, img.sizeStr);
+            imageAttachments.push({ tag, fileName: img.fileName, filePath: img.filePath, sizeStr: img.sizeStr });
+            usedImageNames.add(img.fileName);
+            input = input.slice(0, cursorPos) + tag + ' ' + input.slice(cursorPos);
+            cursorPos += tag.length + 1;
+            render();
+        }
+        /** A one-line message above the prompt (it stays in the scrollback, like other notices). */
+        function say(text) {
+            if (cleanLayout)
+                eraseFrame();
+            process.stdout.write(`\x1b[0m\r\x1b[2K${pc.yellow(text)}\n`);
+            render();
+        }
+        /**
+         * Ctrl+V, Alt+V and the /image command: the image on the clipboard if there is one,
+         * otherwise the text. (A terminal only pastes text by itself; an image needs this.)
+         */
+        async function pasteFromClipboard() {
+            if (pasting)
+                return;
+            pasting = true;
+            try {
+                const img = await saveClipboardImage('image.png', usedImageNames);
+                if (disposed)
+                    return;
+                if (img) {
+                    attachImage(img);
+                    return;
+                }
+                const text = await readClipboardText();
+                if (disposed)
+                    return;
+                if (text) {
+                    handlePaste(text);
+                    return;
+                }
+                const termux = !!process.env.PREFIX?.includes('com.termux');
+                say(termux
+                    ? 'Nothing to paste. On Termux an image cannot be read from the clipboard: give the file path instead (@image.png).'
+                    : 'Nothing to paste: the clipboard has no image or text. (Wayland needs wl-clipboard, X11 needs xclip.)');
+            }
+            finally {
+                pasting = false;
+            }
+        }
+        function handlePaste(rawText) {
+            // A short single-line chunk often arrives together with its Enter (fast typing, IME):
+            // a stray CR / LF must never end up inside the input line.
+            const text = rawText.replace(/(?:\r\n|\r|\n)+$/, '');
             const trimmed = text.trim();
-            const lines = trimmed.split(/\r\n|\r|\n/);
-            if (lines.length <= 1 && text.length < 80) {
-                input = input.slice(0, cursorPos) + text + input.slice(cursorPos);
-                cursorPos += text.length;
-                render();
+            // Some terminals send an empty paste when the clipboard holds only an image.
+            if (!trimmed) {
+                void pasteFromClipboard();
                 return;
             }
-            if (trimmed.match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
+            const lines = trimmed.split(/\r\n|\r|\n/);
+            // A path to an image (dragged into the terminal or copied from a file manager).
+            if (lines.length === 1 && /\.(png|jpe?g|webp|gif)['"]?$/i.test(trimmed)) {
                 processPastedFilePath(trimmed, usedImageNames)
                     .then((imgRes) => {
-                    if (imgRes && !disposed) {
-                        const tag = `[${imgRes.fileName} ${imgRes.sizeStr}]`;
-                        imageAttachments.push({
-                            tag,
-                            fileName: imgRes.fileName,
-                            filePath: imgRes.filePath,
-                            sizeStr: imgRes.sizeStr
-                        });
-                        usedImageNames.add(imgRes.fileName);
-                        input = input.slice(0, cursorPos) + tag + ' ' + input.slice(cursorPos);
-                        cursorPos += tag.length + 1;
-                        render();
-                    }
+                    if (disposed)
+                        return;
+                    if (imgRes)
+                        attachImage(imgRes);
+                    else
+                        insertText(text);
                 })
                     .catch(() => { });
+                return;
+            }
+            if (lines.length <= 1 && text.length < 80) {
+                insertText(text);
                 return;
             }
             const id = nextPasteId++;
@@ -148,6 +283,11 @@ export function askPrompt(opts = {}) {
             pastedBlocks.push({ id, lines: lines.length, text, tag });
             input = input.slice(0, cursorPos) + tag + input.slice(cursorPos);
             cursorPos += tag.length;
+            render();
+        }
+        function insertText(text) {
+            input = input.slice(0, cursorPos) + text + input.slice(cursorPos);
+            cursorPos += text.length;
             render();
         }
         function getDropdownItems() {
@@ -204,6 +344,10 @@ export function askPrompt(opts = {}) {
         function render() {
             if (disposed)
                 return;
+            if (cleanLayout) {
+                drawFrame();
+                return;
+            }
             const cols = Math.max(20, process.stdout.columns || 40);
             const rows = Math.max(8, process.stdout.rows || 20);
             const items = getDropdownItems();
@@ -359,6 +503,20 @@ export function askPrompt(opts = {}) {
             process.stdin.pause();
         }
         function clearBoxAndExit(finalInput) {
+            if (cleanLayout) {
+                eraseFrame();
+                const fullTextClean = expandPastes(finalInput);
+                if (fullTextClean.trim()) {
+                    if (GLOBAL_PROMPT_HISTORY.length === 0 ||
+                        GLOBAL_PROMPT_HISTORY[GLOBAL_PROMPT_HISTORY.length - 1] !== fullTextClean.trim()) {
+                        GLOBAL_PROMPT_HISTORY.push(fullTextClean.trim());
+                    }
+                }
+                process.stdout.write(renderUserEcho(finalInput, process.stdout.columns || 80).join('\n') + '\n');
+                cleanup();
+                resolve(fullTextClean);
+                return;
+            }
             if (lastRenderedDropdownLines > 0) {
                 for (let i = 0; i < lastRenderedDropdownLines; i++) {
                     process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K`);
@@ -410,6 +568,11 @@ export function askPrompt(opts = {}) {
                     return;
                 }
             }
+            // Ctrl+V and Alt+V (also as the sequences of terminals with an enhanced keyboard mode).
+            if (str === '\x16' || str === '\x1bv' || str === '\x1bV' || str === '\x1b[118;5u' || str === '\x1b[118;3u') {
+                void pasteFromClipboard();
+                return;
+            }
             // Check for raw multi-character paste with newlines or large size
             if (str.length > 1 && (str.includes('\n') || str.includes('\r') || str.length > 80)) {
                 handlePaste(str);
@@ -421,6 +584,12 @@ export function askPrompt(opts = {}) {
             }
             // Ctrl+C / SIGINT
             if (str === '\x03') {
+                if (cleanLayout) {
+                    eraseFrame();
+                    cleanup();
+                    resolve('__CANCEL__');
+                    return;
+                }
                 if (lastRenderedDropdownLines > 0) {
                     for (let i = 0; i < lastRenderedDropdownLines; i++) {
                         process.stdout.write(`\x1b[1B\r\x1b[0m\x1b[2K`);
@@ -444,29 +613,9 @@ export function askPrompt(opts = {}) {
                         selectedIndex >= 0 &&
                         selectedIndex < items.length &&
                         items[selectedIndex].label === '/image')) {
-                    saveClipboardImage('image.png', usedImageNames)
-                        .then((imgRes) => {
-                        if (imgRes) {
-                            const tag = `[${imgRes.fileName} ${imgRes.sizeStr}]`;
-                            imageAttachments.push({
-                                tag,
-                                fileName: imgRes.fileName,
-                                filePath: imgRes.filePath,
-                                sizeStr: imgRes.sizeStr
-                            });
-                            usedImageNames.add(imgRes.fileName);
-                            input = `${tag} `;
-                            cursorPos = input.length;
-                            render();
-                        }
-                        else {
-                            process.stdout.write(`\x1b[0m\r\x1b[2K${pc.yellow('⚠️  No image in clipboard. Take a screenshot first (Win+Shift+S)\n')}`);
-                            input = '';
-                            cursorPos = 0;
-                            render();
-                        }
-                    })
-                        .catch(() => { });
+                    input = '';
+                    cursorPos = 0;
+                    void pasteFromClipboard();
                     return;
                 }
                 if (items.length > 0 && selectedIndex >= 0 && selectedIndex < items.length) {
@@ -511,7 +660,10 @@ export function askPrompt(opts = {}) {
                     }
                 }
                 else {
-                    process.stdout.write(`\x1b[0m\r\x1b[2K`);
+                    if (cleanLayout)
+                        eraseFrame();
+                    else
+                        process.stdout.write(`\x1b[0m\r\x1b[2K`);
                     cleanup();
                     resolve(`__TOGGLE_MODE__:${input}`);
                 }
@@ -520,7 +672,7 @@ export function askPrompt(opts = {}) {
             // Up Arrow
             if (str === '\x1b[A' || str === '\x1bOA') {
                 if (items.length > 0) {
-                    selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+                    selectedIndex = Math.max(0, selectedIndex - 1); // stops at the first item
                     render();
                 }
                 else {
@@ -536,7 +688,7 @@ export function askPrompt(opts = {}) {
             // Down Arrow
             if (str === '\x1b[B' || str === '\x1bOB') {
                 if (items.length > 0) {
-                    selectedIndex = (selectedIndex + 1) % items.length;
+                    selectedIndex = Math.min(items.length - 1, selectedIndex + 1); // stops at the last item
                     render();
                 }
                 else {

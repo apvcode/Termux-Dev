@@ -1,5 +1,7 @@
 import pc from 'picocolors';
 import { getCurrentTheme } from '../cli/theme.js';
+import { CostLedger, CostState, formatMoney } from './cost.js';
+import type { TokenUsage } from './types.js';
 
 export interface UsageSummary {
   requestsCount: number;
@@ -10,6 +12,11 @@ export interface UsageSummary {
   completionTokens: number;
   totalTokens: number;
   totalCost: number;
+  /** How to read totalCost: estimated, and how many requests could not be priced. */
+  costState: CostState;
+  cacheReadTokens: number;
+  /** Input tokens of the last request as the provider counted them (0 before the first request). */
+  lastPromptTokens: number;
   dataSaverLimitMB?: number;
 }
 
@@ -25,7 +32,10 @@ export class UsageTracker {
   private requestsCount = 0;
   private promptTokens = 0;
   private completionTokens = 0;
-  private totalCost = 0;
+  private ledger = new CostLedger();
+  private cacheReadTokens = 0;
+  private cacheWriteTokens = 0;
+  private lastPromptTokens = 0;
   private dataSaverLimitMB?: number;
   private warnedThreshold: boolean = false;
 
@@ -42,6 +52,20 @@ export class UsageTracker {
     this.dataSaverLimitMB = limitMB;
   }
 
+  /** Starts counting from zero (new session). The data saver limit itself is kept. */
+  reset() {
+    this.bytesSent = 0;
+    this.bytesReceived = 0;
+    this.requestsCount = 0;
+    this.promptTokens = 0;
+    this.completionTokens = 0;
+    this.ledger.reset();
+    this.cacheReadTokens = 0;
+    this.cacheWriteTokens = 0;
+    this.lastPromptTokens = 0;
+    this.warnedThreshold = false;
+  }
+
   recordRequest(payloadBytes: number) {
     this.bytesSent += payloadBytes;
     this.requestsCount += 1;
@@ -51,10 +75,18 @@ export class UsageTracker {
     this.bytesReceived += chunkBytes;
   }
 
-  recordTokens(promptTokens: number, completionTokens: number, cost: number) {
+  /** Records the tokens of one request; an undefined cost means the price is not known. */
+  recordTokens(promptTokens: number, completionTokens: number, cost?: number, costSource?: TokenUsage['costSource']) {
     this.promptTokens += promptTokens;
     this.completionTokens += completionTokens;
-    this.totalCost += cost;
+    this.ledger.add({ cost, costSource });
+  }
+
+  recordUsage(usage: TokenUsage) {
+    this.recordTokens(usage.promptTokens, usage.completionTokens, usage.cost, usage.costSource);
+    this.cacheReadTokens += usage.cacheReadTokens || 0;
+    this.cacheWriteTokens += usage.cacheWriteTokens || 0;
+    if (!usage.tokensEstimated) this.lastPromptTokens = usage.promptTokens;
   }
 
   getSummary(): UsageSummary {
@@ -66,7 +98,10 @@ export class UsageTracker {
       promptTokens: this.promptTokens,
       completionTokens: this.completionTokens,
       totalTokens: this.promptTokens + this.completionTokens,
-      totalCost: this.totalCost,
+      totalCost: this.ledger.total,
+      costState: this.ledger.state(),
+      cacheReadTokens: this.cacheReadTokens,
+      lastPromptTokens: this.lastPromptTokens,
       dataSaverLimitMB: this.dataSaverLimitMB
     };
   }
@@ -97,7 +132,7 @@ export class UsageTracker {
       return `│  ${pc.bold(label)}${' '.repeat(spaces)}${value}  │`;
     };
 
-    const header = theme.colorFn('┌─ ') + pc.bold('📊 Session Bandwidth & Usage Monitor') + ' ' + theme.colorFn('─'.repeat(Math.max(2, boxWidth - 41)) + '┐');
+    const header = theme.colorFn('┌─ ') + pc.bold('Session Bandwidth & Usage Monitor') + ' ' + theme.colorFn('─'.repeat(Math.max(2, boxWidth - 41)) + '┐');
     const divider = theme.colorFn('├' + '─'.repeat(boxWidth - 2) + '┤');
     const footer = theme.colorFn('└' + '─'.repeat(boxWidth - 2) + '┘');
 
@@ -108,7 +143,7 @@ export class UsageTracker {
     const tokenStr = pc.magenta(`${UsageTracker.formatTokens(summary.totalTokens)} tokens`);
     const promptTokenStr = pc.dim(`${UsageTracker.formatTokens(summary.promptTokens)} in`);
     const compTokenStr = pc.dim(`${UsageTracker.formatTokens(summary.completionTokens)} out`);
-    const costStr = pc.green(`$${summary.totalCost.toFixed(4)}`);
+    const costStr = pc.green(formatMoney(summary.totalCost, summary.costState));
 
     const lines: string[] = [
       header,
@@ -121,6 +156,13 @@ export class UsageTracker {
       padRow('  • Breakdown:', `${promptTokenStr} / ${compTokenStr}`),
       padRow('Session Cost:', costStr)
     ];
+    if (summary.cacheReadTokens > 0) {
+      lines.push(padRow('  • Cached input:', pc.dim(`${UsageTracker.formatTokens(summary.cacheReadTokens)} read`)));
+    }
+    if (summary.costState.estimated) lines.push(padRow('  • Prices:', pc.dim('catalogue (estimate)')));
+    if ((summary.costState.unpriced ?? 0) > 0) {
+      lines.push(padRow('  • No price for:', pc.dim(`${summary.costState.unpriced} request${summary.costState.unpriced === 1 ? '' : 's'}`)));
+    }
 
     if (summary.dataSaverLimitMB) {
       const usedMB = summary.totalBytes / (1024 * 1024);
@@ -139,7 +181,7 @@ export class UsageTracker {
     const usedMB = (this.bytesSent + this.bytesReceived) / (1024 * 1024);
     if (usedMB >= this.dataSaverLimitMB) {
       this.warnedThreshold = true;
-      return `⚠️  [DATA SAVER WARNING] Session network traffic has reached ${usedMB.toFixed(1)} MB (Limit: ${this.dataSaverLimitMB} MB)!`;
+      return `[DATA SAVER WARNING] Session network traffic has reached ${usedMB.toFixed(1)} MB (Limit: ${this.dataSaverLimitMB} MB)!`;
     }
     return null;
   }

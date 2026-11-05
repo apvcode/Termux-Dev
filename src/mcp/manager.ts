@@ -1,7 +1,7 @@
-import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
+import { createHash } from 'crypto';
 import pc from 'picocolors';
 import { MCPServerConfig, MCPServersConfig, MCPServerStatus } from './types.js';
 import { MCPClient } from './client.js';
@@ -12,12 +12,71 @@ function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
 }
 
+// Config files that live inside the project. MCP servers are arbitrary commands, so
+// whatever a cloned repository declares here is NOT started until the user approved it.
+const PROJECT_CONFIG_FILES = [
+  path.join('.devx', 'mcp.json'),
+  path.join('.claude', 'mcp.json'),
+  '.devx.json',
+  '.mcp.json'
+];
+
+function readMcpServers(file: string): Record<string, MCPServerConfig> {
+  const result: Record<string, MCPServerConfig> = {};
+  try {
+    if (!fsSync.existsSync(file)) return result;
+    const parsed: MCPServersConfig = JSON.parse(fsSync.readFileSync(file, 'utf8'));
+    if (parsed && typeof parsed.mcpServers === 'object' && parsed.mcpServers) {
+      for (const [name, cfg] of Object.entries(parsed.mcpServers)) {
+        if (cfg && typeof cfg === 'object' && cfg.command) {
+          result[name] = cfg;
+        }
+      }
+    }
+  } catch {}
+  return result;
+}
+
+export interface ProjectMcpServer {
+  file: string;
+  name: string;
+  config: MCPServerConfig;
+}
+
+/** MCP servers declared by the current project (not started, only listed). */
+export function discoverProjectMcpServers(cwd: string = process.cwd()): ProjectMcpServer[] {
+  const found: ProjectMcpServer[] = [];
+  for (const rel of PROJECT_CONFIG_FILES) {
+    const file = path.join(cwd, rel);
+    for (const [name, config] of Object.entries(readMcpServers(file))) {
+      found.push({ file: rel, name, config });
+    }
+  }
+  return found;
+}
+
+/** Stable fingerprint of the commands, arguments and env of the project's servers. */
+export function hashProjectMcpServers(servers: ProjectMcpServer[]): string {
+  const normalized = servers
+    .map(s => ({
+      file: s.file,
+      name: s.name,
+      command: s.config.command,
+      args: s.config.args || [],
+      env: Object.fromEntries(Object.entries(s.config.env || {}).sort(([a], [b]) => a.localeCompare(b))),
+      disabled: !!s.config.disabled
+    }))
+    .sort((a, b) => (a.file + a.name).localeCompare(b.file + b.name));
+  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
 export class MCPManager {
   private static instance: MCPManager;
   private clients = new Map<string, MCPClient>();
   private tools: Tool[] = [];
   private serverStatuses = new Map<string, MCPServerStatus>();
   private isInitialized = false;
+  private trustProject = false;
 
   private constructor() {}
 
@@ -28,12 +87,18 @@ export class MCPManager {
     return MCPManager.instance;
   }
 
-  async init(explicitConfigs?: Record<string, MCPServerConfig>): Promise<Tool[]> {
+  /**
+   * @param explicitConfigs use exactly these servers instead of reading config files
+   * @param trustProject    also start the servers declared inside the current project
+   *                        (only pass true after the user approved them)
+   */
+  async init(explicitConfigs?: Record<string, MCPServerConfig>, trustProject = false): Promise<Tool[]> {
     if (this.isInitialized) {
       return this.tools;
     }
+    this.trustProject = trustProject;
 
-    const configs = explicitConfigs || await this.loadConfigs();
+    const configs = explicitConfigs || await this.loadConfigs(trustProject);
     const serverEntries = Object.entries(configs);
 
     if (serverEntries.length === 0) {
@@ -126,7 +191,7 @@ export class MCPManager {
     this.clients.clear();
     this.tools = [];
     this.serverStatuses.clear();
-    return await this.init();
+    return await this.init(undefined, this.trustProject);
   }
 
   stopAll() {
@@ -151,7 +216,7 @@ export class MCPManager {
       return `│  ${left}${' '.repeat(spaces)}${right}  │`;
     };
 
-    const header = theme.colorFn('┌─ ') + pc.bold('🔌 Model Context Protocol (MCP) Servers') + ' ' + theme.colorFn('─'.repeat(Math.max(2, boxWidth - 43)) + '┐');
+    const header = theme.colorFn('┌─ ') + pc.bold('Model Context Protocol (MCP) Servers') + ' ' + theme.colorFn('─'.repeat(Math.max(2, boxWidth - 43)) + '┐');
     const divider = theme.colorFn('├' + '─'.repeat(boxWidth - 2) + '┤');
     const footer = theme.colorFn('└' + '─'.repeat(boxWidth - 2) + '┘');
 
@@ -168,10 +233,10 @@ export class MCPManager {
       const s = statuses[i];
       if (i > 0) lines.push(divider);
 
-      let statusBadge = pc.green('🟢 Connected');
-      if (s.status === 'connecting') statusBadge = pc.yellow('🟡 Connecting');
-      if (s.status === 'failed') statusBadge = pc.red('🔴 Failed');
-      if (s.status === 'disabled') statusBadge = pc.dim('⚪ Disabled');
+      let statusBadge = pc.green('● Connected');
+      if (s.status === 'connecting') statusBadge = pc.yellow('● Connecting');
+      if (s.status === 'failed') statusBadge = pc.red('● Failed');
+      if (s.status === 'disabled') statusBadge = pc.dim('○ Disabled');
 
       lines.push(padRow(pc.bold(pc.white(`Server: ${s.name}`)), statusBadge));
       lines.push(padRow(pc.dim(`  Command: ${s.command.slice(0, 36)}${s.command.length > 36 ? '...' : ''}`), pc.cyan(`${s.toolsCount} tools`)));
@@ -191,31 +256,22 @@ export class MCPManager {
     return lines.join('\n') + '\n';
   }
 
-  private async loadConfigs(): Promise<Record<string, MCPServerConfig>> {
+  private async loadConfigs(includeProject: boolean): Promise<Record<string, MCPServerConfig>> {
     const result: Record<string, MCPServerConfig> = {};
 
+    // User-level configuration is always trusted: the user wrote it.
     const configPaths = [
       path.join(os.homedir(), '.devxrc.json'),
-      path.join(process.cwd(), '.devx', 'mcp.json'),
-      path.join(process.cwd(), '.claude', 'mcp.json'),
-      path.join(process.cwd(), '.devx.json'),
-      path.join(process.cwd(), '.mcp.json')
+      path.join(os.homedir(), '.devx', 'mcp.json')
     ];
+    if (includeProject) {
+      for (const rel of PROJECT_CONFIG_FILES) {
+        configPaths.push(path.join(process.cwd(), rel));
+      }
+    }
 
     for (const pth of configPaths) {
-      try {
-        if (fsSync.existsSync(pth)) {
-          const raw = await fs.readFile(pth, 'utf8');
-          const parsed: MCPServersConfig = JSON.parse(raw);
-          if (parsed && typeof parsed.mcpServers === 'object') {
-            for (const [name, cfg] of Object.entries(parsed.mcpServers)) {
-              if (cfg && typeof cfg === 'object' && cfg.command) {
-                result[name] = cfg;
-              }
-            }
-          }
-        }
-      } catch {}
+      Object.assign(result, readMcpServers(pth));
     }
 
     return result;

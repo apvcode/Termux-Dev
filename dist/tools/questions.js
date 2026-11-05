@@ -61,18 +61,19 @@ export const askQuestionsTool = {
                 }));
                 if (q.allowCustom !== false) {
                     choices.push({
-                        name: `${pc.dim('✏️  Type custom answer...')}`,
+                        name: `${pc.dim('+ Type custom answer...')}`,
                         value: '__custom__'
                     });
                 }
                 choices.push({
-                    name: `${pc.dim('⏭️  Skip')}`,
+                    name: `${pc.dim('Skip')}`,
                     value: '__skip__'
                 });
                 try {
                     let answer = await select({
                         message: messageTitle,
                         choices,
+                        loop: false,
                         pageSize: Math.min(8, choices.length)
                     });
                     if (answer === '__custom__') {

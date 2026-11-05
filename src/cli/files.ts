@@ -53,30 +53,39 @@ export async function scanProjectFiles(force = false): Promise<string[]> {
   return results;
 }
 
+// Formats the image APIs accept (SVG is text, not an image for a model).
 const IMAGE_EXTS: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml'
+  '.gif': 'image/gif'
 };
+
+/** Above this an API usually refuses the image (Anthropic: 5 MB). */
+export const IMAGE_WARN_BYTES = 5 * 1024 * 1024;
+/** Above this the image is not sent at all. */
+export const IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 
 export interface ResolvedMentions {
   text: string;
   attachments: Array<{ path: string; content: string }>;
   images: Array<{ path: string; dataUrl: string }>;
+  /** Things the user should know: an image that is too large, for example. */
+  warnings: string[];
 }
 
 export async function resolveAtMentions(text: string): Promise<ResolvedMentions> {
-  const mentionRegex = /@([a-zA-Z0-9_\-./\u0400-\u04FF]+)/g;
+  // @path, or @"path with spaces" for a path that has unusual characters
+  const mentionRegex = /@(?:"([^"\n]+)"|([a-zA-Z0-9_\-./\u0400-\u04FF]+))/g;
   const attachments: Array<{ path: string; content: string }> = [];
   const images: Array<{ path: string; dataUrl: string }> = [];
+  const warnings: string[] = [];
   const seenPaths = new Set<string>();
 
   let match;
   while ((match = mentionRegex.exec(text)) !== null) {
-    const rawPath = match[1];
+    const rawPath = match[1] ?? match[2];
     const resolved = path.resolve(process.cwd(), rawPath);
 
     if (seenPaths.has(resolved)) continue;
@@ -89,6 +98,14 @@ export async function resolveAtMentions(text: string): Promise<ResolvedMentions>
 
         if (stat.isFile()) {
           if (IMAGE_EXTS[ext]) {
+            const name = path.basename(rawPath);
+            if (stat.size > IMAGE_MAX_BYTES) {
+              warnings.push(`${name} is ${(stat.size / 1048576).toFixed(0)} MB: too large, it was not sent.`);
+              continue;
+            }
+            if (stat.size > IMAGE_WARN_BYTES) {
+              warnings.push(`${name} is ${(stat.size / 1048576).toFixed(1)} MB: some providers refuse images above 5 MB.`);
+            }
             const buf = await fs.readFile(resolved);
             const b64 = buf.toString('base64');
             const dataUrl = `data:${IMAGE_EXTS[ext]};base64,${b64}`;
@@ -102,5 +119,5 @@ export async function resolveAtMentions(text: string): Promise<ResolvedMentions>
     }
   }
 
-  return { text, attachments, images };
+  return { text, attachments, images, warnings };
 }

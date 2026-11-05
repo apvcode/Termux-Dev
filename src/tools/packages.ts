@@ -23,6 +23,18 @@ export const installPackageTool: Tool = {
     if (!/^[@a-zA-Z0-9_\-./=><^~+:[\] ]+$/.test(sanitized) || /[;&|`$\n\r()]/.test(sanitized)) {
       throw new Error(`Invalid package name: "${args.package}". Invalid characters or potential command injection detected.`);
     }
+    // A token starting with "-" would be parsed by the package manager as an option
+    // (--registry=..., --index-url=..., -r file), not as a package name.
+    if (sanitized.split(/\s+/).some((token: string) => token.startsWith('-'))) {
+      throw new Error(`Invalid package name: "${args.package}". Command line options are not allowed, pass package names only.`);
+    }
+    // On Windows the package manager is started through cmd.exe, where these are redirection / escape characters.
+    if (process.platform === 'win32' && /[<>^]/.test(sanitized)) {
+      throw new Error(`Invalid package name: "${args.package}". Version ranges with < > ^ are not supported on Windows, use an exact version (pkg@1.2.3 or pkg==1.2.3).`);
+    }
+    if (args.manager !== undefined && !['npm', 'pip', 'yarn', 'pnpm', 'cargo'].includes(args.manager)) {
+      throw new Error(`Unsupported package manager: "${args.manager}".`);
+    }
   },
   async execute(args: { package: string; dev?: boolean; manager?: string }) {
     let pkgManager = args.manager;
@@ -63,7 +75,10 @@ export const installPackageTool: Tool = {
     } else if (pkgManager === 'pip') {
       executable = 'pip';
       cmdArgs = ['install'];
-      if (process.platform !== 'win32') {
+      // Termux's Python is "externally managed" and has no system package manager that
+      // could be broken. On a regular Linux/macOS system this flag would override PEP 668
+      // and may damage the OS Python, so it is only used on Termux.
+      if (process.env.PREFIX?.includes('com.termux')) {
         cmdArgs.push('--break-system-packages');
       }
       cmdArgs.push(...pkgs);

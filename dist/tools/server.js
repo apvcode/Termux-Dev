@@ -24,6 +24,12 @@ export const servePreviewTool = {
         if (!args || !args.action) {
             throw new Error('action is required');
         }
+        if (!['start', 'stop', 'status'].includes(args.action)) {
+            throw new Error('action must be one of: start, stop, status');
+        }
+        if (args.port !== undefined && (!Number.isInteger(args.port) || args.port < 1024 || args.port > 65535)) {
+            throw new Error('port must be an integer between 1024 and 65535');
+        }
     },
     execute: async (args) => {
         if (args.action === 'stop') {

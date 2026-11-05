@@ -1,0 +1,847 @@
+import pc from 'picocolors';
+import os from 'os';
+import path from 'path';
+import { getCurrentTheme } from './theme.js';
+import { formatMoney } from '../core/cost.js';
+import { codePointWidth, displayWidth, padEndWidth, stripAnsi, truncateWidth, wrapWidth, wrapWords, } from './width.js';
+/**
+ * devx visual language.
+ *
+ *  - one accent colour (the active theme), everything else is a quiet grey ramp;
+ *  - three modes with their own colour: agent (accent), plan (violet), yolo (orange);
+ *  - rounded frames, a prompt that carries the status (mode, model, context, cost) in its
+ *    borders, a `●` gutter for the assistant and `◆` lines for tool calls;
+ *  - every width is measured in terminal cells and every layout has a narrow variant
+ *    (Termux in portrait is ~40 columns).
+ *
+ * Everything here is a pure function of its inputs (plus the active theme) so it can be
+ * unit-tested without a terminal.
+ */
+// ───────────────────────── palette ─────────────────────────
+const colorOn = () => pc.isColorSupported;
+const tokens = () => getCurrentTheme().tokens;
+/** Every colour of the interface comes from the active theme (see theme.ts). */
+export const palette = {
+    text: (s) => tokens().text(s),
+    muted: (s) => tokens().muted(s),
+    faint: (s) => tokens().faint(s),
+    rule: (s) => tokens().rule(s),
+    ok: (s) => tokens().ok(s),
+    warn: (s) => tokens().warn(s),
+    err: (s) => tokens().err(s),
+    plan: (s) => tokens().plan(s),
+    yolo: (s) => tokens().yolo(s),
+    shade: (s) => tokens().shade(s),
+    accent: (s) => tokens().accent(s),
+    bold: (s) => (colorOn() ? `\x1b[1m${s}\x1b[22m` : s),
+};
+export function resolveMode(planMode, yolo) {
+    if (planMode)
+        return 'plan';
+    return yolo ? 'yolo' : 'agent';
+}
+export function modeStyle(mode) {
+    switch (mode) {
+        case 'plan':
+            return { label: 'plan', glyph: '◆', color: palette.plan };
+        case 'yolo':
+            return { label: 'yolo', glyph: '▲', color: palette.yolo };
+        default:
+            return { label: 'agent', glyph: '●', color: palette.accent };
+    }
+}
+// ───────────────────────── small helpers ─────────────────────────
+export function formatTokens(n) {
+    if (n >= 1_000_000)
+        return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000)
+        return `${(n / 1_000).toFixed(1)}k`;
+    return `${Math.round(n)}`;
+}
+/** "$0.0123", "~$0.0123" (estimate), "$0.0123+" (some requests unpriced) or "n/a". */
+export function formatCost(cost, state = {}) {
+    return formatMoney(cost, { priced: cost > 0 ? 1 : (state.priced ?? 1), ...state });
+}
+export function formatDuration(ms) {
+    const s = ms / 1000;
+    if (s < 10)
+        return `${s.toFixed(1)}s`;
+    if (s < 60)
+        return `${Math.round(s)}s`;
+    const m = Math.floor(s / 60);
+    return `${m}m ${Math.round(s - m * 60)}s`;
+}
+/** `/home/me/projects/app` → `~/projects/app`, shortened from the left to fit `max` cells. */
+export function shortenPath(p, max, home = os.homedir()) {
+    let s = p;
+    if (s === home)
+        s = '~';
+    else if (s.startsWith(home + path.sep))
+        s = '~' + s.slice(home.length);
+    s = s.split(path.sep).join('/');
+    if (displayWidth(s) <= max)
+        return s;
+    const parts = s.split('/');
+    let out = parts[parts.length - 1];
+    for (let i = parts.length - 2; i >= 0; i--) {
+        const candidate = `${parts[i]}/${out}`;
+        if (displayWidth(`…/${candidate}`) > max)
+            break;
+        out = candidate;
+    }
+    return truncateWidth(`…/${out}`, max);
+}
+/** A thin context meter: `━━━━────`. */
+export function renderMeter(percent, cells) {
+    const clamped = Math.max(0, Math.min(100, percent));
+    const filled = Math.round((clamped / 100) * cells);
+    const color = clamped >= 90 ? palette.err : clamped >= 75 ? palette.warn : palette.accent;
+    return color('━'.repeat(filled)) + palette.faint('─'.repeat(Math.max(0, cells - filled)));
+}
+const BADGE = /(\[(?:Pasted text #\d+ \+\d+ lines|\d+\.png \d+kb)\])/g;
+/** Attachment tags such as `[Pasted text #1 +12 lines]` are drawn muted. */
+export function formatBadges(text) {
+    return text.replace(BADGE, (m) => palette.muted(m));
+}
+/** The header card is a card: it stops growing at a comfortable width. */
+export function contentWidth(cols) {
+    return Math.max(24, Math.min(cols - 1, 88));
+}
+/** The prompt and the echo of a sent message use the full terminal width. */
+export function frameWidth(cols) {
+    return Math.max(20, cols - 1);
+}
+/** Below this width (a phone in portrait) the prompt is a single compact line. */
+export const COMPACT_COLS = 60;
+export function isCompact(cols) {
+    return cols < COMPACT_COLS;
+}
+export const TIPS = [
+    'Press Tab to switch between plan and agent mode',
+    'Type @ to attach a file, or paste a screenshot with Ctrl+V',
+    '/undo reverts the last file edits made by the agent',
+    '/compact shrinks the context when a session gets long',
+    '/serve previews a web app on your phone through a QR code',
+    '/memory add <rule> teaches devx the conventions of your project',
+    'Use devx -p "task" for one-shot runs in scripts and CI',
+    '/model switches the model, /theme changes the colours',
+];
+export function pickTip(now = Date.now()) {
+    return TIPS[Math.floor(now / 86_400_000) % TIPS.length];
+}
+function brand(version) {
+    return palette.accent('▍') + palette.bold('devx') + '  ' + palette.faint(`v${version}`);
+}
+export function renderHeader(info, cols) {
+    const W = contentWidth(cols);
+    const modePill = info.yolo ? palette.yolo(palette.bold('▲ auto-approve')) : '';
+    const branch = info.branch
+        ? `${palette.faint('git:')}${palette.muted(info.branch)}${info.dirty ? palette.warn('*') : ''}`
+        : '';
+    const lines = [];
+    // Narrow screens (phone in portrait): no frame, three short lines.
+    if (W < 46) {
+        const limit = Math.max(8, cols - 1);
+        const room = Math.max(6, cols - 3);
+        const titleOptions = info.yolo
+            ? [`${brand(info.version)}  ${modePill}`, `${brand(info.version)}  ${palette.yolo('▲ yolo')}`, `${brand(info.version)} ${palette.yolo('▲')}`, brand(info.version)]
+            : [brand(info.version)];
+        lines.push(titleOptions.find((t) => displayWidth(t) <= limit) ?? truncateWidth(stripAnsi(brand(info.version)), limit));
+        lines.push(`  ${palette.text(truncateWidth(info.model, room))}`);
+        const branchWidth = info.branch ? displayWidth(stripAnsi(branch)) + 2 : 0;
+        const showBranch = branch && room - branchWidth >= 8;
+        lines.push(`  ${palette.muted(shortenPath(info.cwd, showBranch ? room - branchWidth : room))}${showBranch ? '  ' + branch : ''}`);
+        if (info.tip && cols >= 36) {
+            lines.push('');
+            lines.push(`  ${palette.faint(truncateWidth(info.tip, room))}`);
+        }
+        return lines;
+    }
+    const inner = W - 4; // two border cells + one space of padding on each side
+    const row = (content) => palette.rule('│') + ' ' + padEndWidth(content, inner) + ' ' + palette.rule('│');
+    const labelW = 9;
+    const field = (label, value, right = '') => {
+        const room = inner - labelW - (right ? displayWidth(right) + 2 : 0);
+        // The hint sits right after the value, not at the far edge of the card.
+        return palette.faint(label.padEnd(labelW)) + palette.text(truncateWidth(value, Math.max(6, room))) + (right ? '  ' + right : '');
+    };
+    lines.push(palette.rule('╭' + '─'.repeat(W - 2) + '╮'));
+    lines.push(row(brand(info.version) + (modePill ? '  ' + modePill : '')));
+    lines.push(row(''));
+    lines.push(row(field('model', info.model, palette.faint('/model'))));
+    if (info.provider)
+        lines.push(row(field('provider', info.provider)));
+    lines.push(row(field('cwd', shortenPath(info.cwd, Math.max(10, inner - labelW - (branch ? 16 : 0))), branch)));
+    lines.push(palette.rule('╰' + '─'.repeat(W - 2) + '╯'));
+    if (info.tip) {
+        const room = W - 7;
+        lines.push(` ${palette.accent('tip')}  ${palette.muted(truncateWidth(info.tip, room))}`);
+    }
+    return lines;
+}
+/** The part of the input that fits into `cells`, scrolled so that the cursor stays visible. */
+export function visibleWindow(input, cursorPos, cells) {
+    const cps = Array.from(input);
+    const widths = cps.map((c) => codePointWidth(c.codePointAt(0)));
+    let cursorCp = 0;
+    let units = 0;
+    while (cursorCp < cps.length && units < cursorPos) {
+        units += cps[cursorCp].length;
+        cursorCp++;
+    }
+    const cellsBefore = (end, from = 0) => widths.slice(from, end).reduce((a, b) => a + b, 0);
+    const total = cellsBefore(cps.length);
+    if (total <= cells) {
+        return { text: input, leftEllipsis: false, rightEllipsis: false, cursorCells: cellsBefore(cursorCp) };
+    }
+    const build = (start) => {
+        const left = start > 0 ? 1 : 0;
+        const avail = cells - left;
+        let end = start;
+        let used = 0;
+        while (end < cps.length && used + widths[end] <= avail) {
+            used += widths[end];
+            end++;
+        }
+        let right = 0;
+        if (end < cps.length) {
+            right = 1;
+            while (end > start && used + 1 > avail) {
+                end--;
+                used -= widths[end];
+            }
+        }
+        return { start, end, left, right, used };
+    };
+    // Start with the cursor roughly in the middle of the window.
+    const half = Math.floor(cells / 2);
+    let start = cursorCp;
+    let w = 0;
+    while (start > 0 && w + widths[start - 1] <= half) {
+        start--;
+        w += widths[start];
+    }
+    let win = build(start);
+    // Do not leave empty space at the end when there is text hidden on the left.
+    while (win.end >= cps.length && win.start > 0) {
+        const trial = build(win.start - 1);
+        if (trial.end < cps.length)
+            break;
+        win = trial;
+    }
+    // The cursor must be inside the window.
+    let guard = 0;
+    while (cursorCp > win.end && guard++ < cps.length)
+        win = build(win.start + 1);
+    return {
+        text: cps.slice(win.start, win.end).join(''),
+        leftEllipsis: win.left === 1,
+        rightEllipsis: win.right === 1,
+        cursorCells: cellsBefore(Math.min(cursorCp, win.end), win.start),
+    };
+}
+function keyHints(cols, mode) {
+    const next = mode === 'plan' ? 'agent' : 'plan';
+    const all = [
+        ['tab', `${next} mode`],
+        ['/', 'commands'],
+        ['@', 'files'],
+        ['ctrl+c', 'stop'],
+    ];
+    const compact = [['tab', 'mode'], ['/', 'cmds'], ['@', 'files']];
+    const render = (items) => items.map(([k, label]) => palette.text(k) + ' ' + palette.faint(label)).join(palette.faint(' · '));
+    for (const items of [all, all.slice(0, 3), compact, compact.slice(0, 2)]) {
+        const text = render(items);
+        if (displayWidth(text) <= cols - 3)
+            return text;
+    }
+    return '';
+}
+export function buildPromptFrame(input) {
+    // Control characters would move the cursor and tear the frame apart. They are shown as
+    // spaces; one character stays one character, so cursor positions keep matching.
+    const f = { ...input, input: input.input.replace(/[\x00-\x1f\x7f]/g, ' ') };
+    if (isCompact(f.cols))
+        return buildCompactFrame(f);
+    const W = frameWidth(f.cols);
+    const style = modeStyle(f.mode);
+    const rule = palette.rule;
+    // ── top border: ╭─ ● agent ───────── model ─╮
+    const pill = ` ${style.color(palette.bold(`${style.glyph} ${style.label}`))} `;
+    const pillW = displayWidth(pill);
+    const topFree = W - 4 - pillW;
+    let topRight = '';
+    if (f.model && topFree >= 18) {
+        topRight = ' ' + palette.muted(truncateWidth(f.model, Math.min(32, topFree - 4))) + ' ';
+    }
+    const top = rule('╭─') + pill + rule('─'.repeat(Math.max(0, topFree - displayWidth(topRight)))) + topRight + rule('─╮');
+    // ── input row: │ ❯ text │
+    const contentCells = W - 6;
+    const win = visibleWindow(f.input, f.cursorPos, contentCells);
+    const content = f.input
+        ? (win.leftEllipsis ? palette.faint('…') : '') +
+            formatBadges(win.text) +
+            (win.rightEllipsis ? palette.faint('…') : '')
+        : palette.muted(truncateWidth(f.placeholder, contentCells));
+    const inputRow = rule('│') + ' ' + palette.accent('❯') + ' ' + padEndWidth(content, contentCells) + ' ' + rule('│');
+    const cursorCol = 4 + (f.input ? (win.leftEllipsis ? 1 : 0) + win.cursorCells : 0);
+    // ── bottom border: ╰─ ~/project git:main* ──── ━━━━──── 12% · $0.0123 ─╯
+    const bottomFree = W - 4;
+    const pct = Math.max(0, Math.min(100, Math.round(f.contextPercent)));
+    const stat = `${pct}% · ${formatCost(f.cost, f.costState)}`;
+    const meterCells = W >= 60 ? 8 : W >= 44 ? 6 : 0;
+    const withMeter = meterCells > 0 && bottomFree >= displayWidth(stat) + meterCells + 8;
+    const bottomRight = withMeter
+        ? ' ' + palette.faint('ctx') + ' ' + renderMeter(pct, meterCells) + ' ' + palette.muted(stat) + ' '
+        : bottomFree >= displayWidth(stat) + 4
+            ? ' ' + palette.muted(stat) + ' '
+            : '';
+    const leftRoom = bottomFree - displayWidth(bottomRight) - 2;
+    let bottomLeft = '';
+    if (f.cwd && leftRoom >= 10) {
+        const branch = f.branch ? `${palette.faint('git:')}${palette.muted(f.branch)}${f.dirty ? palette.warn('*') : ''}` : '';
+        const branchW = f.branch ? 4 + displayWidth(f.branch) + (f.dirty ? 1 : 0) : 0;
+        const showBranch = branch && leftRoom - branchW >= 12;
+        const pathRoom = leftRoom - (showBranch ? branchW : 0);
+        bottomLeft = ' ' + palette.muted(shortenPath(f.cwd, pathRoom)) + (showBranch ? ' ' + branch : '') + ' ';
+    }
+    const bottom = rule('╰─') +
+        bottomLeft +
+        rule('─'.repeat(Math.max(0, bottomFree - displayWidth(bottomLeft) - displayWidth(bottomRight)))) +
+        bottomRight +
+        rule('─╯');
+    // ── footer: key hints, or the suggestion list while one is open
+    const footer = f.below && f.below.length > 0 ? f.below.map((l) => '  ' + l) : [hintsRow(f.cols, f.mode)];
+    return { lines: [top, inputRow, bottom, ...footer], cursorRow: 1, cursorCol };
+}
+/**
+ * Phone layout: one row, no borders, no hints.
+ *   ● ❯ your text…                          12%
+ * The coloured glyph tells the mode (● agent, ◆ plan, ▲ yolo), the percentage is the
+ * context usage and is hidden when it would squeeze the input.
+ */
+function buildCompactFrame(f) {
+    const W = frameWidth(f.cols);
+    const style = modeStyle(f.mode);
+    const prefix = style.color(style.glyph) + ' ' + palette.accent('❯') + ' ';
+    const pct = Math.max(0, Math.min(100, Math.round(f.contextPercent)));
+    const statText = `${pct}%`;
+    const statColor = pct >= 90 ? palette.err : pct >= 75 ? palette.warn : palette.faint;
+    const statWidth = displayWidth(statText) + 1;
+    const withStat = W - 4 - statWidth >= 14;
+    const cells = W - 4 - (withStat ? statWidth : 0);
+    const win = visibleWindow(f.input, f.cursorPos, cells);
+    const content = f.input
+        ? (win.leftEllipsis ? palette.faint('…') : '') +
+            formatBadges(win.text) +
+            (win.rightEllipsis ? palette.faint('…') : '')
+        : palette.muted(truncateWidth(f.placeholder, cells));
+    const row = prefix + padEndWidth(content, cells) + (withStat ? ' ' + statColor(statText) : '');
+    const below = (f.below ?? []).map((l) => '  ' + l);
+    return {
+        lines: [row, ...below],
+        cursorRow: 0,
+        cursorCol: 4 + (f.input ? (win.leftEllipsis ? 1 : 0) + win.cursorCells : 0),
+    };
+}
+function hintsRow(cols, mode) {
+    const hints = keyHints(cols, mode);
+    return hints ? ' ' + hints : '';
+}
+// ───────────────────────── conversation ─────────────────────────
+/** The user's message as it stays in the scrollback: a shaded block with a `❯` marker. */
+export function renderUserEcho(text, cols) {
+    const W = frameWidth(cols);
+    const cw = W - 4;
+    const rows = wrapWidth(text.trimEnd(), cw);
+    const shaded = rows.map((line, i) => {
+        const marker = i === 0 ? palette.accent('❯') : ' ';
+        return palette.shade(' ' + marker + ' ' + padEndWidth(palette.text(line), cw) + ' ');
+    });
+    // On a phone every row counts: no blank lines around the message.
+    return isCompact(cols) ? shaded : ['', ...shaded, ''];
+}
+export function renderNotice(kind, message, cols = process.stdout.columns || 80) {
+    const glyph = { info: palette.faint('·'), ok: palette.ok('✓'), warn: palette.warn('!'), error: palette.err('✗') }[kind];
+    const color = { info: palette.muted, ok: palette.text, warn: palette.warn, error: palette.err }[kind];
+    // A long message continues under its text instead of starting again at the left edge.
+    const lines = wrapWords(message.replace(/\s+/g, ' ').trim(), Math.max(10, cols - 6));
+    return lines.map((line, i) => (i === 0 ? `  ${glyph} ${color(line)}` : `    ${color(line)}`)).join('\n');
+}
+export function parseAction(actionDesc) {
+    const cleaned = actionDesc.replace(/^→\s*/, '').replace(/\.\.\.$/, '').trim();
+    const m = cleaned.match(/^([A-Za-z]+):?\s*([\s\S]*)$/);
+    if (!m)
+        return { verb: cleaned, target: '' };
+    return { verb: m[1], target: m[2] };
+}
+/**
+ * `  ◆ Read  src/core/loop.ts`
+ *
+ * A long command is wrapped to two rows at most; a multi-line script shows its first line
+ * and `(+N lines)`. The full text is always visible in the permission card.
+ */
+export function renderToolLine(actionDesc, cols) {
+    const { verb, target } = parseAction(actionDesc);
+    const head = `  ${palette.accent('◆')} ${palette.bold(verb)}`;
+    if (!target.trim())
+        return head;
+    const rawLines = target.split('\n').map((l) => l.trim()).filter(Boolean);
+    const first = (rawLines[0] ?? '').replace(/\s+/g, ' ');
+    const extra = rawLines.length - 1;
+    const suffixPlain = extra > 0 ? ` (+${extra} line${extra === 1 ? '' : 's'})` : '';
+    const prefixWidth = 4 + displayWidth(verb) + 2;
+    const room = Math.max(10, cols - 1 - prefixWidth);
+    // A phone gets one row (wrapping mid-word on 40 columns is unreadable); desktop gets two.
+    const maxRows = isCompact(cols) ? 1 : 2;
+    const wrapped = wrapWidth(first, room);
+    let rows = wrapped.slice(0, maxRows);
+    const cut = wrapped.length > maxRows;
+    const last = rows.length - 1;
+    const lastRoom = room - displayWidth(suffixPlain);
+    if (cut || displayWidth(rows[last]) > lastRoom)
+        rows[last] = truncateWidth(rows[last] + (cut ? '…' : ''), Math.max(4, lastRoom));
+    const body = rows.map((r) => palette.text(r));
+    body[last] += palette.faint(suffixPlain);
+    return head + '  ' + body[0] + body.slice(1).map((r) => '\n' + ' '.repeat(prefixWidth) + r).join('');
+}
+/** `    ╰ text` under a tool line. */
+export function renderResultLine(text, kind = 'muted', cols = 80) {
+    const color = kind === 'error' ? palette.err : kind === 'ok' ? palette.ok : palette.muted;
+    return `    ${palette.faint('╰')} ${color(truncateWidth(text, Math.max(8, cols - 8)))}`;
+}
+/** Command output as printable rows: no colour codes, tabs or carriage returns, no blank edges. */
+function outputRows(text) {
+    const rows = stripAnsi(text)
+        .replace(/\r/g, '')
+        .replace(/\t/g, '  ')
+        .split('\n')
+        .map((l) => l.replace(/\s+$/, ''));
+    while (rows.length && rows[0] === '')
+        rows.shift();
+    while (rows.length && rows[rows.length - 1] === '')
+        rows.pop();
+    return rows;
+}
+/** A result that may be long (an explanation, a hint): wrapped under its first line, never cut off. */
+export function renderResultBlock(text, kind = 'muted', cols = 80) {
+    const color = kind === 'error' ? palette.err : kind === 'ok' ? palette.ok : palette.muted;
+    const lines = wrapWords(text.replace(/\s+/g, ' ').trim(), Math.max(10, cols - 8));
+    return lines.map((line, i) => (i === 0 ? `    ${palette.faint('╰')} ${color(line)}` : `      ${color(line)}`)).join('\n');
+}
+function countLines(text) {
+    return text.length === 0 ? 0 : text.replace(/\n$/, '').split('\n').length;
+}
+/**
+ * Turns a tool result into the quiet one-liner shown in the transcript (the model still
+ * gets the full result). Returns an empty array when there is nothing worth showing.
+ */
+export function summarizeToolResult(name, result, cols = 80) {
+    const t = name.toLowerCase();
+    const text = (result || '').trim();
+    if (!text)
+        return [];
+    // Failures reported by the agent loop itself, whatever the tool.
+    if (/^(Error executing tool:|Error: (?:Tool '|The tool arguments|Tool arguments)|Action denied by user)/.test(text)) {
+        return [renderResultLine(text.split('\n')[0], 'error', cols)];
+    }
+    if (t === 'bash' || t === 'run_command' || t === 'exec') {
+        const m = text.match(/\n?\[Exit code: (\d+|null)\]\s*$/);
+        const stopped = !m ? text.match(/\n?(\[(?:Operation cancelled|Process killed)[^\]]*\])\s*$/) : null;
+        const body = text.replace(/\n?\[(?:Exit code: [^\]]*|Operation cancelled[^\]]*|Process killed[^\]]*)\]\s*$/, '');
+        const rows = outputRows(body);
+        const room = Math.max(8, cols - 8);
+        const maxRows = isCompact(cols) ? 3 : 4;
+        const more = (n) => '      ' + palette.faint(`… +${n} line${n === 1 ? '' : 's'}`);
+        if (stopped)
+            return [renderResultLine(stopped[1].replace(/^\[|\]$/g, ''), 'error', cols)];
+        const code = m ? m[1] : '?';
+        if (code === '0') {
+            // The first lines of the output, like a terminal would show them.
+            if (rows.length === 0)
+                return [renderResultLine('(no output)', 'muted', cols)];
+            const shown = rows.slice(0, maxRows);
+            const out = shown.map((line, i) => i === 0
+                ? `    ${palette.faint('╰')} ${palette.muted(truncateWidth(line, room))}`
+                : '      ' + palette.muted(truncateWidth(line, room)));
+            if (rows.length > shown.length)
+                out.push(more(rows.length - shown.length));
+            return out;
+        }
+        const out = [renderResultLine(`exit ${code}`, 'error', cols)];
+        // The useful line of a failure is the one that names the error, not the end of a stack trace.
+        const nonEmpty = rows.filter((l) => l.trim());
+        const interesting = nonEmpty.filter((l) => /error|fail|cannot|can't|not found|no such|denied|exception|✗|×/i.test(l) && !/^\s+at /.test(l));
+        const shown = (interesting.length > 0 ? interesting : nonEmpty.slice(-3)).slice(0, 3);
+        for (const line of shown)
+            out.push('      ' + palette.faint(truncateWidth(line.trim(), room)));
+        const hidden = nonEmpty.length - shown.length;
+        if (hidden > 0)
+            out.push(more(hidden));
+        return out;
+    }
+    if (t === 'read_file' || t === 'view_file' || t === 'read') {
+        if (text.startsWith('[Binary file'))
+            return [renderResultLine('binary file', 'muted', cols)];
+        const header = text.match(/^\[Lines (\d+)-(\d+) of (\d+)/);
+        if (header)
+            return [renderResultLine(`lines ${header[1]}–${header[2]} of ${header[3]}`, 'muted', cols)];
+        const n = countLines(text);
+        return [renderResultLine(`${n} line${n === 1 ? '' : 's'}`, 'muted', cols)];
+    }
+    if (t === 'list_dir' || t === 'ls') {
+        const n = countLines(text);
+        return [renderResultLine(`${n} entr${n === 1 ? 'y' : 'ies'}`, 'muted', cols)];
+    }
+    if (t === 'search' || t === 'grep_search') {
+        if (/^No matches/i.test(text))
+            return [renderResultLine('no matches', 'muted', cols)];
+        const n = countLines(text);
+        return [renderResultLine(`${n} match${n === 1 ? '' : 'es'}`, 'muted', cols)];
+    }
+    if (t === 'diagnose_code') {
+        return [text.startsWith('Diagnostics passed') ? renderResultLine('no errors', 'ok', cols) : renderResultLine('errors found', 'error', cols)];
+    }
+    return [];
+}
+export function renderTurnSummary(s) {
+    const parts = [formatDuration(s.ms)];
+    if (s.tools > 0)
+        parts.push(`${s.tools} tool${s.tools === 1 ? '' : 's'}`);
+    if ((s.inputTokens ?? 0) > 0)
+        parts.push(`${formatTokens(s.inputTokens)} in`);
+    if (s.outputTokens > 0)
+        parts.push(`${formatTokens(s.outputTokens)} out`);
+    if (s.cost > 0 || (s.costState?.unpriced ?? 0) > 0)
+        parts.push(formatCost(s.cost, s.costState));
+    const glyph = s.stopped ? palette.warn('■') : palette.ok('✓');
+    return `  ${glyph} ${palette.faint((s.stopped ? 'stopped · ' : '') + parts.join(' · '))}`;
+}
+/**
+ * Prints text with a gutter: the first line starts with `firstPrefix`, every following
+ * line (including lines created by wrapping) with `restPrefix`.
+ *
+ * It wraps at word boundaries itself. Without that, the terminal would wrap a streamed
+ * line at column 0 and the text would lose its indentation.
+ */
+export class GutterWriter {
+    firstPrefix;
+    restPrefix;
+    sink;
+    maxCols;
+    atLineStart = true;
+    isFirst = true;
+    col = 0;
+    pending = '';
+    // Indentation of the current line (plus the width of a leading list marker): wrapped
+    // lines continue under the text, not under the marker.
+    lead = 0;
+    hang = 0;
+    sawWord = false;
+    // Spaces between words are held back until the next word is known to fit on the line,
+    // so wrapped lines never end with a dangling space.
+    spaceBuf = '';
+    constructor(firstPrefix, restPrefix, sink = (s) => void process.stdout.write(s), maxCols = () => Math.min((process.stdout.columns || 80) - 1, 100)) {
+        this.firstPrefix = firstPrefix;
+        this.restPrefix = restPrefix;
+        this.sink = sink;
+        this.maxCols = maxCols;
+    }
+    write(text) {
+        if (!text)
+            return;
+        // A message starts at its first visible character: leading blank lines are dropped.
+        if (this.isFirst && this.atLineStart && this.pending === '')
+            text = text.replace(/^\n+/, '');
+        if (!text)
+            return;
+        const parts = (this.pending + text).split(/(\n| +)/);
+        this.pending = '';
+        // A trailing fragment without whitespace may be half a word (streamed in pieces):
+        // keep it until we know where the word ends.
+        const last = parts[parts.length - 1];
+        if (last !== '' && !/^(\n| +)$/.test(last))
+            this.pending = parts.pop();
+        let out = '';
+        for (const part of parts) {
+            if (part === '')
+                continue;
+            if (part === '\n') {
+                out += '\n';
+                this.atLineStart = true;
+                this.col = 0;
+                this.lead = 0;
+                this.hang = 0;
+                this.sawWord = false;
+                this.spaceBuf = '';
+                continue;
+            }
+            const width = displayWidth(part);
+            const isSpace = part[0] === ' ';
+            const prefixWidth = displayWidth(this.isFirst ? this.firstPrefix : this.restPrefix);
+            // Spaces inside a line wait for the word that follows them.
+            if (isSpace && !this.atLineStart && this.sawWord) {
+                this.spaceBuf += part;
+                continue;
+            }
+            const gap = this.spaceBuf.length;
+            if (!this.atLineStart && this.col + gap + width > this.maxCols()) {
+                if (isSpace)
+                    continue;
+                out += '\n' + this.restPrefix + ' '.repeat(this.hang);
+                this.col = displayWidth(this.restPrefix) + this.hang;
+                this.spaceBuf = '';
+            }
+            else if (this.spaceBuf) {
+                out += this.spaceBuf;
+                this.col += gap;
+                this.spaceBuf = '';
+            }
+            if (this.atLineStart) {
+                out += this.isFirst ? this.firstPrefix : this.restPrefix;
+                this.col = prefixWidth;
+                this.isFirst = false;
+                this.atLineStart = false;
+            }
+            out += part;
+            this.col += width;
+            if (isSpace && !this.sawWord) {
+                this.lead += width;
+                this.hang = this.lead;
+            }
+            else if (!isSpace && !this.sawWord) {
+                this.sawWord = true;
+                this.hang = this.lead + (/^(?:[•*-]|\d+[.)])$/.test(stripAnsi(part)) ? width + 1 : 0);
+            }
+        }
+        if (out)
+            this.sink(out);
+    }
+    /** Writes the buffered partial word (call when a stream ends without a trailing newline). */
+    flush() {
+        if (this.pending) {
+            const rest = this.pending;
+            this.pending = '';
+            this.write(rest + ' ');
+            this.spaceBuf = '';
+        }
+    }
+    /** The next printed line gets the first prefix again (a new assistant message). */
+    reset() {
+        this.pending = '';
+        this.spaceBuf = '';
+        this.isFirst = true;
+        this.atLineStart = true;
+        this.col = 0;
+        this.lead = 0;
+        this.hang = 0;
+        this.sawWord = false;
+    }
+}
+const MAX_CARD_LINES = 10;
+/** The approval card: what will run, in a frame coloured by how risky it is. */
+export function renderPermissionCard(req, cols) {
+    const color = req.danger ? palette.err : palette.warn;
+    const label = req.danger ? '✖ dangerous' : '▲ permission';
+    const W = frameWidth(cols);
+    const all = req.lines.flatMap((l) => l.replace(/\r/g, '').replace(/\t/g, '  ').split('\n'));
+    while (all.length && all[all.length - 1].trim() === '')
+        all.pop();
+    const shown = all.slice(0, MAX_CARD_LINES);
+    const hidden = all.length - shown.length;
+    // Every row must stay on one terminal line, otherwise erasing the card later would miss rows.
+    const notes = (req.notes ?? []).map((n) => `  ${palette.warn('!')} ${palette.warn(truncateWidth(n, Math.max(8, W - 5)))}`);
+    if (isCompact(cols)) {
+        const rows = [` ${color(palette.bold(label))} ${palette.faint('·')} ${palette.text(truncateWidth(req.title, Math.max(6, W - displayWidth(label) - 5)))}`];
+        for (const l of shown)
+            rows.push('  ' + palette.text(truncateWidth(l, W - 3)));
+        if (hidden > 0)
+            rows.push('  ' + palette.faint(`… +${hidden} more line${hidden === 1 ? '' : 's'}`));
+        return [...rows, ...notes];
+    }
+    const inner = W - 4;
+    const titleSeg = ` ${color(palette.bold(label))} ${palette.faint('·')} ${palette.text(truncateWidth(req.title, Math.max(6, inner - displayWidth(label) - 6)))} `;
+    const top = color('╭─') + titleSeg + color('─'.repeat(Math.max(0, W - 4 - displayWidth(titleSeg)))) + color('─╮');
+    const row = (content) => color('│') + ' ' + padEndWidth(content, inner) + ' ' + color('│');
+    const rows = shown.map((l) => row(palette.text(truncateWidth(l, inner))));
+    if (hidden > 0)
+        rows.push(row(palette.faint(`… +${hidden} more line${hidden === 1 ? '' : 's'}`)));
+    if (rows.length === 0)
+        rows.push(row(''));
+    return [top, ...rows, color('╰' + '─'.repeat(W - 2) + '╯'), ...notes];
+}
+/** `❯ ● Allow   ○ Deny   y/n · ←→ · enter` */
+export function renderPermissionChoice(selected, cols) {
+    const allow = selected === 'allow' ? `${palette.ok('●')} ${palette.bold(palette.ok('Allow'))}` : palette.faint('○ Allow');
+    const deny = selected === 'deny' ? `${palette.err('●')} ${palette.bold(palette.err('Deny'))}` : palette.faint('○ Deny');
+    const hint = isCompact(cols) ? '' : '   ' + palette.faint('y/n · ←→ · enter');
+    return ` ${palette.accent('❯')} ${allow}   ${deny}${hint}`;
+}
+const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+/**
+ * One step of an ease-out animation: the value covers a fixed share of the remaining distance
+ * per unit of time, so it starts fast and slows down as it nears the target (exponential
+ * smoothing, `tauMs` is the time it takes to cover about 63% of the distance). It never
+ * overshoots, works the same for any frame rate, and lands exactly on the target.
+ */
+export function easeToward(current, target, dtMs, tauMs = 400) {
+    const distance = target - current;
+    if (Math.abs(distance) < 0.5)
+        return target;
+    if (dtMs <= 0)
+        return current;
+    return current + distance * (1 - Math.exp(-dtMs / tauMs));
+}
+/**
+ * The working line:  `  ⠹ Read src/x.ts  (12s · ↓ 364 tokens · ctrl+c to stop)`.
+ * On a narrow screen the details are dropped step by step, the label is cut last.
+ */
+export function renderStatusLine({ label: rawLabel, elapsedMs, meta = '', frame, columns }) {
+    const elapsed = formatDuration(Math.max(0, elapsedMs));
+    const glyph = palette.accent(FRAMES[frame % FRAMES.length]);
+    const label = stripAnsi(rawLabel).replace(/^→\s*/, '');
+    // Longest detail text that still leaves the label some room; the label is cut first of all last.
+    const options = [
+        [elapsed, meta, 'ctrl+c to stop'],
+        [elapsed, meta],
+        [elapsed, 'ctrl+c to stop'],
+        [elapsed, '^C'],
+        [elapsed],
+    ].map((parts) => '  ' + palette.faint(`(${parts.filter(Boolean).join(' · ')})`));
+    const budget = columns - 1 - 4; // two leading spaces, glyph and a space
+    const suffix = options.find((o) => budget - displayWidth(o) >= Math.min(12, displayWidth(label))) ?? options[options.length - 1];
+    const room = Math.max(1, budget - displayWidth(suffix));
+    return `  ${glyph} ${palette.text(truncateWidth(label, room))}${suffix}`;
+}
+/**
+ * Animated "working" line:  `  ⠹ Read src/x.ts  (12s · 1.2k tok · ctrl+c to stop)`.
+ * Same start / message / stop API as the clack spinner it replaces.
+ */
+let activeSpinner = null;
+/**
+ * Silences the running spinner while something else needs the terminal (an approval
+ * prompt). Returns a function that brings it back.
+ */
+export function pauseSpinners() {
+    const resumers = pauseHooks.map((hook) => hook());
+    const spinner = activeSpinner;
+    if (spinner && spinner.isActive) {
+        spinner.suspend();
+        resumers.push(() => spinner.resume());
+    }
+    return () => resumers.forEach((resume) => resume());
+}
+const pauseHooks = [];
+/**
+ * Registers something else that must step aside while an approval prompt owns the terminal
+ * (the typing line below the chat, for example). The hook returns the function that brings it back.
+ */
+export function registerPauseHook(hook) {
+    pauseHooks.push(hook);
+    return () => {
+        const i = pauseHooks.indexOf(hook);
+        if (i >= 0)
+            pauseHooks.splice(i, 1);
+    };
+}
+export class UiSpinner {
+    out;
+    now;
+    intervalMs;
+    suspended = false;
+    timer = null;
+    label = '';
+    meta = '';
+    metaProvider = null;
+    startedAt = 0;
+    frame = 0;
+    muted = false;
+    constructor(out = process.stdout, now = Date.now, intervalMs = 80) {
+        this.out = out;
+        this.now = now;
+        this.intervalMs = intervalMs;
+    }
+    get isActive() {
+        return this.timer !== null || this.suspended;
+    }
+    /** The working line is drawn elsewhere (by the typing frame): this spinner draws nothing. */
+    mute(on = true) {
+        if (on && this.timer)
+            this.stop();
+        this.muted = on;
+    }
+    start(label = 'Working…') {
+        this.label = label;
+        this.meta = '';
+        this.startedAt = this.now();
+        this.frame = 0;
+        if (!this.out.isTTY || this.muted)
+            return;
+        if (this.timer)
+            clearInterval(this.timer);
+        this.suspended = false;
+        activeSpinner = this;
+        this.out.write('\x1b[?25l');
+        this.draw();
+        this.timer = setInterval(() => this.draw(), this.intervalMs);
+        this.timer.unref?.();
+    }
+    /** Stops drawing and erases the line, but remembers the state (see pauseSpinners). */
+    suspend() {
+        if (!this.timer)
+            return;
+        clearInterval(this.timer);
+        this.timer = null;
+        this.suspended = true;
+        this.out.write('\r\x1b[2K\x1b[?25h');
+    }
+    resume() {
+        if (!this.suspended || this.muted)
+            return;
+        this.suspended = false;
+        this.out.write('\x1b[?25l');
+        this.draw();
+        this.timer = setInterval(() => this.draw(), this.intervalMs);
+        this.timer.unref?.();
+    }
+    message(label) {
+        this.label = label;
+        if (this.timer)
+            this.draw();
+    }
+    /** Extra detail shown inside the brackets, e.g. `1.2k tok`. */
+    setMeta(meta) {
+        this.meta = meta;
+    }
+    /** Live detail, asked again on every frame (it survives start() and stop()). */
+    setMetaProvider(provider) {
+        this.metaProvider = provider;
+    }
+    stop() {
+        if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+            this.out.write('\r\x1b[2K\x1b[?25h');
+        }
+        else if (this.suspended) {
+            this.suspended = false;
+            this.out.write('\x1b[?25h');
+        }
+        if (activeSpinner === this)
+            activeSpinner = null;
+    }
+    /** The text of the current frame (used by the animation and by tests). */
+    renderLine(columns = this.out.columns || 80) {
+        return renderStatusLine({
+            label: this.label,
+            elapsedMs: this.now() - this.startedAt,
+            meta: this.metaProvider?.() || this.meta,
+            frame: this.frame,
+            columns,
+        });
+    }
+    draw() {
+        this.out.write('\r\x1b[2K' + this.renderLine());
+        this.frame++;
+    }
+}

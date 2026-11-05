@@ -4,25 +4,103 @@ import pc from 'picocolors';
 import { Tool } from '../core/types.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
 
+// A single read result lands in the model context, so it must stay bounded.
+export const MAX_READ_CHARS = 60000;
+const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
+
+function toLineNumber(value: unknown, name: string): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const n = typeof value === 'string' ? Number(value) : (value as number);
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return n;
+}
+
 export const readFileTool: Tool = {
   name: 'read_file',
   definition: {
     name: 'read_file',
-    description: 'Read contents of a file',
+    description:
+      `Read contents of a file. Large files are returned in parts (max ~${MAX_READ_CHARS} characters per call): ` +
+      'use startLine/endLine (1-based, inclusive) to read a specific range or to continue reading.',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string' }
+        path: { type: 'string' },
+        startLine: { type: 'number', description: 'First line to read (1-based, optional)' },
+        endLine: { type: 'number', description: 'Last line to read (inclusive, optional)' }
       },
       required: ['path']
     }
   },
   validateArgs(args: any) {
     if (!args.path || typeof args.path !== 'string') throw new Error('path is required');
+    const start = toLineNumber(args.startLine, 'startLine');
+    const end = toLineNumber(args.endLine, 'endLine');
+    if (start !== undefined && end !== undefined && end < start) {
+      throw new Error('endLine must be greater than or equal to startLine');
+    }
   },
   async execute(args: any) {
     try {
-      return await fs.readFile(args.path, 'utf8');
+      const stat = await fs.stat(args.path);
+      if (stat.isDirectory()) {
+        throw new Error('Path is a directory, use list_dir instead');
+      }
+      if (stat.size > MAX_READ_FILE_BYTES) {
+        throw new Error(
+          `File is too large (${(stat.size / 1024 / 1024).toFixed(1)} MB). Use the search tool, or bash (e.g. head/tail/sed -n) to look at part of it`
+        );
+      }
+
+      const buffer = await fs.readFile(args.path);
+      if (buffer.subarray(0, 8000).includes(0)) {
+        return `[Binary file ${args.path} (${stat.size} bytes) - contents not shown]`;
+      }
+
+      const text = buffer.toString('utf8');
+      const startArg = toLineNumber(args.startLine, 'startLine');
+      const endArg = toLineNumber(args.endLine, 'endLine');
+
+      // Small files without a range: return the exact content.
+      if (startArg === undefined && endArg === undefined && text.length <= MAX_READ_CHARS) {
+        return text;
+      }
+
+      const lines = text.split('\n');
+      const total = lines.length;
+      const start = Math.min(startArg ?? 1, total);
+      const end = Math.min(Math.max(endArg ?? total, start), total);
+
+      let selected = lines.slice(start - 1, end);
+      let shownEnd = end;
+      let joined = selected.join('\n');
+      let truncated = false;
+
+      if (joined.length > MAX_READ_CHARS) {
+        truncated = true;
+        // Cut on a line boundary so the model can continue exactly where we stopped.
+        let size = 0;
+        let count = 0;
+        for (const line of selected) {
+          if (size + line.length + 1 > MAX_READ_CHARS && count > 0) break;
+          size += line.length + 1;
+          count++;
+        }
+        selected = selected.slice(0, count);
+        shownEnd = start + count - 1;
+        joined = selected.join('\n');
+        if (joined.length > MAX_READ_CHARS) {
+          // A single enormous line (e.g. minified bundle).
+          joined = joined.slice(0, MAX_READ_CHARS);
+        }
+      }
+
+      const note = truncated
+        ? ` - output truncated, continue with startLine=${shownEnd + 1}`
+        : shownEnd < total ? ` - file continues, use startLine=${shownEnd + 1} to read more` : '';
+      return `[Lines ${start}-${shownEnd} of ${total}${note}]\n${joined}`;
     } catch (err: any) {
       throw new Error(`Failed to read file: ${err.message}`);
     }
@@ -119,10 +197,15 @@ export const editFileTool: Tool = {
   },
   validateArgs(args: any) {
     if (!args.path || typeof args.path !== 'string') throw new Error('path is required');
-    if (typeof args.target !== 'string') throw new Error('target is required');
+    if (typeof args.target !== 'string' || args.target === '') {
+      throw new Error('target is required and must not be empty (use write_file to create or overwrite a whole file)');
+    }
     if (typeof args.replacement !== 'string') throw new Error('replacement is required');
   },
   async execute(args: any) {
+    if (typeof args.target !== 'string' || args.target === '') {
+      throw new Error('Failed to edit file: target must not be empty');
+    }
     try {
       await globalSnapshotManager.recordFileBeforeChange(args.path);
 

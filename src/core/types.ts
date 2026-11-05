@@ -1,4 +1,6 @@
-export const DEVX_VERSION = '1.6.0';
+import type { CostSource } from './cost.js';
+
+export const DEVX_VERSION = '1.7.0';
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -6,6 +8,12 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: any;
+  /**
+   * Set by the provider when the model's tool arguments could not be parsed
+   * (typically because the response was cut off by the output token limit).
+   * The tool is not executed; the model gets this text back instead.
+   */
+  argsError?: string;
 }
 
 export interface Message {
@@ -15,7 +23,16 @@ export interface Message {
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
+  /**
+   * Signed reasoning blocks of an assistant turn (Anthropic format). They are sent back
+   * unchanged so the model keeps its chain of thought across tool calls.
+   */
+  thinking_blocks?: ThinkingBlock[];
 }
+
+export type ThinkingBlock =
+  | { type: 'thinking'; thinking: string; signature: string }
+  | { type: 'redacted_thinking'; data: string };
 
 export interface ToolDefinition {
   name: string;
@@ -48,13 +65,25 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Part of promptTokens that was served from the prompt cache. */
+  cacheReadTokens?: number;
+  /** Part of promptTokens that was written to the prompt cache. */
+  cacheWriteTokens?: number;
+  /** Tokens spent on reasoning (already included in completionTokens). */
+  reasoningTokens?: number;
+  /** The token counts are devx's own estimate: the endpoint did not report them. */
+  tokensEstimated?: boolean;
+  /** Cost in USD; undefined when the price of the model is not known. */
   cost?: number;
+  /** reported: the provider said it; listed: the endpoint's own price list; estimated: catalogue price. */
+  costSource?: CostSource;
 }
 
 export interface LLMResponse {
   content: string | null;
   toolCalls?: ToolCall[];
   usage?: TokenUsage;
+  thinkingBlocks?: ThinkingBlock[];
 }
 
 export type LLMStreamChunk =
@@ -67,6 +96,8 @@ export interface LLMProvider {
   id: string;
   chat(request: LLMRequest): Promise<LLMResponse>;
   chatStream?(request: LLMRequest): AsyncGenerator<LLMStreamChunk, LLMResponse, unknown>;
+  /** Messages for the user collected while talking to the endpoint (returned once). */
+  drainNotices?(): string[];
 }
 
 export interface UIConfig {
@@ -100,6 +131,12 @@ export interface AgentConfig {
   apiKeys?: Record<string, string>;
   baseUrls?: Record<string, string>;
   maxCostUSD?: number;
+  /** Context window per model id, in tokens; it wins over every other source. */
+  contextLimits?: Record<string, number>;
+  /** Forces one wire format for every model; by default devx picks per model. */
+  apiFormat?: 'openai' | 'anthropic';
+  /** Own prices per model id, USD per 1M tokens; they win over every other source. */
+  prices?: Record<string, { input: number; output: number; cacheRead?: number; cacheWrite?: number }>;
   banner?: BannerMode;
   ui?: UIConfig;
 }
@@ -120,4 +157,6 @@ export type AgentEvent =
   | { type: 'reconnected'; attempt: number }
   | { type: 'error'; message: string; isFatal: boolean }
   | { type: 'system'; message: string }
+  /** A message the user typed while the agent was working; it was added to the conversation. */
+  | { type: 'user_message'; content: string }
   | { type: 'usage'; usage: TokenUsage };
