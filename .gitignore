@@ -37,3 +37,6 @@ Thumbs.db
 .idea/
 *.sublime-project
 *.sublime-workspace
+
+# Build output (created by npm run build; npm publish and CI build it themselves)
+dist/
