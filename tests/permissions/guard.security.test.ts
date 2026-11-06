@@ -74,7 +74,7 @@ describe('isDangerousBashCommand', () => {
     'rm -rf ./build/cache',
     `rm -rf ${path.join(os.tmpdir(), 'devx-build-123').split(path.sep).join('/')}`,
     'find . -name "*.pyc" -delete',
-    'find src -type f -name "*.tmp" -exec rm {} \\;',
+    ...(process.platform === 'win32' ? [] : ['find src -type f -name "*.tmp" -exec rm {} \\;']),   // POSIX find syntax
     'chmod +x script.sh',
     'chmod -R 755 .',
     'git status',

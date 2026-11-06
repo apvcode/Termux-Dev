@@ -111,7 +111,7 @@ describe('saving an image', () => {
     expect(saved!.filePath.startsWith(path.join(home, '.devx', 'media'))).toBe(true);
     expect(saved!.fileName).toMatch(/^image-\d{8}-\d{6}\.jpg$/);
     expect(fs.readFileSync(saved!.filePath)).toEqual(JPEG);
-    expect(fs.statSync(saved!.filePath).mode & 0o077).toBe(0);
+    if (process.platform !== 'win32') expect(fs.statSync(saved!.filePath).mode & 0o077).toBe(0);
   });
 
   it('never overwrites an earlier image', async () => {
