@@ -209,4 +209,20 @@ export const zh: Messages = {
   'mcp.removeUsage': '用法：/mcp remove <名称>',
   'mcp.removeNotFound': '"{name}" 不在 ~/.devx/mcp.json 中。其他文件（项目、~/.devxrc.json）里的服务器需要手动从该文件删除。',
   'mcp.removed': '已删除服务器 "{name}"',
+
+  // ── /rewind
+  'rewind.title': '回退',
+  'rewind.count': '{n} 条消息',
+  'rewind.current': '（当前：留在这里）',
+  'rewind.none': '还没有可以回到的你的消息。',
+  'rewind.later': '之后 {n} 条',
+  'rewind.ago.now': '刚刚',
+  'rewind.ago.min': '{n} 分钟前',
+  'rewind.ago.hour': '{n} 小时前',
+  'rewind.ago.day': '{n} 天前',
+  'rewind.filesQuestion': '也把文件（{n} 个）恢复到当时的样子吗？',
+  'rewind.filesYes': '是，文件也恢复',
+  'rewind.filesNo': '否，只回退对话',
+  'rewind.done': '已回到你的消息。之后的内容已被清除，模型也看不到了。修改消息后发送。',
+  'rewind.doneImages': '已回到你的消息（其中的图片未保留，请重新添加）。之后的内容已被清除，模型也看不到了。',
 };

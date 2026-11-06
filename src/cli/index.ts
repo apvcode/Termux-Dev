@@ -19,6 +19,8 @@ import { MemoryManager, memoryForPrompt } from '../core/memory.js';
 import { startServer, stopServer, displayServerBanner } from './server.js';
 import { notifyDevice, acquireWakeLock, isTermux, notificationBody, sendDesktopNotification } from '../core/notify.js';
 import { copyToClipboard } from './clipboard-write.js';
+import { REWIND_CURRENT, messageDraft, rewindItems, userEntries } from './rewind.js';
+import { runPicker } from './picker.js';
 import { savePlanFile } from '../core/planfile.js';
 import { BASE_TITLE, RESTORE_TERMINAL_TITLE, SAVE_TERMINAL_TITLE, cleanTitle, generateChatTitle, provisionalTitle, terminalTitleSequence } from '../core/title.js';
 import { runDoctor } from './doctor.js';
@@ -76,7 +78,6 @@ import { Checkpoint, createCheckpoint, diffCheckpoint, restoreCheckpoint } from 
 import { log, note } from './log.js';
 import { displayWidth, tailWidth } from './width.js';
 import { TranscriptItem, collapsedThoughtLine, messagesToItems, renderTranscript, toolResultRows } from './transcript.js';
-import { runPicker } from './picker.js';
 import { chooseEffort, effortCommand, Say } from './effort.js';
 import { effectiveReasoning, parseEffortArg, detectRoute, thinkLabel } from '../core/reasoning.js';
 import { catalogInfo, installCapabilities, refreshCapabilities, refreshCatalog } from '../core/capabilities.js';
@@ -1155,7 +1156,7 @@ export async function main() {
           '/new', '/reset', '/resume', '/session', '/sessions', '/history',
           '/theme', '/themes', '/usage', '/export', '/mcp',
           '/settings', '/update', '/model', '/provider', '/providers',
-          '/plan', '/agent', '/image', '/serve', '/memory', '/permissions', '/copy', '/rename', '/title', '/undo',
+          '/plan', '/agent', '/image', '/serve', '/memory', '/permissions', '/copy', '/rename', '/title', '/rewind', '/undo',
           '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
           '/config', '/clear', '/exit', '/quit', '/help', '/effort'
         ];
@@ -1187,6 +1188,7 @@ export async function main() {
             { name: '/permissions  - What is allowed without asking', value: '/permissions' },
             { name: '/copy         - Copy the last answer to the clipboard', value: '/copy' },
             { name: '/rename       - Rename the chat', value: '/rename' },
+            { name: '/rewind       - Go back to one of your messages', value: '/rewind' },
             { name: '/undo         - Revert last file changes made by AI', value: '/undo' },
             { name: '/diff         - Show git diff of modified files', value: '/diff' },
             { name: '/commit       - AI-generated git commit message', value: '/commit' },
@@ -1630,6 +1632,51 @@ export async function main() {
         }
         continue;
       }
+      if (cmd === '/rewind') {
+        const msgs = history.getMessages();
+        const entries = userEntries(msgs);
+        if (entries.length === 0) {
+          log.warn(t('rewind.none'));
+          continue;
+        }
+        const chosen = await runPicker<number>({
+          title: t('rewind.title'),
+          subtitle: t('rewind.count', { n: entries.length }),
+          items: rewindItems(msgs),
+          current: REWIND_CURRENT,
+          labelWidth: 54,
+        });
+        if (chosen === undefined || chosen === REWIND_CURRENT) continue;
+        const target = msgs[chosen];
+
+        // The folder can go back too, to how it was before that message.
+        const cpIndex = target.checkpoint ? checkpoints.findIndex((c) => c.sha === target.checkpoint) : -1;
+        if (cpIndex >= 0) {
+          const diff = await diffCheckpoint(checkpoints[cpIndex]).catch(() => null);
+          const total = diff ? diff.modified.length + diff.created.length + diff.deleted.length : 0;
+          if (diff && total > 0) {
+            const list = [...diff.modified.map((f) => `changed  ${f}`), ...diff.deleted.map((f) => `deleted  ${f}`), ...diff.created.map((f) => `new      ${f}`)];
+            const shown = list.slice(0, 10);
+            if (list.length > shown.length) shown.push(`… +${list.length - shown.length} more`);
+            const restore = await askConfirm({ title: t('rewind.title'), question: t('rewind.filesQuestion', { n: total }), details: shown, yes: t('rewind.filesYes'), no: t('rewind.filesNo') });
+            if (restore) await restoreCheckpoint(checkpoints[cpIndex], diff);
+          }
+          checkpoints.length = cpIndex;
+        } else if (target.checkpoint) {
+          checkpoints.length = 0;
+        }
+
+        // The conversation after the message is burned: the model forgets it as well.
+        history.rewindBefore(chosen);
+        const kept = history.getMessages().filter((m) => m.role !== 'system');
+        transcript.length = 0;
+        transcript.push(...messagesToItems(kept));
+        await sessionManager.save(history.getMessages(), sessionCost.total, config.model, planMode, sessionCost.estimated);
+        currentDraft = messageDraft(target.content);
+        redrawChat();
+        log.info(t((target.images && target.images.length > 0) ? 'rewind.doneImages' : 'rewind.done'));
+        continue;
+      }
       if (cmd === '/copy') {
         const last = [...history.getMessages()].reverse().find((m) => m.role === 'assistant' && m.content && m.content.trim());
         if (!last) {
@@ -1978,9 +2025,10 @@ export async function main() {
     }
 
     globalSnapshotManager.beginTurn();
+    let turnCheckpoint: Checkpoint | null = null;
     if (!planMode) {
-      const cp = await createCheckpoint(process.cwd(), checkpoints[checkpoints.length - 1]?.sha);
-      if (cp) checkpoints.push(cp);
+      turnCheckpoint = await createCheckpoint(process.cwd(), checkpoints[checkpoints.length - 1]?.sha);
+      if (turnCheckpoint) checkpoints.push(turnCheckpoint);
     }
     transcript.push({ kind: 'user', text: answer });
     // Until the model has named the chat, the start of the first message stands in for the name.
@@ -1988,7 +2036,9 @@ export async function main() {
     history.addMessage({
       role: 'user',
       content: finalContent,
-      images: images.length > 0 ? images : undefined
+      images: images.length > 0 ? images : undefined,
+      at: Date.now(),
+      checkpoint: turnCheckpoint?.sha,
     });
 
     // The format of the gateway is learned once (cached); the first request waits for it.

@@ -150,6 +150,7 @@ Tapez `/` dans l’invite pour ouvrir la palette de commandes avec autocompléti
 | **`/copy`** | Copier la **dernière réponse** de l’IA en entier dans le presse-papiers (aussi par ssh) |
 | **`/rename`** | Renommer le chat : `/rename <nom>`, sans nom l’IA le renomme (`/title` est identique) |
 | **`/permissions`** | Ce qui est autorisé sans demander (« Session » / « Always » sur une carte d’approbation) ; `/permissions clear` réinitialise |
+| **`/rewind`** | Revenir à l’un de **vos messages** : la conversation après lui est supprimée (le modèle l’oublie aussi), le message revient dans la ligne de saisie pour être modifié ; les fichiers peuvent revenir aussi (avec git) |
 | **`/undo`** | Annuler toutes les modifications de fichiers du dernier tour de l’IA |
 | **`/diff`** | Voir le diff git coloré des fichiers modifiés du projet |
 | **`/commit`** | Message de commit sémantique généré par l’IA et git commit |

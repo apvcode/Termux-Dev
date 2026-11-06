@@ -150,6 +150,7 @@ Tippe `/` im Prompt, um die Befehlspalette mit Autovervollständigung zu öffnen
 | **`/copy`** | Die **letzte Antwort** der KI vollständig in die Zwischenablage kopieren (auch über ssh) |
 | **`/rename`** | Chat umbenennen: `/rename <Name>`, ohne Namen benennt die KI ihn neu (`/title` ist dasselbe) |
 | **`/permissions`** | Was ohne Rückfrage erlaubt ist („Session“ / „Always“ auf einer Freigabekarte); `/permissions clear` setzt zurück |
+| **`/rewind`** | Zu einer **deiner Nachrichten** zurückgehen: der Chat danach wird entfernt (das Modell vergisst ihn auch), die Nachricht kommt zum Bearbeiten in die Eingabezeile zurück; auch die Dateien lassen sich zurücksetzen (mit git) |
 | **`/undo`** | Alle Dateiänderungen des letzten KI-Durchgangs rückgängig machen |
 | **`/diff`** | Farbigen Git-Diff der geänderten Projektdateien anzeigen |
 | **`/commit`** | Von der KI erzeugte semantische Commit-Nachricht und Git-Commit |

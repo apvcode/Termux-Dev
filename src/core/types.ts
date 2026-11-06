@@ -34,6 +34,10 @@ export interface Message {
    * counted in the context.
    */
   reasoning?: { text: string; sec: string; stats: string };
+  /** When a user message was sent (for /rewind); screen and session only. */
+  at?: number;
+  /** The snapshot of the folder taken before this turn (for /rewind); screen and session only. */
+  checkpoint?: string;
 }
 
 export type ThinkingBlock =

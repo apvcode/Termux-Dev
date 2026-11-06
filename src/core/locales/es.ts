@@ -209,4 +209,20 @@ export const es: Messages = {
   'mcp.removeUsage': 'Uso: /mcp remove <nombre>',
   'mcp.removeNotFound': '«{name}» no está en ~/.devx/mcp.json. Un servidor de otro archivo (el proyecto, ~/.devxrc.json) hay que quitarlo a mano de ese archivo.',
   'mcp.removed': 'Servidor «{name}» eliminado',
+
+  // ── /rewind
+  'rewind.title': 'retroceder',
+  'rewind.count': '{n} mensajes',
+  'rewind.current': '(actual: quedarse aquí)',
+  'rewind.none': 'Aún no hay un mensaje tuyo al que volver.',
+  'rewind.later': '{n} después',
+  'rewind.ago.now': 'ahora mismo',
+  'rewind.ago.min': 'hace {n} min',
+  'rewind.ago.hour': 'hace {n} h',
+  'rewind.ago.day': 'hace {n} d',
+  'rewind.filesQuestion': '¿Devolver también los archivos ({n}) a como estaban entonces?',
+  'rewind.filesYes': 'Sí, también los archivos',
+  'rewind.filesNo': 'No, solo la conversación',
+  'rewind.done': 'De vuelta en tu mensaje. Lo que vino después desapareció, también para el modelo. Edita el mensaje y envíalo.',
+  'rewind.doneImages': 'De vuelta en tu mensaje (sus imágenes no se conservaron, adjúntalas de nuevo). Lo que vino después desapareció, también para el modelo.',
 };

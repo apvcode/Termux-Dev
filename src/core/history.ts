@@ -26,6 +26,11 @@ export class History {
     this.messages.push(msg);
   }
 
+  /** Forgets the message at `index` and everything after it (the system prompt at 0 stays). */
+  rewindBefore(index: number): void {
+    this.messages = this.messages.slice(0, Math.max(1, index));
+  }
+
   updateSystemPrompt(content: string) {
     const idx = this.messages.findIndex(m => m.role === 'system');
     if (idx >= 0) {

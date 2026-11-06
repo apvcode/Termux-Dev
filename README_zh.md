@@ -150,6 +150,7 @@ devx
 | **`/copy`** | 将 AI 的**最后一条回答**完整复制到剪贴板（通过 ssh 也可用） |
 | **`/rename`** | 重命名聊天：`/rename <名称>`，不带名称则由 AI 重新命名（`/title` 相同） |
 | **`/permissions`** | 查看无需询问即可执行的内容（批准卡片上的 Session / Always）；`/permissions clear` 重置 |
+| **`/rewind`** | 回到**你的某条消息**：其后的聊天被清除（模型也会忘记），该消息回到输入行供修改；文件也可一并恢复（需要 git） |
 | **`/undo`** | 撤销 AI 上一轮对文件的所有更改 |
 | **`/diff`** | 查看已修改项目文件的彩色 git diff |
 | **`/commit`** | 由 AI 生成语义化提交信息并执行 git commit |

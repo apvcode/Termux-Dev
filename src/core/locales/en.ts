@@ -218,6 +218,22 @@ export const en = {
   'mcp.removeUsage': 'Usage: /mcp remove <name>',
   'mcp.removeNotFound': '"{name}" is not in ~/.devx/mcp.json. A server of another file (the project, ~/.devxrc.json) has to be removed from that file by hand.',
   'mcp.removed': 'Server "{name}" removed',
+
+  // ── /rewind
+  'rewind.title': 'rewind',
+  'rewind.count': '{n} messages',
+  'rewind.current': '(current: stay here)',
+  'rewind.none': 'There is no message of yours to go back to yet.',
+  'rewind.later': '{n} after it',
+  'rewind.ago.now': 'just now',
+  'rewind.ago.min': '{n}m ago',
+  'rewind.ago.hour': '{n}h ago',
+  'rewind.ago.day': '{n}d ago',
+  'rewind.filesQuestion': 'Put the files ({n}) back to how they were then, too?',
+  'rewind.filesYes': 'Yes, files too',
+  'rewind.filesNo': 'No, only the conversation',
+  'rewind.done': 'Back at your message. What came after it is gone, for the model too. Edit the message and send it.',
+  'rewind.doneImages': 'Back at your message (its images were not kept, attach them again). What came after it is gone, for the model too.',
 };
 
 export type Messages = typeof en;

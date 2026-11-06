@@ -79,4 +79,36 @@ describe.skipIf(!canRunE2E)('devx in a terminal', () => {
     expect(r.steps.map((s) => s.ok)).toEqual([true, true, true, true, true, true, true, true, true]);
     expect(provider.requests.filter((q) => JSON.stringify(q.messages).includes('one more'))).toHaveLength(0);   // nothing was sent
   }, 90000);
+
+  it('/rewind goes back to one of your messages: the chat after it is forgotten and the message comes back to edit', async () => {
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      { ms: 300, send: 'first message' },
+      { ms: 200, send: KEY.enter },
+      { wait: 'FAKE-ANSWER', timeout: 20 },
+      { wait: 'Ask or describe', timeout: 15 },
+      { ms: 300, send: 'second message' },
+      { ms: 200, send: KEY.enter },
+      { wait: 'FAKE-ANSWER', timeout: 20 },
+      { wait: 'Ask or describe', timeout: 15 },
+      { ms: 300, send: '/rewind' },
+      { ms: 300, send: KEY.enter },
+      { wait: 'rewind', timeout: 10 },
+      { ms: 300, send: KEY.up },                                         // from "(current)" to the second message
+      { ms: 200, send: KEY.up },                                         // to the first one
+      { ms: 200, send: KEY.enter },
+      { wait: 'Back at your message', timeout: 10 },
+      { wait: 'first message', timeout: 10 },                            // it is in the input line again
+      { ms: 300, send: ' edited' },
+      { ms: 200, send: KEY.enter },
+      { wait: 'FAKE-ANSWER', timeout: 20 },
+    ], { exitWait: 1 });
+    expect(r.steps.every((s) => s.ok), JSON.stringify(r.steps)).toBe(true);
+    // The request after the rewind has the edited first message and no trace of the second one.
+    const answers = provider.requests.filter((q) => !JSON.stringify(q.messages).includes('You name chats'));
+    const last = JSON.stringify(answers[answers.length - 1].messages);
+    expect(last).toContain('first message edited');
+    expect(last).not.toContain('second message');
+    expect(last).not.toContain('FAKE-ANSWER to: first message"');
+  }, 120000);
 });

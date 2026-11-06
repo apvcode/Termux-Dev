@@ -32,6 +32,7 @@ export const SLASH_COMMANDS = [
   { cmd: '/image', desc: 'Paste the image from the clipboard (same as Ctrl+V or Alt+V)' },
   { cmd: '/serve', desc: 'Start local web server for web/game preview' },
   { cmd: '/copy', desc: 'Copy the last answer of the AI to the clipboard' },
+  { cmd: '/rewind', desc: 'Go back to one of your messages: the chat after it is removed' },
   { cmd: '/rename', desc: 'Rename the chat (/rename <name>), or let the AI name it again' },
   { cmd: '/memory', desc: 'View, add, or clear project memory bank' },
   { cmd: '/permissions', desc: 'What is allowed without asking; /permissions clear resets it' },

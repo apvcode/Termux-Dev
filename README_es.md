@@ -150,6 +150,7 @@ Escribe `/` en el prompt para abrir la paleta de comandos con autocompletado:
 | **`/copy`** | Copiar la **última respuesta** de la IA completa al portapapeles (también por ssh) |
 | **`/rename`** | Renombrar el chat: `/rename <nombre>`, sin nombre la IA lo nombra de nuevo (`/title` es lo mismo) |
 | **`/permissions`** | Qué se permite sin preguntar («Session» / «Always» en una tarjeta de aprobación); `/permissions clear` lo restablece |
+| **`/rewind`** | Volver a uno de **tus mensajes**: el chat posterior se borra (el modelo también lo olvida), el mensaje vuelve a la línea de entrada para editarlo; los archivos también pueden volver (con git) |
 | **`/undo`** | Revertir todos los cambios de archivos del último turno de la IA |
 | **`/diff`** | Ver el diff de git en color de los archivos modificados |
 | **`/commit`** | Mensaje de commit semántico generado por la IA y git commit |

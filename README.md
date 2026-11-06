@@ -150,6 +150,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 | **`/copy`** | Copy the **last answer** of the AI to the clipboard, in full (works over ssh too) |
 | **`/rename`** | Rename the chat: `/rename <name>`, or without a name the AI names it again (`/title` is the same) |
 | **`/permissions`** | What is allowed without asking (`Session` / `Always` on an approval card); `/permissions clear` resets it |
+| **`/rewind`** | Go back to one of **your messages**: the chat after it is removed (the model forgets it too), the message returns to the input line to be edited; the files can go back as well (with git) |
 | **`/undo`** | Revert all file changes from the last AI turn |
 | **`/diff`** | View colored git diff of modified project files |
 | **`/commit`** | AI-generated semantic commit message & git commit |

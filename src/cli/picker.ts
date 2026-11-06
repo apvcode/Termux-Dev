@@ -25,6 +25,8 @@ export interface PickerOptions<T> {
   current?: T;
   /** Muted lines under the list. */
   notes?: string[];
+  /** Width of the label column (default: the longest label, at most 10 cells). */
+  labelWidth?: number;
 }
 
 function hints(width: number): string {
@@ -40,8 +42,21 @@ function hints(width: number): string {
   return '';
 }
 
-export function renderPicker<T>(options: PickerOptions<T>, focus: number, cols: number): string[] {
-  const labelWidth = Math.min(10, Math.max(...options.items.map((i) => displayWidth(i.label)), 4)) + 2;
+/** Of a long list only the rows around the focus are shown, with "↑ N more" / "↓ N more" at the cut edges. */
+function windowItems<T>(rows: Array<{ text: string; index: number }>, focus: number, max: number, width: number): Array<{ text: string; index: number }> {
+  if (rows.length <= max) return rows;
+  const start = Math.max(0, Math.min(rows.length - max, focus - Math.floor(max / 2)));
+  const out = rows.slice(start, start + max);
+  const above = start;
+  const below = rows.length - (start + max);
+  if (above > 0) out[0] = { text: ' ' + palette.faint(truncateWidth(`↑ ${above + 1} more`, width)), index: -1 };
+  if (below > 0) out[out.length - 1] = { text: ' ' + palette.faint(truncateWidth(`↓ ${below + 1} more`, width)), index: -1 };
+  return out;
+}
+
+export function renderPicker<T>(options: PickerOptions<T>, focus: number, cols: number, termRows = 40): string[] {
+  const labelWidth = options.labelWidth ?? Math.min(10, Math.max(...options.items.map((i) => displayWidth(i.label)), 4)) + 2;
+  const maxItems = Math.max(3, termRows - 7 - (options.notes?.length ?? 0));
 
   const row = (item: PickerItem<T>, index: number, width: number): string => {
     const focused = index === focus;
@@ -59,10 +74,8 @@ export function renderPicker<T>(options: PickerOptions<T>, focus: number, cols: 
   if (cols < 60) {
     const width = Math.max(20, cols - 1);
     const lines = [' ' + palette.bold(palette.accent(options.title)) + (options.subtitle ? palette.faint(' · ' + truncateWidth(options.subtitle, Math.max(6, width - displayWidth(options.title) - 6))) : '')];
-    options.items.forEach((item, i) => {
-      const content = row(item, i, width);
-      lines.push(i === focus ? palette.shade(padEndWidth(content, width)) : content);
-    });
+    const all = options.items.map((item, i) => ({ text: row(item, i, width), index: i }));
+    for (const r of windowItems(all, focus, maxItems, width)) lines.push(r.index === focus ? palette.shade(padEndWidth(r.text, width)) : r.text);
     for (const note of options.notes ?? []) {
       for (const line of wrapWords(note, width - 2)) lines.push(' ' + palette.faint(line));
     }
@@ -81,7 +94,8 @@ export function renderPicker<T>(options: PickerOptions<T>, focus: number, cols: 
   const subtitle = options.subtitle ? ' ' + palette.muted(truncateWidth(options.subtitle, Math.max(6, W - 12 - displayWidth(options.title)))) + ' ' : '';
   const lines = [rule('╭─') + title + rule('─'.repeat(Math.max(0, W - 4 - displayWidth(title) - displayWidth(subtitle)))) + subtitle + rule('─╮')];
   lines.push(box(''));
-  options.items.forEach((item, i) => lines.push(box(row(item, i, iw), i === focus)));
+  const allRows = options.items.map((item, i) => ({ text: row(item, i, iw), index: i }));
+  for (const r of windowItems(allRows, focus, maxItems, iw)) lines.push(box(r.text, r.index === focus));
   const notes = (options.notes ?? []).flatMap((note) => wrapWords(note, iw - 3));
   if (notes.length > 0) {
     lines.push(box(''));
@@ -106,7 +120,7 @@ export function runPicker<T>(options: PickerOptions<T>, io: PickerIO = { input: 
     let focus = Math.max(0, options.items.findIndex((i) => options.current !== undefined && i.value === options.current));
     let done = false;
 
-    const draw = () => block.draw(renderPicker(options, focus, output.columns || 80));
+    const draw = () => block.draw(renderPicker(options, focus, output.columns || 80, (output as any).rows || 40));
     const wasRaw = !!input.isRaw;
     input.setRawMode?.(true);
     input.resume();

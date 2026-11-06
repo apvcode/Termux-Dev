@@ -209,4 +209,20 @@ export const ja: Messages = {
   'mcp.removeUsage': '使い方: /mcp remove <名前>',
   'mcp.removeNotFound': '「{name}」は ~/.devx/mcp.json にありません。別のファイル（プロジェクト、~/.devxrc.json）のサーバーはそのファイルから手で削除してください。',
   'mcp.removed': 'サーバー「{name}」を削除しました',
+
+  // ── /rewind
+  'rewind.title': '巻き戻し',
+  'rewind.count': '{n} 件のメッセージ',
+  'rewind.current': '（現在：ここに留まる）',
+  'rewind.none': '戻れるあなたのメッセージはまだありません。',
+  'rewind.later': '以降 {n} 件',
+  'rewind.ago.now': 'たった今',
+  'rewind.ago.min': '{n} 分前',
+  'rewind.ago.hour': '{n} 時間前',
+  'rewind.ago.day': '{n} 日前',
+  'rewind.filesQuestion': 'ファイル（{n} 個）もその時の状態に戻しますか？',
+  'rewind.filesYes': 'はい、ファイルも',
+  'rewind.filesNo': 'いいえ、会話だけ',
+  'rewind.done': 'あなたのメッセージに戻りました。以降の内容はモデルからも消えています。メッセージを編集して送信してください。',
+  'rewind.doneImages': 'あなたのメッセージに戻りました（画像は保持されません。再度添付してください）。以降の内容はモデルからも消えています。',
 };
