@@ -2,6 +2,7 @@ import { LiveBlock } from './liveblock.js';
 import { splitKeys } from './keys.js';
 import { PermissionInput, PermissionOutput } from './permission.js';
 import { palette } from './ui.js';
+import { t } from '../core/i18n.js';
 import { displayWidth, padEndWidth, truncateWidth, wrapWords } from './width.js';
 
 /**
@@ -25,13 +26,15 @@ export interface PickerOptions<T> {
   current?: T;
   /** Muted lines under the list. */
   notes?: string[];
+  /** Called when the focus lands on a value (also the first one): lets the caller preview it. */
+  onFocus?: (value: T) => void;
   /** Width of the label column (default: the longest label, at most 10 cells). */
   labelWidth?: number;
 }
 
 function hints(width: number): string {
   const variants: Array<Array<[string, string]>> = [
-    [['↑↓', 'move'], ['enter', 'select'], ['esc', 'cancel']],
+    [['↑↓', t('picker.hint.move')], ['enter', t('picker.hint.select')], ['esc', t('picker.hint.cancel')]],
     [['↑↓', ''], ['enter', ''], ['esc', '']],
     [['enter', ''], ['esc', '']],
   ];
@@ -43,7 +46,7 @@ function hints(width: number): string {
 }
 
 /** Of a long list only the rows around the focus are shown, with "↑ N more" / "↓ N more" at the cut edges. */
-function windowItems<T>(rows: Array<{ text: string; index: number }>, focus: number, max: number, width: number): Array<{ text: string; index: number }> {
+export function windowItems<T>(rows: Array<{ text: string; index: number }>, focus: number, max: number, width: number): Array<{ text: string; index: number }> {
   if (rows.length <= max) return rows;
   const start = Math.max(0, Math.min(rows.length - max, focus - Math.floor(max / 2)));
   const out = rows.slice(start, start + max);
@@ -120,7 +123,14 @@ export function runPicker<T>(options: PickerOptions<T>, io: PickerIO = { input: 
     let focus = Math.max(0, options.items.findIndex((i) => options.current !== undefined && i.value === options.current));
     let done = false;
 
-    const draw = () => block.draw(renderPicker(options, focus, output.columns || 80, (output as any).rows || 40));
+    let reported = -1;
+    const draw = () => {
+      if (options.onFocus && focus !== reported) {
+        reported = focus;
+        options.onFocus(options.items[focus].value);
+      }
+      block.draw(renderPicker(options, focus, output.columns || 80, (output as any).rows || 40));
+    };
     const wasRaw = !!input.isRaw;
     input.setRawMode?.(true);
     input.resume();

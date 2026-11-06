@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FakeProvider, KEY, Sandbox, canRunE2E, makeSandbox, runDevx, startFakeProvider } from './helpers.js';
 
@@ -110,5 +112,65 @@ describe.skipIf(!canRunE2E)('devx in a terminal', () => {
     expect(last).toContain('first message edited');
     expect(last).not.toContain('second message');
     expect(last).not.toContain('FAKE-ANSWER to: first message"');
+  }, 120000);
+});
+
+describe.skipIf(!canRunE2E)('/compact', () => {
+  let provider: FakeProvider;
+  let box: Sandbox;
+  beforeEach(async () => { provider = await startFakeProvider(0); box = await makeSandbox(provider); });
+  afterEach(async () => { await provider.close(); await box.cleanup(); });
+
+  it('says the summary can be opened, and Ctrl+O shows it', async () => {
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      { ms: 300, send: 'remember the number 42' },
+      { ms: 200, send: KEY.enter },
+      { wait: 'FAKE-ANSWER', timeout: 20, ms: 2500 },                      // let the turn end (the chat is named after it)
+      { ms: 300, send: '/compact' },
+      { ms: 300, send: KEY.enter },
+      { wait: 'ctrl\\+o to expand', timeout: 20, ms: 500, send: '\x0f' },     // Ctrl+O at the prompt: the chat is drawn again, unfolded
+    ], { exitWait: 1 });
+    expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
+    expect(r.plain).toContain('Context compacted');
+    expect(r.plain).toContain('what the model wrote');                    // after Ctrl+O the summary itself is on the screen
+    expect(r.plain).toContain('FAKE-ANSWER to: Write a short, structured summary');
+  }, 90000);
+});
+
+describe.skipIf(!canRunE2E)('the first run', () => {
+  let provider: FakeProvider;
+  let box: Sandbox;
+  beforeEach(async () => { provider = await startFakeProvider(0); box = await makeSandbox(provider); await fs.rm(path.join(box.home, '.devxrc.json')); });
+  afterEach(async () => { await provider.close(); await box.cleanup(); });
+
+  it('welcomes, asks language, provider, key and model, then saves them and opens the prompt', async () => {
+    const r = await runDevx(box, [
+      { wait: 'Language', timeout: 30 },                                     // the welcome card and the language list
+      { ms: 300, send: KEY.down },                                           // Russian
+      { ms: 200, send: KEY.enter },
+      { wait: 'Тема', timeout: 10, ms: 300 },                                // the theme list recolours as you move
+      { ms: 200, send: KEY.down },
+      { ms: 200, send: KEY.enter },
+      { wait: 'Провайдер', timeout: 10, ms: 300 },                           // the rest is in the chosen language
+      { ms: 200, send: KEY.up },                                             // from the first match to "Custom endpoint"
+      { ms: 200, send: KEY.enter },
+      { wait: 'Base URL|URL', timeout: 10, ms: 300 },
+      { ms: 100, send: provider.baseUrl },
+      { ms: 300, send: KEY.enter },
+      { wait: 'API', timeout: 10, ms: 300 },
+      { ms: 100, send: 'secret-key-1' },
+      { ms: 300, send: KEY.enter },
+      { wait: 'fake', timeout: 15, ms: 300 },
+      { ms: 200, send: KEY.enter },
+      { wait: 'Готово', timeout: 10, ms: 300 },
+      { wait: 'Доверять', timeout: 15, ms: 300, send: KEY.up },
+      { ms: 200, send: KEY.enter },
+      { wait: 'Ask or describe|Опиши|Спроси', timeout: 30 },
+    ], { exitWait: 1 });
+    expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
+    expect(r.plain).not.toContain('secret-key-1');                           // the key is never echoed
+    const saved = JSON.parse(await fs.readFile(path.join(box.home, '.devxrc.json'), 'utf8'));
+    expect(saved).toMatchObject({ language: 'ru', onboarded: true, theme: expect.any(String), provider: 'custom', baseUrl: provider.baseUrl, apiKey: 'secret-key-1', model: 'fake' });
   }, 120000);
 });

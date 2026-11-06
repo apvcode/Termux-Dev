@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import { getCurrentTheme } from './theme.js';
+import { DEVX_LOGO } from './logo.js';
 import { DEVX_VERSION } from '../core/types.js';
 
 export type BannerMode = 'clean' | 'full' | 'minimal' | 'off';
@@ -29,9 +30,7 @@ export function renderBannerLines(
   if (cols < 68) {
     // Compact ASCII for narrow mobile screens (~26 chars)
     return [
-      theme.colorFn('  █▀▀▄ █▀▀▀ █   █ █   █'),
-      theme.colorFn('  █  █ █▀▀▀  ▀▄▀   ▀▄▀ '),
-      theme.colorFn('  █▄▄▀ █▄▄▄   ▀    ▀ ▀ '),
+      ...DEVX_LOGO.map((l) => '  ' + theme.colorFn(l)),
       '  ' + theme.boldFn(`v${version}`)
     ];
   }

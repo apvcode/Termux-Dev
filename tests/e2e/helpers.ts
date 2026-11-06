@@ -38,6 +38,11 @@ export async function startFakeProvider(delayMs = 0): Promise<FakeProvider> {
         requests.push(parsed);
         const last = [...(parsed.messages || [])].reverse().find((m: any) => m.role === 'user');
         const answer = 'FAKE-ANSWER to: ' + String(last?.content ?? '').slice(0, 40);
+        if (parsed.stream === false || parsed.stream === undefined) {
+          // not streaming (/compact, the chat title): one JSON answer
+          res.writeHead(200, { 'content-type': 'application/json' });
+          return res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: answer }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }));
+        }
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         const send = (o: unknown) => res.write('data: ' + JSON.stringify(o) + '\n\n');
         setTimeout(() => {

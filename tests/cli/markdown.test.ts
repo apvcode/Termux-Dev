@@ -153,3 +153,28 @@ describe('a ```markdown block is shown formatted', () => {
     expect(out).not.toMatch(/```|\*\*|# Релиз/);
   });
 });
+
+describe('lists with `code` and **bold** in their items', () => {
+  const text = 'Files:\n\n  * `a.png`\n  * `Notion Backup.txt`\n    * nested **bold** `n`\n\n* `x`\n';
+
+  it('drawn at once (a redrawn chat): bullets, and no marks on the screen', async () => {
+    const { renderMarkdown } = await import('../../src/cli/markdown.js');
+    const out = stripAnsi(renderMarkdown(text));
+    expect(out).toContain('• a.png');
+    expect(out).toContain('• Notion Backup.txt');
+    expect(out).toContain('• nested bold n');
+    expect(out).not.toMatch(/[`*]/);
+  });
+
+  it.each([1, 2, 7, 1000])('streamed in pieces of %i characters: the same', (piece) => {
+    const out = stripAnsi(stream(text, piece));
+    expect(out).toContain('• a.png');
+    expect(out).toContain('• Notion Backup.txt');
+    expect(out).not.toMatch(/[`*]/);
+  });
+
+  it('a lone * in prose stays', async () => {
+    const { renderMarkdown } = await import('../../src/cli/markdown.js');
+    expect(stripAnsi(renderMarkdown('2 * 3 * 4'))).toBe('2 * 3 * 4');
+  });
+});

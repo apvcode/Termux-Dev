@@ -31,8 +31,8 @@ export const LANGUAGES: Language[] = [
   { id: 'es', name: 'Español' },
   { id: 'fr', name: 'Français' },
   { id: 'pt', name: 'Português' },
-  { id: 'zh', name: '中文' },
-  { id: 'ja', name: '日本語' },
+  { id: 'zh', name: 'Chinese' },
+  { id: 'ja', name: 'Japanese' },
 ];
 
 export const LANGUAGE_IDS = LANGUAGES.map((l) => l.id);

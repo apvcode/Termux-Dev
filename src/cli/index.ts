@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
-import { search, password, input, select } from '@inquirer/prompts';
 import pc from 'picocolors';
 import os from 'os';
 import path from 'path';
@@ -21,6 +20,8 @@ import { notifyDevice, acquireWakeLock, isTermux, notificationBody, sendDesktopN
 import { copyToClipboard } from './clipboard-write.js';
 import { REWIND_CURRENT, messageDraft, rewindItems, userEntries } from './rewind.js';
 import { runPicker } from './picker.js';
+import { runFinder, runTextInput } from './finder.js';
+import { renderWelcome } from './welcome.js';
 import { savePlanFile } from '../core/planfile.js';
 import { BASE_TITLE, RESTORE_TERMINAL_TITLE, SAVE_TERMINAL_TITLE, cleanTitle, generateChatTitle, provisionalTitle, terminalTitleSequence } from '../core/title.js';
 import { runDoctor } from './doctor.js';
@@ -33,7 +34,7 @@ import { SmoothStreamer } from './smooth.js';
 import { askPrompt } from './prompt.js';
 import { resolveAtMentions } from './files.js';
 import { runStartupUpdateCheck, checkForUpdates, performSelfUpdate } from './updater.js';
-import { getTheme, setActiveTheme, getCurrentTheme, listThemes, findTheme, renderSwatch, renderThemePreview, THEMES, ThemeDef } from './theme.js';
+import { getTheme, setActiveTheme, getCurrentTheme, listThemes, findTheme, THEMES, ThemeDef } from './theme.js';
 import { runHeadlessMode } from './headless.js';
 import { CustomCommandManager } from '../core/commands.js';
 import { UsageTracker } from '../core/usage.js';
@@ -77,7 +78,7 @@ import { askConfirm, askPlanDecision, printFarewell } from './confirm.js';
 import { Checkpoint, createCheckpoint, diffCheckpoint, restoreCheckpoint } from '../core/checkpoint.js';
 import { log, note } from './log.js';
 import { displayWidth, tailWidth } from './width.js';
-import { TranscriptItem, collapsedThoughtLine, messagesToItems, renderTranscript, toolResultRows } from './transcript.js';
+import { COMPACT_MARK, TranscriptItem, collapsedThoughtLine, renderItem, messagesToItems, renderTranscript, toolResultRows } from './transcript.js';
 import { chooseEffort, effortCommand, Say } from './effort.js';
 import { effectiveReasoning, parseEffortArg, detectRoute, thinkLabel } from '../core/reasoning.js';
 import { catalogInfo, installCapabilities, refreshCapabilities, refreshCatalog } from '../core/capabilities.js';
@@ -86,7 +87,7 @@ import { contextBreakdown } from '../core/context-stats.js';
 import { runUsagePanel } from './usage-panel.js';
 import { TurnComposer } from './typeahead.js';
 import { EXTENDED_KEYS_OFF, normalizeKey, splitKeys } from './keys.js';
-import { getLanguage, setLanguage, t } from '../core/i18n.js';
+import { LANGUAGES, getLanguage, setLanguage, t } from '../core/i18n.js';
 import { anthropicOnlyModels, formatFromBaseUrl, refreshFormats } from '../core/formats.js';
 import { providerFormat } from '../providers/index.js';
 
@@ -179,9 +180,12 @@ const POPULAR_PROVIDER_MODELS: Record<string, string[]> = {
   mistral: ['mistral-large-latest', 'mistral-small-latest', 'codestral-latest'],
 };
 
-async function selectModel(baseUrl: string, apiKey: string, currentModel: string, providerId: string = '', allowCancel = true): Promise<{ model: string; contextLimit: number } | null> {
+const formatContext = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
+
+/** `step` is "3/4" during the first run, so the card says where in the setup you are. */
+async function selectModel(baseUrl: string, apiKey: string, currentModel: string, providerId: string = '', _allowCancel = true, step?: string): Promise<{ model: string; contextLimit: number } | null> {
   const s = new UiSpinner();
-  s.start('Fetching available models from provider...');
+  s.start(t('onboard.model.fetching'));
   const result = await fetchModels(baseUrl, apiKey);
   // The same gateway may list more models (Claude) in its Anthropic format, with the same key.
   if (result.ok && probeEndpointsAllowed) {
@@ -202,74 +206,48 @@ async function selectModel(baseUrl: string, apiKey: string, currentModel: string
     }));
   }
 
-  let modelChoice: string;
+  const typeName = async (note?: string) => {
+    const name = await runTextInput({
+      title: t('onboard.model.title'),
+      subtitle: step,
+      label: t('onboard.model.label'),
+      initial: models.length === 0 ? currentModel : '',
+      notes: note ? [note] : undefined,
+    });
+    return name ? { model: name, contextLimit: getModelContextLimit(name) } : null;
+  };
 
-  if (models.length > 0) {
-    try {
-      modelChoice = await search({
-        message: `Select a model (${models.length} available, type to filter):`,
-        source: async (term) => {
-          const q = (term || '').trim().toLowerCase();
-          const list: { name: string; value: string; description?: string }[] = [];
-          if (allowCancel) {
-            list.push({ name: pc.yellow('← Back / Cancel'), value: '__cancel__', description: 'Keep current model' });
-          }
-          list.push({ name: pc.yellow('+ Type a custom model name...'), value: 'custom_input', description: 'Enter any model ID manually' });
-          for (const m of models) {
-            const isCurrent = m.id === currentModel;
-            const prefix = isCurrent ? pc.cyan('› ') : '  ';
-            const nameStr = isCurrent ? pc.bold(pc.cyan(m.id + ' (current)')) : m.id;
-            const ctxStr = (m.viaAnthropic ? 'Anthropic format' + (m.contextLength ? ', ' : '') : '') + (m.contextLength ? `${m.contextLength >= 1_000_000 ? (m.contextLength / 1_000_000).toFixed(1) + 'M' : Math.round(m.contextLength / 1000) + 'k'} context` : '');
-            list.push({
-              name: prefix + nameStr,
-              value: m.id,
-              description: ctxStr
-            });
-          }
-          if (!q) return list;
-          return list.filter(item => item.value.toLowerCase().includes(q) || item.name.toLowerCase().includes(q));
-        },
-        pageSize: 10
-      });
-    } catch {
-      return null;
-    }
+  if (models.length === 0) return typeName(t('onboard.model.manual'));
 
-    if (modelChoice === '__cancel__') {
-      return null;
+  const CUSTOM = '__custom__';
+  for (;;) {
+    const choice = await runFinder<string>({
+      title: t('onboard.model.title'),
+      subtitle: step ?? `${models.length}`,
+      placeholder: t('onboard.model.placeholder'),
+      current: currentModel,
+      items: [
+        { value: CUSTOM, label: t('onboard.model.custom'), detail: t('onboard.model.customDetail'), pinned: true },
+        ...models.map((m) => ({
+          value: m.id,
+          label: m.id,
+          detail: [m.viaAnthropic ? t('onboard.model.anthropic') : '', m.contextLength ? t('onboard.model.context', { n: formatContext(m.contextLength) }) : ''].filter(Boolean).join(', '),
+        })),
+      ],
+    });
+    if (choice === undefined) return null;
+    if (choice === CUSTOM) {
+      const typed = await typeName();
+      if (typed) return typed;
+      continue;       // Esc in the field: back to the list
     }
-
-    if (modelChoice === 'custom_input') {
-      try {
-        const customModel = await input({
-          message: 'Type the model name (e.g. gpt-4o or claude-3-7-sonnet):',
-        });
-        if (!customModel || !customModel.trim()) return null;
-        const name = customModel.trim();
-        return { model: name, contextLimit: getModelContextLimit(name) };
-      } catch {
-        return null;
-      }
-    }
-
-    const found = models.find(m => m.id === modelChoice);
-    const limit = (found && found.contextLength) || getModelContextLimit(modelChoice);
-    return { model: modelChoice, contextLimit: limit };
-  } else {
-    log.warn('Could not fetch models automatically.');
-    try {
-      const typedModel = await input({
-        message: 'Type the model name you want to use (e.g. gpt-4o):',
-        default: currentModel || ''
-      });
-      if (!typedModel || !typedModel.trim()) return null;
-      const name = typedModel.trim();
-      return { model: name, contextLimit: getModelContextLimit(name) };
-    } catch {
-      return null;
-    }
+    const found = models.find(m => m.id === choice);
+    return { model: choice, contextLimit: (found && found.contextLength) || getModelContextLimit(choice) };
   }
 }
+
+/** The host of an address, for the detail column: `api.openai.com`. */
+const hostOf = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
 async function selectProvider(currentConfig: any, allowCancel = true): Promise<any | null> {
   const apiKeys: Record<string, string> = currentConfig.apiKeys || {};
@@ -277,119 +255,90 @@ async function selectProvider(currentConfig: any, allowCancel = true): Promise<a
   if (currentConfig.provider && currentConfig.apiKey) {
     apiKeys[currentConfig.provider] = currentConfig.apiKey;
   }
+  const firstRun = !allowCancel;
+  const stepOf = (n: number) => (firstRun ? `${n}/5` : undefined);
 
-  let providerId: string;
-  try {
-    providerId = await search({
-      message: 'Select AI Provider (type to filter, Esc to cancel):',
-      source: async (term) => {
-        const q = (term || '').trim().toLowerCase();
-        const filtered = q
-          ? ALL_PROVIDERS.filter(pr => pr.label.toLowerCase().includes(q) || pr.value.toLowerCase().includes(q))
-          : ALL_PROVIDERS;
-        const list = filtered.map(pr => {
-          const isCurrent = pr.value === currentConfig.provider;
-          const labelStr = isCurrent ? pc.bold(pc.cyan(pr.label + ' (current)')) : pr.label;
-          const hasKey = apiKeys[pr.value] ? `[Key: ${maskApiKey(apiKeys[pr.value])}] ` : '';
-          return {
-            name: `${isCurrent ? pc.cyan('› ') : '  '}${labelStr}`,
-            value: pr.value,
-            description: `${hasKey}${pr.baseUrl || 'Custom endpoint'}`
-          };
-        });
-        if (allowCancel) {
-          list.unshift({
-            name: pc.yellow('← Back / Cancel'),
-            value: '__cancel__',
-            description: 'Keep current provider'
-          });
-        }
-        return list;
-      },
-      pageSize: 10
-    });
-  } catch {
-    return null;
-  }
-
-  if (providerId === '__cancel__') {
-    return null;
-  }
-
-  const selectedProvider = ALL_PROVIDERS.find(pr => pr.value === providerId) || { baseUrl: '', label: providerId };
-  let baseUrl = baseUrls[providerId] || selectedProvider.baseUrl;
-
-  if (providerId === 'custom' || !baseUrl) {
-    try {
-      const customUrl = await input({
-        message: 'Enter Base URL (e.g. https://api.openai.com/v1):',
-        default: baseUrl || ''
-      });
-      if (!customUrl || !customUrl.trim()) return null;
-      baseUrl = customUrl.trim();
-      baseUrls[providerId] = baseUrl;
-    } catch {
-      return null;
-    }
-  }
-
+  let providerId = '';
+  let baseUrl = '';
   let apiKey = '';
-  if (providerId === 'ollama') {
-    apiKey = 'ollama';
-  } else {
-    const savedKey = apiKeys[providerId];
-    if (savedKey) {
-      let keyChoice: string;
-      try {
-        keyChoice = await search({
-          message: `API key found for ${selectedProvider.label} (${maskApiKey(savedKey)}):`,
-          source: async () => [
-            { name: `● Continue with saved API key (${maskApiKey(savedKey)})`, value: 'use_saved' },
-            { name: '+ Enter a new API key', value: 'new_key' },
-            { name: pc.yellow('← Cancel'), value: '__cancel__' }
+  let stage: 'provider' | 'url' | 'key' | 'model' = 'provider';
+  let modelRes: { model: string; contextLimit: number } | null = null;
+
+  while (!modelRes) {
+    if (stage === 'provider') {
+      const choice = await runFinder<string>({
+        title: t('onboard.provider.title'),
+        subtitle: stepOf(3),
+        placeholder: t('onboard.provider.placeholder'),
+        current: currentConfig.provider,
+        notes: firstRun ? [t('onboard.provider.note')] : undefined,
+        items: ALL_PROVIDERS.map((pr) => ({
+          value: pr.value,
+          label: pr.label,
+          detail: `${apiKeys[pr.value] ? maskApiKey(apiKeys[pr.value]) + '  ' : ''}${hostOf(pr.baseUrl || '')}`.trim(),
+          keywords: `${pr.value} ${hostOf(pr.baseUrl || '')}`,
+          pinned: pr.value === 'custom',
+        })),
+      });
+      if (choice === undefined) return null;       // Esc on the first step leaves the whole setup
+      providerId = choice;
+      const known = ALL_PROVIDERS.find(pr => pr.value === providerId);
+      baseUrl = baseUrls[providerId] || known?.baseUrl || '';
+      stage = providerId === 'custom' || !baseUrl ? 'url' : 'key';
+    } else if (stage === 'url') {
+      const url = await runTextInput({
+        title: t('onboard.baseUrl.title'),
+        subtitle: stepOf(3),
+        label: t('onboard.baseUrl.label'),
+        initial: baseUrl,
+        placeholder: t('onboard.baseUrl.placeholder'),
+      });
+      if (url === undefined) { stage = 'provider'; continue; }
+      baseUrl = url;
+      baseUrls[providerId] = baseUrl;
+      stage = 'key';
+    } else if (stage === 'key') {
+      const label = ALL_PROVIDERS.find(pr => pr.value === providerId)?.label || providerId;
+      const back = providerId === 'custom' || !(ALL_PROVIDERS.find(pr => pr.value === providerId)?.baseUrl) ? 'url' : 'provider';
+      if (providerId === 'ollama') {
+        apiKey = 'ollama';
+        stage = 'model';
+        continue;
+      }
+      const saved = apiKeys[providerId];
+      let useSaved = false;
+      if (saved) {
+        const choice = await runPicker<'saved' | 'new'>({
+          title: t('onboard.key.title'),
+          subtitle: label,
+          items: [
+            { value: 'saved', label: t('onboard.key.useSaved'), detail: maskApiKey(saved) },
+            { value: 'new', label: t('onboard.key.enterNew') },
           ],
-          pageSize: 5
+          notes: [t('onboard.key.savedTitle', { provider: label })],
         });
-      } catch {
-        return null;
+        if (choice === undefined) { stage = back; continue; }
+        useSaved = choice === 'saved';
       }
-
-      if (keyChoice === '__cancel__') return null;
-
-      if (keyChoice === 'use_saved') {
-        apiKey = savedKey;
+      if (useSaved) {
+        apiKey = saved;
       } else {
-        try {
-          const key = await password({
-            message: `Enter new API Key for ${selectedProvider.label}:`,
-            mask: '•'
-          });
-          if (!key || !key.trim()) return null;
-          apiKey = key.trim();
-          apiKeys[providerId] = apiKey;
-        } catch {
-          return null;
-        }
-      }
-    } else {
-      try {
-        const key = await password({
-          message: `Enter API Key for ${selectedProvider.label} (or press Esc to cancel):`,
-          mask: '•'
+        const key = await runTextInput({
+          title: t('onboard.key.title'),
+          subtitle: stepOf(4) ?? label,
+          label: t('onboard.key.label', { provider: label }),
+          secret: true,
+          notes: [t('onboard.key.note')],
         });
-        if (!key || !key.trim()) return null;
-        apiKey = key.trim();
+        if (key === undefined) { stage = back; continue; }
+        apiKey = key;
         apiKeys[providerId] = apiKey;
-      } catch {
-        return null;
       }
+      stage = 'model';
+    } else {
+      modelRes = await selectModel(baseUrl, apiKey, currentConfig.model || '', providerId, allowCancel, stepOf(5));
+      if (!modelRes) stage = apiKey === 'ollama' ? 'provider' : 'key';
     }
-  }
-
-  // Pick a model for this provider
-  const modelRes = await selectModel(baseUrl, apiKey, currentConfig.model || '', providerId, allowCancel);
-  if (!modelRes) {
-    return null;
   }
 
   const updatedConfig = {
@@ -408,15 +357,56 @@ async function selectProvider(currentConfig: any, allowCancel = true): Promise<a
   return updatedConfig;
 }
 
+/** The themes as a list; the interface takes the colours of the focused one at once, so you see what you pick. */
+async function chooseTheme(current: string | undefined, step?: string): Promise<string | undefined> {
+  const before = current ?? getCurrentTheme().id;
+  const picked = await runPicker<string>({
+    title: t('onboard.theme.title'),
+    subtitle: step,
+    items: listThemes().map((th) => ({ value: th.id, label: th.name, detail: th.desc })),
+    current: before,
+    labelWidth: 20,
+    notes: [t('onboard.theme.note')],
+    onFocus: (id) => { setActiveTheme(id); },
+  });
+  setActiveTheme(picked ?? before);
+  return picked;
+}
+
+/** First run: the welcome card, the language, then provider, key and model, each on its own small card. */
 async function runOnboarding(): Promise<any> {
-  console.clear();
-  p.intro(pc.bgCyan(pc.black(' Welcome to devx ')));
-  p.note('No configuration found. Let\'s set up your AI provider.', 'Setup');
-  const res = await selectProvider({ apiKeys: {}, baseUrls: {} }, false);
+  const cols = () => process.stdout.columns || 80;
+  const show = (done: number) => {
+    process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+    console.log();
+    for (const line of renderWelcome(DEVX_VERSION, cols(), done)) console.log(line);
+    console.log();
+  };
+
+  show(0);
+  const language = await runPicker<string>({
+    title: t('onboard.language.title'),
+    subtitle: '1/5',
+    items: LANGUAGES.map((l) => ({ value: l.id, label: l.name })),
+    current: getLanguage(),
+    notes: [t('onboard.language.note')],
+    labelWidth: 14,
+  });
+  if (language === undefined) {
+    process.exit(0);
+  }
+  setLanguage(language);
+
+  show(1);
+  const theme = await chooseTheme(undefined, '2/5');
+  show(2);
+  const res = await selectProvider({ apiKeys: {}, baseUrls: {}, language, ...(theme ? { theme } : {}), onboarded: true }, false);
   if (!res) {
     process.exit(0);
   }
-  p.outro(pc.green('Setup complete! Configuration saved to ~/.devxrc.json'));
+  show(5);
+  console.log(renderNotice('ok', t('onboard.done')));
+  console.log();
   return res;
 }
 
@@ -647,6 +637,12 @@ function formatToolGeneratingLabel(name: string, targetHint?: string): string {
   return `→ ${name}${target}...`;
 }
 
+/** `#ab526 · 2h ago · 12 msgs`: what tells two sessions with the same title apart. */
+function sessionDetail(s: { id: string; updatedAt: number; messages: Array<{ role: string }> }): string {
+  const count = s.messages.filter((m) => m.role !== 'system').length;
+  return `#${s.id.split('_').pop()} · ${formatSessionTime(s.updatedAt)} · ${t('resume.msgs', { n: count })}`;
+}
+
 async function handleSessionDelete(bannerMode: BannerMode) {
   while (true) {
     const sessions = await SessionManager.listSessions();
@@ -656,34 +652,18 @@ async function handleSessionDelete(bannerMode: BannerMode) {
       break;
     }
 
-    let chosenSessionId: string;
-    try {
-      chosenSessionId = await search({
-        message: `Select session to DELETE (${sessions.length} sessions, Esc to finish):`,
-        source: async (term) => {
-          const q = (term || '').trim().toLowerCase();
-          const list: { name: string; value: string; description?: string }[] = [
-            { name: pc.yellow('← Done / Cancel'), value: '__cancel__', description: 'Return to chat' },
-            { name: pc.red('× Delete ALL sessions'), value: '__all__', description: `Remove all ${sessions.length} saved sessions` }
-          ];
-          for (const s of sessions) {
-            const timeStr = formatSessionTime(s.updatedAt);
-            const msgCount = s.messages.filter(m => m.role !== 'system').length;
-            const shortId = s.id.split('_').pop();
-            list.push({
-              name: `${pc.red('× ')} ${pc.dim(`[#${shortId}]`)} ${s.title}`,
-              value: s.id,
-              description: `${timeStr} • ${msgCount} msgs • ${s.model || 'default'}`
-            });
-          }
-          if (!q) return list;
-          return list.filter(item => item.name.toLowerCase().includes(q) || item.value.toLowerCase().includes(q));
-        },
-        pageSize: 10
-      });
-    } catch {
-      break;
-    }
+    const DELETE_ALL = '__all__';
+    const chosen = await runFinder<string>({
+      title: t('sessions.deleteTitle'),
+      subtitle: `${sessions.length}`,
+      placeholder: t('resume.placeholder'),
+      labelWidth: 36,
+      items: [
+        { value: DELETE_ALL, label: t('sessions.deleteAll', { n: sessions.length }), pinned: true },
+        ...sessions.map((s) => ({ value: s.id, label: s.title, detail: sessionDetail(s), keywords: `${s.id} ${s.model || ''}` })),
+      ],
+    });
+    const chosenSessionId = chosen ?? '__cancel__';
 
     if (!chosenSessionId || chosenSessionId === '__cancel__') {
       drawLogo(bannerMode);
@@ -715,37 +695,15 @@ async function handleSessionDelete(bannerMode: BannerMode) {
 }
 
 async function handleThemeSelect(config: any): Promise<void> {
-  const currentTh = getCurrentTheme();
-  const themeChoices = listThemes().map(t => ({
-    theme: t,
-    choice: {
-      name: `${renderSwatch(t)} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)} ${t.id === currentTh.id ? pc.green('(Active)') : ''}`,
-      value: t.id,
-      description: `${renderThemePreview(t)}\n\n${pc.dim(`${t.name}  ${t.hex}`)}`
-    }
-  }));
-
-  try {
-    const selected = await search({
-      message: `${pc.bold('Select UI Theme / Выберите цветовую тему')} ${pc.dim(`(${themeChoices.length} themes, type to filter):`)}`,
-      pageSize: 8,
-      source: async (term) => {
-        const q = (term || '').toLowerCase().trim();
-        return themeChoices
-          .filter(({ theme: t }) => !q || `${t.id} ${t.name} ${t.desc}`.toLowerCase().includes(q))
-          .map(({ choice }) => choice);
-      }
-    });
-
-    if (selected) {
-      config.theme = selected;
-      await saveConfig(config);
-      const th = setActiveTheme(selected);
-      // No redraw of the screen: that would wipe the conversation. New output uses the new colours.
-      if (config.ui?.layout === 'classic') log.success(th.boldFn(`Theme switched to ${th.colorFn(th.symbol)} ${th.name}!`));
-      else console.log(renderNotice('ok', `theme ${th.name}`));
-    }
-  } catch {}
+  const selected = await chooseTheme(config.theme);
+  if (selected) {
+    config.theme = selected;
+    await saveConfig(config);
+    const th = setActiveTheme(selected);
+    // No redraw of the screen: that would wipe the conversation. New output uses the new colours.
+    if (config.ui?.layout === 'classic') log.success(th.boldFn(`Theme switched to ${th.colorFn(th.symbol)} ${th.name}!`));
+    else console.log(renderNotice('ok', `theme ${th.name}`));
+  }
 }
 
 async function handleSettings(config: any): Promise<any> {
@@ -907,32 +865,10 @@ export async function main() {
   };
 
   if (!config.onboarded) {
-    const themeChoices = listThemes().map(t => ({
-      theme: t,
-      choice: {
-        name: `${renderSwatch(t)} ${t.boldFn(t.name.padEnd(18))} ${pc.dim(t.desc)}`,
-        value: t.id,
-        description: `${renderThemePreview(t)}\n\n${pc.dim('You can change this anytime with /theme')}`
-      }
-    }));
-
-    try {
-      clearTerminalScreen();
-      const selected = await search({
-        message: `${pc.bold('Pick a theme to personalize your workspace:')}`,
-        source: async (term) => {
-          const q = (term || '').toLowerCase().trim();
-          return themeChoices
-            .filter(({ theme: t }) => !q || `${t.id} ${t.name} ${t.desc}`.toLowerCase().includes(q))
-            .map(({ choice }) => choice);
-        },
-        pageSize: 8
-      });
-      if (selected) {
-        config.theme = selected;
-      }
-    } catch {}
-    
+    // A config from before the first-run setup had a theme step: ask it once.
+    clearTerminalScreen();
+    const selected = await chooseTheme(config.theme);
+    if (selected) config.theme = selected;
     config.onboarded = true;
     await saveConfig(config);
   }
@@ -1202,21 +1138,18 @@ export async function main() {
           ];
 
           try {
-            const picked = await search({
-              message: 'Commands (type to search or select):',
-              source: async (term) => {
-                const q = (term || '').trim().toLowerCase();
-                const list = [
-                  { name: pc.yellow('← Cancel'), value: '__cancel__' },
-                  ...SLASH_COMMANDS
-                ];
-                if (!q) return list;
-                return list.filter(item => item.name.toLowerCase().includes(q) || item.value.toLowerCase().includes(q));
-              },
-              pageSize: 12
+            const picked = await runFinder<string>({
+              title: t('commands.title'),
+              subtitle: `${SLASH_COMMANDS.length}`,
+              placeholder: t('commands.placeholder'),
+              labelWidth: 14,
+              items: SLASH_COMMANDS.map((c) => {
+                const [name, ...rest] = c.name.split(/\s+-\s+/);
+                return { value: c.value, label: name.trim(), detail: rest.join(' - ') };
+              }),
             });
 
-            if (!picked || picked === '__cancel__') {
+            if (!picked) {
               continue;
             }
             if (picked === '/session del') {
@@ -1293,43 +1226,20 @@ export async function main() {
           continue;
         }
 
-        let chosenSessionId: string;
-        try {
-          chosenSessionId = await search({
-            message: 'Select a session to resume (type to filter, Esc to cancel):',
-            source: async (term) => {
-              const q = (term || '').trim().toLowerCase();
-              const list: { name: string; value: string; description?: string }[] = [
-                { name: pc.yellow('← Back / Cancel'), value: '__cancel__', description: 'Return to chat' },
-                { name: pc.red('× Delete sessions... (/session del)'), value: '__delete_mode__', description: 'Selectively delete saved sessions' }
-              ];
-              for (const s of sessions) {
-                const timeStr = formatSessionTime(s.updatedAt);
-                const msgCount = s.messages.filter(m => m.role !== 'system').length;
-                const shortId = s.id.split('_').pop();
-                list.push({
-                  name: `${pc.dim(`[#${shortId}]`)} ${s.title}`,
-                  value: s.id,
-                  description: `${timeStr} • ${msgCount} msgs • ${s.model || 'default'}`
-                });
-              }
-              if (!q) return list;
-              return list.filter(item => item.name.toLowerCase().includes(q) || item.value.toLowerCase().includes(q));
-            },
-            pageSize: 10
-          });
-        } catch {
-          continue;
-        }
-
-        if (chosenSessionId === '__cancel__') {
-          continue;
-        }
-
-        if (chosenSessionId === '__delete_mode__') {
-          await handleSessionDelete(config.banner || 'full');
-          continue;
-        }
+        const picked = await runFinder<string>({
+          title: t('resume.title'),
+          subtitle: `${sessions.length}`,
+          placeholder: t('resume.placeholder'),
+          labelWidth: 36,
+          items: sessions.map((s) => ({
+            value: s.id,
+            label: s.title,
+            detail: sessionDetail(s),
+            keywords: `${s.id} ${s.model || ''}`,
+          })),
+        });
+        if (picked === undefined) continue;
+        const chosenSessionId = picked;
 
         const loaded = await SessionManager.loadSession(chosenSessionId);
         if (loaded) {
@@ -1556,9 +1466,12 @@ export async function main() {
           // A user message, not an assistant one: the Anthropic format cannot start with the assistant.
           history.addMessage({
             role: 'user',
-            content: `[CONVERSATION COMPACTED] Summary of our conversation so far:\n${res.content}`
+            content: `${COMPACT_MARK} Summary of our conversation so far:\n${res.content}`
           });
-          log.success(pc.bold(pc.green('Context successfully compacted! Freed up tokens while retaining task summary.')));
+          const item: TranscriptItem = { kind: 'compact', summary: res.content };
+          transcript.push(item);
+          console.log();
+          console.log(renderItem(item, { cols: process.stdout.columns || 80, thinkingExpanded, outputExpanded }).join('\n'));
         } catch (err: any) {
           s.stop();
           log.error(`Compaction failed: ${err.message}`);

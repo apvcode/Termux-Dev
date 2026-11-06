@@ -101,8 +101,8 @@ describe('the settings in every language', () => {
 
   it('shows the language by its own name', () => {
     const index = ROWS.findIndex((r) => r.key === 'language');
-    const text = renderSettings({ ...base, language: 'ja' }, index, 100, 40, '1.7.0').map(stripAnsi).join('\n');
-    expect(text).toMatch(/Language\s+日本語/);
+    const text = renderSettings({ ...base, language: 'ja' }, index, 100, 40, '1.8.1').map(stripAnsi).join('\n');
+    expect(text).toMatch(/Language\s+Japanese/);
   });
 
   it('every row, hint and value fits its box in every language and size', () => {
@@ -110,7 +110,7 @@ describe('the settings in every language', () => {
       setLanguage(id);
       for (const [cols, rows] of [[100, 40], [100, 24], [76, 30], [60, 22], [50, 30], [40, 30], [40, 14]]) {
         for (let focus = 0; focus < ROWS.length; focus++) {
-          const lines = renderSettings({ ...base, language: id }, focus, cols, rows, '1.7.0').map(stripAnsi);
+          const lines = renderSettings({ ...base, language: id }, focus, cols, rows, '1.8.1').map(stripAnsi);
           expect(lines.length, `${id} ${cols}x${rows}`).toBeLessThanOrEqual(rows - 1);
           for (const line of lines) expect(displayWidth(line), `${id} ${cols}x${rows}: ${line}`).toBeLessThanOrEqual(cols - 1);
           // In the framed card every row of the box is exactly as wide as the top border.
@@ -124,7 +124,7 @@ describe('the settings in every language', () => {
   it('a Chinese hint without spaces is wrapped, not cut to one word', () => {
     setLanguage('zh');
     const index = ROWS.findIndex((r) => r.key === 'pureBlack');
-    const text = renderSettings({ ...base, language: 'zh' }, index, 100, 40, '1.7.0').map(stripAnsi).join('\n');
+    const text = renderSettings({ ...base, language: 'zh' }, index, 100, 40, '1.8.1').map(stripAnsi).join('\n');
     expect(text).toContain('关闭则保留你自己的背景');
   });
 });

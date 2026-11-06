@@ -9,9 +9,9 @@
     .i { font-style: italic; }
     .cur { animation: blink 1.1s steps(1) infinite; }
     @keyframes blink { 0%,55% { opacity: 1 } 56%,100% { opacity: 0 } }
-    .spin { animation: pulse 1.6s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
-    @media (prefers-reduced-motion: reduce) { .cur, .spin { animation: none } }
+    .sp { opacity: 0; animation: spin .8s steps(1) infinite; }
+    @keyframes spin { 0% { opacity: 1 } 10% { opacity: 0 } 100% { opacity: 0 } }
+    @media (prefers-reduced-motion: reduce) { .cur { animation: none } .sp { animation: none } .sp.f0 { opacity: 1 } }
   </style>
   <rect x="8" y="8" width="924" height="642" rx="14" fill="#000000"/>
   <g clip-path="url(#clip)">
@@ -32,7 +32,7 @@
   <rect x="595.2" y="574.0" width="243.2" height="19" fill="#000000"/>
   <text x="44.8" y="62.0" class="t" fill="#b794f6">▌</text>
   <text x="61.6" y="62.0" class="t b" fill="#f4f7fb">devx</text>
-  <text x="112.0" y="62.0" class="t" fill="#5f6b7a">v1.8.0</text>
+  <text x="112.0" y="62.0" class="t" fill="#5f6b7a">v1.8.1</text>
   <text x="61.6" y="106.0" class="t" fill="#5f6b7a">model</text>
   <text x="128.8" y="106.0" class="t" fill="#e5eaf1">deepseek-v4.1-flash · think high</text>
   <text x="406.0" y="106.0" class="t" fill="#5f6b7a">/model</text>
@@ -69,7 +69,16 @@
   <text x="70.0" y="458.0" class="t" fill="#5f6b7a">╰</text>
   <text x="86.8" y="458.0" class="t" fill="#9aa6b4">24 passed</text>
   <text x="86.8" y="480.0" class="t" fill="#5f6b7a">… +3 lines (ctrl+o to expand)</text>
-  <text x="44.8" y="512.0" class="t spin" fill="#5ed3e0">⠹</text>
+  <text x="44.8" y="512.0" class="t sp f0" style="animation-delay:0.00s" fill="#5ed3e0">⠋</text>
+  <text x="44.8" y="512.0" class="t sp f1" style="animation-delay:0.08s" fill="#5ed3e0">⠙</text>
+  <text x="44.8" y="512.0" class="t sp f2" style="animation-delay:0.16s" fill="#5ed3e0">⠹</text>
+  <text x="44.8" y="512.0" class="t sp f3" style="animation-delay:0.24s" fill="#5ed3e0">⠸</text>
+  <text x="44.8" y="512.0" class="t sp f4" style="animation-delay:0.32s" fill="#5ed3e0">⠼</text>
+  <text x="44.8" y="512.0" class="t sp f5" style="animation-delay:0.40s" fill="#5ed3e0">⠴</text>
+  <text x="44.8" y="512.0" class="t sp f6" style="animation-delay:0.48s" fill="#5ed3e0">⠦</text>
+  <text x="44.8" y="512.0" class="t sp f7" style="animation-delay:0.56s" fill="#5ed3e0">⠧</text>
+  <text x="44.8" y="512.0" class="t sp f8" style="animation-delay:0.64s" fill="#5ed3e0">⠇</text>
+  <text x="44.8" y="512.0" class="t sp f9" style="animation-delay:0.72s" fill="#5ed3e0">⠏</text>
   <text x="61.6" y="512.0" class="t" fill="#e5eaf1">Writing</text>
   <text x="145.6" y="512.0" class="t" fill="#5f6b7a">(12s · ↓ 1.4k tokens · ctrl+c to stop)</text>
   <text x="44.8" y="544.0" class="t" fill="#5ed3e0">●</text>

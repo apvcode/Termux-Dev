@@ -10,6 +10,19 @@ marked.use(markedTerminal({
   tab: 2
 }) as any);
 
+// marked-terminal prints the text of a list item as it was written (`code` and **bold** with their
+// marks); the inline tokens of the item have to be rendered.
+marked.use({
+  renderer: {
+    text(token: any) {
+      if (token && typeof token === 'object' && Array.isArray(token.tokens) && token.tokens.length > 0) {
+        return (this as any).parser.parseInline(token.tokens);
+      }
+      return false;
+    },
+  },
+});
+
 /**
  * Inline markdown (`code`, **bold**, *italic*) for text that arrives in pieces. The state of an open
  * marker is kept between pieces, so a span that runs over several words (`**seven words in bold**`)
@@ -114,7 +127,9 @@ export function unfenceMarkdown(text: string): string {
 export function renderMarkdown(content: string): string {
   if (!content) return '';
   try {
-    return (marked.parse(unfenceMarkdown(content)) as string).trim();
+    const text = (marked.parse(unfenceMarkdown(content)) as string).trim();
+    // The list marker of marked-terminal is `*`: draw a bullet instead.
+    return text.replace(/^((?:\s|\x1b\[[0-9;]*m)*)\* /gm, '$1• ');
   } catch {
     return content;
   }
@@ -182,7 +197,8 @@ export class MarkdownStreamer {
 
       if (!isSpecialLine) {
         const lastSpaceIdx = Math.max(this.buffer.lastIndexOf(' '), this.buffer.lastIndexOf('\t'));
-        if (lastSpaceIdx > 0) {
+        // At the start of a line, a first word that is not finished yet (`  *`, the marker of an indented item) waits.
+        if (lastSpaceIdx > 0 && (!this.atLineStart || /\S\s/.test(this.buffer))) {
           const wordsToFlush = this.buffer.slice(0, lastSpaceIdx + 1);
           this.buffer = this.buffer.slice(lastSpaceIdx + 1);
           this.sink(this.formatInline(wordsToFlush));

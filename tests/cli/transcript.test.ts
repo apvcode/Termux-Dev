@@ -129,3 +129,36 @@ describe('reasoning that is saved with the session', () => {
     expect(JSON.stringify(toAnthropicMessages(messages as any))).not.toContain('Plan: chapters 9 to 13.');
   });
 });
+
+describe('the summary after /compact', () => {
+  const compact: TranscriptItem = { kind: 'compact', summary: 'The user wants a login page.\n\nDone: auth.ts\nLeft: tests' };
+  const view = (outputExpanded: boolean, cols = 80) => stripAnsi(renderTranscript([compact], { cols, thinkingExpanded: false, outputExpanded }).join('\n'));
+
+  it('folded: one line that says the summary can be opened', () => {
+    const text = view(false);
+    expect(text).toContain('Context compacted');
+    expect(text).toContain('ctrl+o to expand');
+    expect(text).not.toContain('login page');
+    expect(text.split('\n')).toHaveLength(1);
+  });
+
+  it('unfolded: what the model wrote, indented under the line', () => {
+    const text = view(true);
+    expect(text).toContain('The user wants a login page.');
+    expect(text).toContain('Left: tests');
+  });
+
+  it.each([80, 40, 28])('fits %i columns, folded and unfolded', (cols) => {
+    for (const expanded of [false, true]) {
+      for (const line of view(expanded, cols).split('\n')) expect(displayWidth(line)).toBeLessThanOrEqual(cols);
+    }
+  });
+
+  it('a resumed chat shows the kept summary the same way, not as a user message', () => {
+    const got = messagesToItems([
+      { role: 'system', content: 's' },
+      { role: 'user', content: '[CONVERSATION COMPACTED] Summary of our conversation so far:\nThe user wants a login page.' },
+    ] as any);
+    expect(got).toEqual([{ kind: 'compact', summary: 'The user wants a login page.' }]);
+  });
+});

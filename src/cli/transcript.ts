@@ -16,6 +16,7 @@ export type TranscriptItem =
   | { kind: 'thought'; text: string; sec: string; stats: string }
   | { kind: 'assistant'; text: string }
   | { kind: 'tool'; name: string; desc: string; result?: string }
+  | { kind: 'compact'; summary: string }
   | { kind: 'raw'; rows: string[] };
 
 export interface ViewOptions {
@@ -26,6 +27,9 @@ export interface ViewOptions {
 }
 
 const MAX_ECHO_LINES = 300;
+
+/** What /compact puts in front of the summary it keeps as the first message. */
+export const COMPACT_MARK = '[CONVERSATION COMPACTED]';
 
 /** The rows under a tool line: a plan card, a diff, or the output (one row folded, all of it unfolded). */
 export function toolResultRows(name: string, result: string, opts: { cols: number; expanded: boolean; diffColors?: boolean }): string[] {
@@ -70,6 +74,21 @@ function thoughtRows(item: Extract<TranscriptItem, { kind: 'thought' }>, opts: V
   return [palette.muted(`  ∴ ${t('status.thinkingLine')}`), ...body.map((l) => bar + palette.muted(l)), palette.faint(`  ╰ ${summary}`)];
 }
 
+/** The line that follows /compact: folded it says the summary can be opened, unfolded it shows what the model wrote. */
+export function compactRows(summary: string, opts: ViewOptions): string[] {
+  const done = t('compact.done');
+  if (!opts.outputExpanded) {
+    const room = Math.max(10, opts.cols - 1 - 4);
+    const hint = `  (${t('view.expandOutput')})`;
+    const text = displayWidth(done + hint) <= room ? palette.text(done) + palette.faint(hint) : palette.text(truncateWidth(done, room));
+    return ['  ' + palette.ok('✓') + ' ' + text];
+  }
+  const bar = palette.faint('  │ ');
+  const body = summary.trim().split('\n').flatMap((line) => (line.trim() === '' ? [''] : wrapText(line, Math.max(20, opts.cols - 8))));
+  const head = '  ' + palette.ok('✓') + ' ' + palette.text(truncateWidth(done, Math.max(10, opts.cols - 5)));
+  return [head, palette.muted(`  ∴ ${truncateWidth(t('compact.summary'), Math.max(10, opts.cols - 6))}`), ...body.map((l) => bar + palette.muted(l)), palette.faint('  ╰')];
+}
+
 /** One item as terminal rows (without the blank row that separates it from its neighbour). */
 export function renderItem(item: TranscriptItem, opts: ViewOptions): string[] {
   switch (item.kind) {
@@ -87,6 +106,8 @@ export function renderItem(item: TranscriptItem, opts: ViewOptions): string[] {
       if (item.result !== undefined) rows.push(...toolResultRows(item.name, item.result, { cols: opts.cols, expanded: opts.outputExpanded, diffColors: opts.diffColors }));
       return rows;
     }
+    case 'compact':
+      return compactRows(item.summary, opts);
     default:
       return item.rows;
   }
@@ -115,7 +136,8 @@ export function messagesToItems(messages: Message[]): TranscriptItem[] {
   for (const m of messages) if (m.role === 'tool' && m.tool_call_id) results.set(m.tool_call_id, m);
   const items: TranscriptItem[] = [];
   for (const m of messages) {
-    if (m.role === 'user') items.push({ kind: 'user', text: m.content.split('\n\n--- Attached Files ---')[0] });
+    if (m.role === 'user' && m.content.startsWith(COMPACT_MARK)) items.push({ kind: 'compact', summary: m.content.slice(m.content.indexOf('\n') + 1) });
+    else if (m.role === 'user') items.push({ kind: 'user', text: m.content.split('\n\n--- Attached Files ---')[0] });
     else if (m.role === 'assistant') {
       if (m.reasoning && m.reasoning.text.trim()) items.push({ kind: 'thought', text: m.reasoning.text, sec: m.reasoning.sec, stats: m.reasoning.stats });
       if (m.content && m.content.trim()) items.push({ kind: 'assistant', text: m.content });
