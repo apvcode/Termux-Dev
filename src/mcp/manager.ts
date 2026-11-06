@@ -92,6 +92,22 @@ const USER_FILES = [
 ];
 
 /** What the user switched on or off in the /mcp panel. Kept apart from the config files, which are never edited. */
+/** Provider APIs only accept [A-Za-z0-9_-]{1,64} as a tool name; servers may use dots, spaces or other scripts. */
+export function mcpToolName(server: string, tool: string): string {
+  const clean = (v: string) => v.replace(/[^A-Za-z0-9_-]+/g, '_');
+  const full = `mcp__${clean(server)}__${clean(tool)}`;
+  if (full.length <= 64) return full;
+  let h = 0;
+  for (const ch of full) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `${full.slice(0, 55)}_${h.toString(36).padStart(8, '0').slice(-8)}`;
+}
+
+function uniqueName(name: string, existing: Array<{ name: string }>): string {
+  let out = name;
+  for (let i = 2; existing.some((t) => t.name === out); i++) out = `${name.slice(0, 60)}_${i}`;
+  return out;
+}
+
 const stateFile = () => path.join(os.homedir(), '.devx', 'mcp-state.json');
 
 function readOverrides(): Record<string, boolean> {
@@ -301,7 +317,7 @@ export class MCPManager {
 
       // Convert MCP tools into devx Tool format
       for (const mt of mcpTools) {
-        const namespacedName = `mcp__${name}__${mt.name}`;
+        const namespacedName = uniqueName(mcpToolName(name, mt.name), this.tools);
         const devxTool: Tool = {
           name: namespacedName,
           definition: {
@@ -332,7 +348,7 @@ export class MCPManager {
       this.clients.get(name)?.close();
     } catch {}
     this.clients.delete(name);
-    this.tools = this.tools.filter((t) => !t.name.startsWith(`mcp__${name}__`));
+    this.tools = this.tools.filter((t) => !t.name.startsWith(mcpToolName(name, '')));
   }
 
   getTools(): Tool[] {

@@ -1,6 +1,7 @@
 import { LLMProvider, LLMRequest, LLMResponse, Message, ThinkingBlock, TokenUsage, ToolCall } from '../core/types.js';
 import { UsageTracker } from '../core/usage.js';
 import { PriceContext, priceUsage } from '../core/prices.js';
+import { ToolGuard } from './toolguard.js';
 import { NOT_ABOUT_REASONING, PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, parseToolArguments, readSseData, toolTargetHint } from './shared.js';
 
 /**
@@ -137,11 +138,13 @@ export class AnthropicProvider implements LLMProvider {
     return { ...this.options.price, model: this.model, baseUrl: this.baseUrl };
   }
 
+  private toolGuard = new ToolGuard();
+
   private hasActiveExtras(): boolean {
     return !this.extrasRejected && !!this.extraBody && Object.keys(this.extraBody).length > 0;
   }
 
-  private buildPayload(request: LLMRequest, stream: boolean): Record<string, any> {
+  private buildPayload(request: LLMRequest, stream: boolean, probe = false): Record<string, any> {
     const converted = toAnthropicMessages(request.messages, { cache: !this.cacheRejected, thinking: !this.thinkingBlocksRejected, images: this.options.images });
     if (this.options.images === false && !this.imageNoticeShown && request.messages.some((m) => m.images?.length)) {
       this.imageNoticeShown = true;
@@ -160,9 +163,18 @@ export class AnthropicProvider implements LLMProvider {
         : [{ type: 'text', text: converted.system, cache_control: { type: 'ephemeral' } }];
     }
 
-    if (request.tools && request.tools.length > 0) {
-      payload.tools = request.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }));
+    // Tools the gateway refused are left out.
+    const tools = this.toolGuard.apply(request.tools);
+    if (tools && tools.length > 0) {
+      payload.tools = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }));
       if (!this.cacheRejected) payload.tools[payload.tools.length - 1].cache_control = { type: 'ephemeral' };
+    }
+
+    // A probe (to find out which tool is refused) costs next to nothing and does not carry the reasoning setting.
+    if (probe) {
+      payload.max_tokens = 1;
+      payload.stream = false;
+      return payload;
     }
 
     if (this.hasActiveExtras()) {
@@ -210,6 +222,13 @@ export class AnthropicProvider implements LLMProvider {
 
     let res = await post();
     let genericTry = false;
+    let toolsChecked = false;
+    const probeWith = async (tools: any[]) => {
+      const body = this.buildPayload({ ...request, tools: tools.length > 0 ? tools : undefined }, false, true);
+      const r = await fetch(url, { method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal: request.signal });
+      await r.text().catch(() => '');
+      return r.ok;
+    };
     for (let attempt = 0; attempt < 4 && !res.ok && (res.status === 400 || res.status === 422); attempt++) {
       const text = await res.clone().text().catch(() => '');
       const reason = errorMessageOf(text).replace(/\s+/g, ' ').slice(0, 110);
@@ -225,6 +244,19 @@ export class AnthropicProvider implements LLMProvider {
       } else if (this.hasActiveExtras() && PARAMETER_REJECTED.test(text)) {
         this.extrasRejected = true;
         this.notices.push(`The endpoint rejected the reasoning setting (${reason}). Continuing without it. /effort auto stops sending it for good.`);
+      } else if (!toolsChecked && request.tools && request.tools.length > 0 && !NOT_ABOUT_REASONING.test(errorMessageOf(text))) {
+        // Refused, and it works without tools: a tool definition is what the gateway does not like.
+        toolsChecked = true;
+        const repair = await this.toolGuard.repair(this.toolGuard.apply(request.tools), probeWith);
+        if (repair.notice) this.notices.push(repair.notice);
+        if (!repair.changed) {
+          if (this.hasActiveExtras() && !genericTry) {
+            genericTry = true;
+            this.extrasRejected = true;
+          } else {
+            break;
+          }
+        }
       } else if (this.hasActiveExtras() && !genericTry && !NOT_ABOUT_REASONING.test(errorMessageOf(text))) {
         // The refusal names nothing ("the model rejected this conversation or its parameters"). The reasoning
         // setting is what devx added on its own, so it is tried without it once.

@@ -1,5 +1,6 @@
 import { LLMProvider, LLMRequest, LLMResponse } from '../core/types.js';
 import { UsageTracker } from '../core/usage.js';
+import { ToolGuard } from './toolguard.js';
 import { NOT_ABOUT_REASONING, PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, openAiUsage, parseToolArguments, toolTargetHint } from './shared.js';
 
 export { parseToolArguments };
@@ -33,6 +34,8 @@ export class OpenAIProvider implements LLMProvider {
     return this.notices.splice(0);
   }
 
+  private toolGuard = new ToolGuard();
+
   private hasActiveExtras(): boolean {
     return !this.extrasRejected && !!this.extraBody && Object.keys(this.extraBody).length > 0;
   }
@@ -44,16 +47,34 @@ export class OpenAIProvider implements LLMProvider {
    */
   private async send(request: LLMRequest, stream: boolean): Promise<Response> {
     const url = `${this.baseUrl}/chat/completions`;
-    const post = () => {
-      const bodyStr = JSON.stringify(this.buildPayload(request, stream));
+    const send = (body: Record<string, any>) => {
+      const bodyStr = JSON.stringify(body);
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
       UsageTracker.getInstance().recordRequest(Buffer.byteLength(bodyStr, 'utf8'));
       return fetch(url, { method: 'POST', headers, body: bodyStr, signal: request.signal });
     };
+    const post = () => send(this.buildPayload(request, stream));
 
-    const res = await post();
-    if (res.ok || !this.hasActiveExtras() || (res.status !== 400 && res.status !== 422)) return res;
+    let res = await post();
+    if (res.ok || (res.status !== 400 && res.status !== 422)) return res;
+
+    // Refused, and it works without tools: a tool definition is what the gateway does not like.
+    if (request.tools && request.tools.length > 0 && !NOT_ABOUT_REASONING.test(errorMessageOf(await res.clone().text().catch(() => '')))) {
+      const probe = async (tools: any[]) => {
+        const body = this.buildPayload({ ...request, tools: tools.length > 0 ? tools : undefined }, false, true);
+        const r = await send(body);
+        await r.text().catch(() => '');
+        return r.ok;
+      };
+      const repair = await this.toolGuard.repair(this.toolGuard.apply(request.tools), probe);
+      if (repair.notice) this.notices.push(repair.notice);
+      if (repair.changed) {
+        res = await post();
+        if (res.ok || (res.status !== 400 && res.status !== 422)) return res;
+      }
+    }
+    if (!this.hasActiveExtras()) return res;
 
     const text = await res.clone().text().catch(() => '');
     // A gateway may word the refusal in its own way ("the model rejected this conversation or its
@@ -80,7 +101,7 @@ export class OpenAIProvider implements LLMProvider {
     return retry;
   }
 
-  private buildPayload(request: LLMRequest, stream: boolean) {
+  private buildPayload(request: LLMRequest, stream: boolean, probe = false) {
     const totalMsgs = request.messages.length;
     let lastImageMsgIdx = -1;
     for (let i = totalMsgs - 1; i >= 0; i--) {
@@ -128,12 +149,15 @@ export class OpenAIProvider implements LLMProvider {
       }),
     };
 
-    if (request.tools && request.tools.length > 0) {
-      payload.tools = request.tools.map(t => ({
+    // Tools the gateway refused are left out; a probe is a request that costs next to nothing.
+    const tools = this.toolGuard.apply(request.tools);
+    if (tools && tools.length > 0) {
+      payload.tools = tools.map(t => ({
         type: 'function',
         function: t
       }));
     }
+    if (probe) payload.max_tokens = 1;
 
     if (stream) {
       payload.stream_options = { include_usage: true };
