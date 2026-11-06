@@ -318,3 +318,44 @@ describe('errors', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe('a gateway that refuses without saying why, while a reasoning setting is sent', () => {
+  const vague = 'The model rejected this conversation or its parameters. Start a new conversation or adjust the request.';
+  const ok = json({ content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 } });
+
+  it('is asked again without the setting once, and works from then on', async () => {
+    const calls = mockFetch(fail(400, vague), ok, ok);
+    const provider = new AnthropicProvider('https://gw.example/anthropic', 'k', 'claude-x', { thinking: { type: 'enabled', budget_tokens: 4000 } });
+    expect((await provider.chat({ messages: user })).content).toBe('ok');
+    expect(calls).toHaveLength(2);
+    expect(calls[0].body.thinking).toBeDefined();
+    expect(calls[1].body.thinking).toBeUndefined();
+    expect(provider.drainNotices().join(' ')).toMatch(/reasoning setting.*Continuing without it/);
+    await provider.chat({ messages: user });
+    expect(calls).toHaveLength(3);                      // no second try
+    expect(calls[2].body.thinking).toBeUndefined();
+  });
+
+  it('when it was not the setting, the real error comes back and the setting is kept', async () => {
+    const calls = mockFetch(fail(400, vague), fail(400, vague), fail(400, vague));
+    const provider = new AnthropicProvider('https://gw.example/anthropic', 'k', 'claude-x', { thinking: { type: 'enabled', budget_tokens: 4000 } });
+    await expect(provider.chat({ messages: user })).rejects.toThrow('Provider HTTP Error 400');
+    expect(calls).toHaveLength(2);                      // one try without it, then the error
+    expect(provider.drainNotices()).toEqual([]);
+    await expect(provider.chat({ messages: user })).rejects.toThrow();
+    expect(calls[2].body.thinking).toBeDefined();       // sent again: it was never the cause
+  });
+
+  it('without a reasoning setting there is no extra try', async () => {
+    const calls = mockFetch(fail(400, vague));
+    await expect(new AnthropicProvider('https://gw.example/anthropic', 'k', 'claude-x').chat({ messages: user })).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('OpenAI-style reasoning keys are never sent in the Anthropic format', async () => {
+    const calls = mockFetch(ok);
+    await new AnthropicProvider('https://gw.example/anthropic', 'k', 'claude-x', { reasoning_effort: 'high', reasoning: { effort: 'high' } }).chat({ messages: user });
+    expect(calls[0].body.reasoning_effort).toBeUndefined();
+    expect(calls[0].body.reasoning).toBeUndefined();
+  });
+});

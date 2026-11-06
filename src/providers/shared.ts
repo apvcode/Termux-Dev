@@ -92,6 +92,11 @@ export function openAiUsage(raw: any, ctx: PriceContext, fallback?: { prompt: nu
 export const PARAMETER_REJECTED =
   /reasoning|thinking|effort|budget|extra_body|unknown (field|parameter|argument|variable)|unrecognized|unsupported (parameter|value)|invalid (parameter|value|request)|additional propert|extra inputs|not permitted|not allowed|unexpected/i;
 
+// A refusal that is about something else than the reasoning setting: the size of the conversation, the key, the quota,
+// the model name. These are reported as they are; devx does not try the request again without the setting.
+export const NOT_ABOUT_REASONING =
+  /context|too (long|large|many)|maximum|token limit|max_tokens|quota|rate limit|credit|billing|balance|api key|unauthori[sz]ed|authentication|invalid.*model|model.*(not found|does not exist)/i;
+
 /** Reads the data lines of a server-sent event stream; comments (heartbeats) and blanks are skipped. */
 export async function* readSseData(
   reader: ReadableStreamDefaultReader<Uint8Array>,

@@ -1,7 +1,7 @@
 import { LLMProvider, LLMRequest, LLMResponse, Message, ThinkingBlock, TokenUsage, ToolCall } from '../core/types.js';
 import { UsageTracker } from '../core/usage.js';
 import { PriceContext, priceUsage } from '../core/prices.js';
-import { PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, parseToolArguments, readSseData, toolTargetHint } from './shared.js';
+import { NOT_ABOUT_REASONING, PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, parseToolArguments, readSseData, toolTargetHint } from './shared.js';
 
 /**
  * Speaks the native Anthropic Messages API: `POST {origin}/v1/messages`.
@@ -168,6 +168,8 @@ export class AnthropicProvider implements LLMProvider {
     if (this.hasActiveExtras()) {
       for (const [key, value] of Object.entries(this.extraBody!)) {
         if (PROTECTED_FIELDS.has(key)) continue;
+        // `reasoning_effort` / `reasoning` are OpenAI-style: the Anthropic API refuses them as unknown fields.
+        if (key === 'reasoning_effort' || key === 'reasoning') continue;
         // The cap learned from an error must not be undone by the reasoning setting.
         if (key === 'max_tokens' && this.maxTokensCap !== null) continue;
         payload[key] = value;
@@ -207,6 +209,7 @@ export class AnthropicProvider implements LLMProvider {
     };
 
     let res = await post();
+    let genericTry = false;
     for (let attempt = 0; attempt < 4 && !res.ok && (res.status === 400 || res.status === 422); attempt++) {
       const text = await res.clone().text().catch(() => '');
       const reason = errorMessageOf(text).replace(/\s+/g, ' ').slice(0, 110);
@@ -222,10 +225,22 @@ export class AnthropicProvider implements LLMProvider {
       } else if (this.hasActiveExtras() && PARAMETER_REJECTED.test(text)) {
         this.extrasRejected = true;
         this.notices.push(`The endpoint rejected the reasoning setting (${reason}). Continuing without it. /effort auto stops sending it for good.`);
+      } else if (this.hasActiveExtras() && !genericTry && !NOT_ABOUT_REASONING.test(errorMessageOf(text))) {
+        // The refusal names nothing ("the model rejected this conversation or its parameters"). The reasoning
+        // setting is what devx added on its own, so it is tried without it once.
+        genericTry = true;
+        this.extrasRejected = true;
       } else {
         break;
       }
       res = await post();
+    }
+    if (genericTry) {
+      if (res.ok) {
+        this.notices.push('The endpoint refused the request while a reasoning setting was sent; without it the request works. Continuing without it. /effort auto stops sending it for good.');
+      } else {
+        this.extrasRejected = false;      // it was not the setting: the real error is shown
+      }
     }
     return res;
   }

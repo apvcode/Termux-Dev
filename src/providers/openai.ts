@@ -1,6 +1,6 @@
 import { LLMProvider, LLMRequest, LLMResponse } from '../core/types.js';
 import { UsageTracker } from '../core/usage.js';
-import { PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, openAiUsage, parseToolArguments, toolTargetHint } from './shared.js';
+import { NOT_ABOUT_REASONING, PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, openAiUsage, parseToolArguments, toolTargetHint } from './shared.js';
 
 export { parseToolArguments };
 
@@ -56,7 +56,10 @@ export class OpenAIProvider implements LLMProvider {
     if (res.ok || !this.hasActiveExtras() || (res.status !== 400 && res.status !== 422)) return res;
 
     const text = await res.clone().text().catch(() => '');
-    if (!PARAMETER_REJECTED.test(text)) return res;
+    // A gateway may word the refusal in its own way ("the model rejected this conversation or its
+    // parameters"): the reasoning setting is the one thing devx added, so it is tried without it once.
+    const known = PARAMETER_REJECTED.test(text);
+    if (!known && NOT_ABOUT_REASONING.test(errorMessageOf(text))) return res;
 
     this.extrasRejected = true;
     let reason = text;
@@ -64,11 +67,17 @@ export class OpenAIProvider implements LLMProvider {
       const parsed = JSON.parse(text);
       reason = parsed.error?.message || parsed.message || text;
     } catch {}
+    const retry = await post();
+    if (!known && !retry.ok) {
+      // It was not the reasoning setting: it goes on being sent, and the real answer is shown.
+      this.extrasRejected = false;
+      return retry;
+    }
     this.notices.push(
       `The endpoint rejected the reasoning setting (${String(reason).replace(/\s+/g, ' ').slice(0, 110)}). ` +
       `Continuing without it. /effort auto stops sending it for good.`
     );
-    return post();
+    return retry;
   }
 
   private buildPayload(request: LLMRequest, stream: boolean) {

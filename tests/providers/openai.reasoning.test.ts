@@ -185,3 +185,25 @@ describe('the agent loop', () => {
     expect(events).toContainEqual({ type: 'system', message: 'The endpoint rejected the reasoning setting.' });
   });
 });
+
+describe('a gateway that refuses without saying why', () => {
+  const vague = 'The model rejected this conversation or its parameters. Start a new conversation or adjust the request.';
+
+  it('is tried once without the reasoning setting', async () => {
+    const bodies = mockFetch(() => fail(400, vague), okJson);
+    const provider = new OpenAIProvider('http://x/v1', 'k', 'm', { reasoning_effort: 'high' });
+    expect((await provider.chat({ messages })).content).toBe('ok');
+    expect(bodies[0].reasoning_effort).toBe('high');
+    expect(bodies[1].reasoning_effort).toBeUndefined();
+    expect(provider.drainNotices()).toHaveLength(1);
+  });
+
+  it('keeps the setting and shows the real error when it was not the cause', async () => {
+    const bodies = mockFetch(() => fail(400, vague), () => fail(400, vague), () => fail(400, vague));
+    const provider = new OpenAIProvider('http://x/v1', 'k', 'm', { reasoning_effort: 'high' });
+    await expect(provider.chat({ messages })).rejects.toThrow();
+    expect(provider.drainNotices()).toEqual([]);
+    await expect(provider.chat({ messages })).rejects.toThrow();
+    expect(bodies[2].reasoning_effort).toBe('high');
+  });
+});
