@@ -81,6 +81,8 @@ export function runShell(command: string, options: ShellOptions = {}): Promise<S
     const stderrDecoder = new StringDecoder('utf8');
     let stopReason = '';
     let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let killRepeat: ReturnType<typeof setInterval> | undefined;
+    let settled = false;
 
     const killProcessTree = (force: boolean) => {
       if (!proc.pid) return;
@@ -106,6 +108,9 @@ export function runShell(command: string, options: ShellOptions = {}): Promise<S
       killProcessTree(false);
       // Commands can ignore SIGTERM. Do not leave them running after cancellation.
       killTimer = setTimeout(() => killProcessTree(true), 1000);
+      // On Windows a command such as `npm test` starts its child a moment later, after the first
+      // kill has looked at the tree: kill again until the process is gone.
+      if (isWin) killRepeat = setInterval(() => killProcessTree(true), 700);
     };
 
     const onAbort = () => stop('[Operation cancelled by user]');
@@ -130,14 +135,28 @@ export function runShell(command: string, options: ShellOptions = {}): Promise<S
     const cleanup = () => {
       clearTimeout(timeout);
       clearTimeout(killTimer);
+      clearInterval(killRepeat);
       signal?.removeEventListener('abort', onAbort);
     };
 
-    proc.on('close', (code) => {
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
       if (stopReason) killProcessTree(true);
       output.push(stdoutDecoder.end() + stderrDecoder.end());
       cleanup();
       resolve({ output: output.toString(), code, stopReason });
+    };
+    proc.on('close', finish);
+    // After a cancel or a timeout the shell is gone, but a child that got away can keep the pipes
+    // open for good: do not wait for them for more than a moment.
+    proc.on('exit', (code) => {
+      if (!stopReason) return;
+      setTimeout(() => {
+        proc.stdout?.destroy();
+        proc.stderr?.destroy();
+        finish(code);
+      }, 300);
     });
     proc.on('error', (err) => {
       cleanup();
