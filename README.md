@@ -1,28 +1,47 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="DEVX" width="800" />
+<img src="assets/banner.svg" alt="DEVX" width="880" />
 
-<br/><br/>
+<br/>
 
 **Ultra-fast, autonomous AI pair-programmer & vibe-coding terminal agent.**  
 Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**.
 
-[![npm version](https://img.shields.io/npm/v/termux-dev.svg?color=blue)](https://www.npmjs.com/package/termux-dev)
-[![CI](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml/badge.svg)](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)](https://www.typescriptlang.org)
-[![Platform](https://img.shields.io/badge/Platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-orange.svg)](#)
+<br/>
+
+[![npm](https://img.shields.io/npm/v/termux-dev.svg?style=flat-square&labelColor=0a0c11&color=00c2d1&label=npm)](https://www.npmjs.com/package/termux-dev)
+[![CI](https://img.shields.io/github/actions/workflow/status/apvcode/Termux-Dev/ci.yml?style=flat-square&labelColor=0a0c11&label=CI)](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4f8cff.svg?style=flat-square&labelColor=0a0c11)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
+[![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
 
 <br/>
 
-**English** &nbsp;•&nbsp; [Русский](README_ru.md) &nbsp;•&nbsp; [Українська](README_uk.md) &nbsp;•&nbsp; [Deutsch](README_de.md) &nbsp;•&nbsp; [Español](README_es.md) &nbsp;•&nbsp; [Français](README_fr.md) &nbsp;•&nbsp; [Português](README_pt.md) &nbsp;•&nbsp; [中文](README_zh.md) &nbsp;•&nbsp; [日本語](README_ja.md)
+**English** &nbsp;•&nbsp; [Русский](README_ru.md) &nbsp;•&nbsp; [Українська](README_uk.md) &nbsp;•&nbsp; [Deutsch](README_de.md) &nbsp;•&nbsp; [Español](README_es.md) &nbsp;•&nbsp; [Français](README_fr.md) &nbsp;•&nbsp; [Português](README_pt.md) &nbsp;•&nbsp; [Chinese](README_zh.md) &nbsp;•&nbsp; [Japanese](README_ja.md)
 
 <br/><br/>
 
-<img src="assets/preview.svg" alt="devx Terminal Interface" width="750" style="border-radius: 8px;" />
+<img src="assets/preview.svg" alt="The devx terminal interface" width="880" />
 
 </div>
+
+---
+
+## At a glance
+
+<table>
+<tr><td valign="top" width="33%"><b>Plan, then act</b><br/>PLAN and AGENT modes, one-click approval, a plan sized to the task</td><td valign="top" width="33%"><b>Safe by default</b><br/>asks before risky actions, hides secrets in output, undo through git, an optional cost limit</td><td valign="top" width="33%"><b>Any model</b><br/>OpenRouter, Gemini, DeepSeek, Groq, Mistral, OpenAI, Anthropic, Ollama and more</td></tr><tr><td valign="top" width="33%"><b>MCP built in</b><br/>a panel, remote servers over HTTP, and the agent can set servers up itself</td><td valign="top" width="33%"><b>Made for the terminal</b><br/>phone-friendly layouts, 18 themes, reasoning and output you can fold</td><td valign="top" width="33%"><b>Costs you can see</b><br/>live cost per session, reasoning effort per model, a limit when you want one</td></tr>
+</table>
+
+## Quick start
+
+```bash
+npm install -g termux-dev
+devx
+```
+
+On Android, first run `pkg install nodejs-lts` in Termux.
 
 ---
 

@@ -1,33 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 180" width="100%" height="180">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 280" width="100%" role="img" aria-label="DEVX: the terminal-native AI coding agent">
+  <title>DEVX - the terminal-native AI coding agent</title>
   <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0a0a0c"/>
-      <stop offset="100%" stop-color="#111116"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#000000"/>
+      <stop offset="1" stop-color="#000000"/>
     </linearGradient>
-    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00f2fe"/>
-      <stop offset="50%" stop-color="#4facfe"/>
-      <stop offset="100%" stop-color="#00f2fe"/>
-    </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="5" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
+    <clipPath id="card"><rect x="1.5" y="1.5" width="997" height="277" rx="18"/></clipPath>
   </defs>
-
-  <!-- Container Box -->
-  <rect x="2" y="2" width="846" height="176" rx="12" fill="url(#bgGrad)" stroke="#22222c" stroke-width="1.5"/>
-
-  <!-- Logo Text DEVX -->
-  <g filter="url(#glow)">
-    <text x="425" y="105" font-family="'Courier New', 'Consolas', 'Fira Code', monospace" font-size="78" font-weight="900" fill="url(#cyanGrad)" text-anchor="middle" letter-spacing="12">DEVX</text>
+  <style>
+    .cursor { animation: blink 1.1s steps(1) infinite; }
+    @keyframes blink { 0%,55% { opacity: 1 } 56%,100% { opacity: 0 } }
+    @media (prefers-reduced-motion: reduce) { .cursor { animation: none } }
+  </style>
+  <g clip-path="url(#card)">
+    <rect width="1000" height="280" fill="url(#bg)"/>
   </g>
-
-  <!-- Tagline & Badge -->
-  <text x="425" y="142" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="600" fill="#8b949e" text-anchor="middle" letter-spacing="3">
-    THE TERMINAL-NATIVE AI CODING AGENT <tspan fill="#00f2fe" font-weight="bold">v1.8.0</tspan>
-  </text>
-
-  <!-- Top Accent Line -->
-  <rect x="325" y="12" width="200" height="2" rx="1" fill="url(#cyanGrad)" opacity="0.8"/>
+  <rect x="1.5" y="1.5" width="997" height="277" rx="18" fill="none" stroke="#23252c" stroke-width="1.5"/>
+  <text x="500.0" y="70" text-anchor="middle" font-family="'Inter',system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif" font-size="13" font-weight="600" letter-spacing="5" fill="#7d8896">THE TERMINAL-NATIVE AI CODING AGENT<tspan dx="16" fill="#2fe3ee" font-weight="700">v1.8.0</tspan></text>
+  <g>
+    <text x="500.0" y="178" text-anchor="middle" font-family="'JetBrains Mono','Fira Code','SF Mono',ui-monospace,Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="112" font-weight="800" letter-spacing="14" fill="#2fe3ee">DEVX</text>
+  </g>
+  <g font-family="'JetBrains Mono','Fira Code','SF Mono',ui-monospace,Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="20">
+    <text x="338" y="238" fill="#2fe3ee" font-weight="700">❯</text>
+    <text x="364" y="238" fill="#c9d3df">npm install -g termux-dev</text>
+  </g>
+  <rect class="cursor" x="668" y="221" width="12" height="22" fill="#2fe3ee"/>
 </svg>

@@ -1,28 +1,47 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="DEVX" width="800" />
+<img src="assets/banner.svg" alt="DEVX" width="880" />
 
-<br/><br/>
+<br/>
 
 **超高速で自律的な、ターミナル向け AI ペアプログラマー兼 Vibe Coding エージェント。**  
 **Android Termux**、**Windows**、**macOS**、**Linux** 専用に作られています。
 
-[![npm version](https://img.shields.io/npm/v/termux-dev.svg?color=blue)](https://www.npmjs.com/package/termux-dev)
-[![CI](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml/badge.svg)](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)](https://www.typescriptlang.org)
-[![Platform](https://img.shields.io/badge/Platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-orange.svg)](#)
+<br/>
+
+[![npm](https://img.shields.io/npm/v/termux-dev.svg?style=flat-square&labelColor=0a0c11&color=00c2d1&label=npm)](https://www.npmjs.com/package/termux-dev)
+[![CI](https://img.shields.io/github/actions/workflow/status/apvcode/Termux-Dev/ci.yml?style=flat-square&labelColor=0a0c11&label=CI)](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4f8cff.svg?style=flat-square&labelColor=0a0c11)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
+[![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
 
 <br/>
 
-[English](README.md) &nbsp;•&nbsp; [Русский](README_ru.md) &nbsp;•&nbsp; [Українська](README_uk.md) &nbsp;•&nbsp; [Deutsch](README_de.md) &nbsp;•&nbsp; [Español](README_es.md) &nbsp;•&nbsp; [Français](README_fr.md) &nbsp;•&nbsp; [Português](README_pt.md) &nbsp;•&nbsp; [中文](README_zh.md) &nbsp;•&nbsp; **日本語**
+[English](README.md) &nbsp;•&nbsp; [Русский](README_ru.md) &nbsp;•&nbsp; [Українська](README_uk.md) &nbsp;•&nbsp; [Deutsch](README_de.md) &nbsp;•&nbsp; [Español](README_es.md) &nbsp;•&nbsp; [Français](README_fr.md) &nbsp;•&nbsp; [Português](README_pt.md) &nbsp;•&nbsp; [Chinese](README_zh.md) &nbsp;•&nbsp; **Japanese**
 
 <br/><br/>
 
-<img src="assets/preview.svg" alt="devx Terminal Interface" width="750" style="border-radius: 8px;" />
+<img src="assets/preview.svg" alt="devx のターミナル画面" width="880" />
 
 </div>
+
+---
+
+## ひと目で
+
+<table>
+<tr><td valign="top" width="33%"><b>まず計画、それから実行</b><br/>PLAN と AGENT モード、ワンクリック承認、タスクの大きさに合わせた計画</td><td valign="top" width="33%"><b>標準で安全</b><br/>危険な操作は事前に確認、出力の秘密情報を隠す、git で取り消し、任意の費用上限</td><td valign="top" width="33%"><b>どのモデルでも</b><br/>OpenRouter、Gemini、DeepSeek、Groq、Mistral、OpenAI、Anthropic、Ollama など</td></tr><tr><td valign="top" width="33%"><b>MCP 内蔵</b><br/>パネル、HTTP のリモートサーバー、エージェント自身がサーバーを設定</td><td valign="top" width="33%"><b>ターミナルのために</b><br/>スマホ向けレイアウト、18 のテーマ、折りたためる思考と出力</td><td valign="top" width="33%"><b>費用が見える</b><br/>セッションの費用をリアルタイム表示、モデルごとの推論の強さ、必要なら上限</td></tr>
+</table>
+
+## クイックスタート
+
+```bash
+npm install -g termux-dev
+devx
+```
+
+Android では、まず Termux で `pkg install nodejs-lts` を実行してください。
 
 ---
 

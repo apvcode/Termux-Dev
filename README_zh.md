@@ -1,28 +1,47 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="DEVX" width="800" />
+<img src="assets/banner.svg" alt="DEVX" width="880" />
 
-<br/><br/>
+<br/>
 
 **超快、自主的终端 AI 结对编程与 Vibe Coding 智能体。**  
 专为 **Android Termux**、**Windows**、**macOS** 和 **Linux** 打造。
 
-[![npm version](https://img.shields.io/npm/v/termux-dev.svg?color=blue)](https://www.npmjs.com/package/termux-dev)
-[![CI](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml/badge.svg)](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)](https://www.typescriptlang.org)
-[![Platform](https://img.shields.io/badge/Platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-orange.svg)](#)
+<br/>
+
+[![npm](https://img.shields.io/npm/v/termux-dev.svg?style=flat-square&labelColor=0a0c11&color=00c2d1&label=npm)](https://www.npmjs.com/package/termux-dev)
+[![CI](https://img.shields.io/github/actions/workflow/status/apvcode/Termux-Dev/ci.yml?style=flat-square&labelColor=0a0c11&label=CI)](https://github.com/apvcode/Termux-Dev/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4f8cff.svg?style=flat-square&labelColor=0a0c11)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
+[![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
 
 <br/>
 
-[English](README.md) &nbsp;•&nbsp; [Русский](README_ru.md) &nbsp;•&nbsp; [Українська](README_uk.md) &nbsp;•&nbsp; [Deutsch](README_de.md) &nbsp;•&nbsp; [Español](README_es.md) &nbsp;•&nbsp; [Français](README_fr.md) &nbsp;•&nbsp; [Português](README_pt.md) &nbsp;•&nbsp; **中文** &nbsp;•&nbsp; [日本語](README_ja.md)
+[English](README.md) &nbsp;•&nbsp; [Русский](README_ru.md) &nbsp;•&nbsp; [Українська](README_uk.md) &nbsp;•&nbsp; [Deutsch](README_de.md) &nbsp;•&nbsp; [Español](README_es.md) &nbsp;•&nbsp; [Français](README_fr.md) &nbsp;•&nbsp; [Português](README_pt.md) &nbsp;•&nbsp; **Chinese** &nbsp;•&nbsp; [Japanese](README_ja.md)
 
 <br/><br/>
 
-<img src="assets/preview.svg" alt="devx Terminal Interface" width="750" style="border-radius: 8px;" />
+<img src="assets/preview.svg" alt="devx 终端界面" width="880" />
 
 </div>
+
+---
+
+## 概览
+
+<table>
+<tr><td valign="top" width="33%"><b>先计划，再行动</b><br/>PLAN 与 AGENT 模式，一键批准，计划大小随任务而定</td><td valign="top" width="33%"><b>默认安全</b><br/>风险操作先询问，输出中隐藏密钥，可通过 git 撤销，可选的费用上限</td><td valign="top" width="33%"><b>任意模型</b><br/>OpenRouter、Gemini、DeepSeek、Groq、Mistral、OpenAI、Anthropic、Ollama 等</td></tr><tr><td valign="top" width="33%"><b>内置 MCP</b><br/>控制面板、基于 HTTP 的远程服务器，智能体还能自己配置服务器</td><td valign="top" width="33%"><b>为终端而生</b><br/>适合手机的布局、18 套主题、可折叠的思考和输出</td><td valign="top" width="33%"><b>费用一目了然</b><br/>实时显示会话费用、按模型设置推理强度、需要时可设上限</td></tr>
+</table>
+
+## 快速开始
+
+```bash
+npm install -g termux-dev
+devx
+```
+
+在 Android 上，请先在 Termux 中运行 `pkg install nodejs-lts`。
 
 ---
 
