@@ -1,6 +1,6 @@
 import type { CostSource } from './cost.js';
 
-export const DEVX_VERSION = '1.8.1';
+export const DEVX_VERSION = '1.8.2';
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -175,4 +175,6 @@ export type AgentEvent =
   | { type: 'system'; message: string }
   /** A message the user typed while the agent was working; it was added to the conversation. */
   | { type: 'user_message'; content: string }
+  /** A background task ended or printed a line the model asked to hear about; it was added to the conversation. */
+  | { type: 'background_note'; content: string }
   | { type: 'usage'; usage: TokenUsage };

@@ -124,11 +124,15 @@ describe('the composer frame', () => {
     expect(draw('', ['a', 'second one']).map(stripAnsi)[3]).toContain('↳ 2 queued: second one');
   });
 
-  it('keeps one height for every state, so the output region never moves', () => {
+  it('keeps one height for every state, until the text needs more rows', () => {
     const heights = new Set(
-      [draw(''), draw('x'.repeat(300)), draw('hi', ['q']), draw('', ['a', 'b'])].map((l) => l.length)
+      [draw(''), draw('x'.repeat(30)), draw('hi', ['q']), draw('', ['a', 'b'])].map((l) => l.length)
     );
     expect(heights.size).toBe(1);
+    // a long text wraps onto more rows (the frame grows) and stops growing at the limit
+    const long = draw('word '.repeat(300));
+    expect(long.length).toBeGreaterThan(draw('').length);
+    expect(long.length).toBeLessThanOrEqual(draw('').length + 7);
   });
 
   it('never overflows, from a phone to a wide terminal', () => {

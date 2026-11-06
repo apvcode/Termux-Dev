@@ -200,15 +200,23 @@ describe('prompt frame', () => {
   it.each(WIDTHS.filter((c) => !isCompact(c)))('spans the full terminal width and keeps the borders aligned at %i columns', (cols) => {
     for (const input of ['', 'short', 'x'.repeat(300), 'привет \u{1F600} мир 日本語 '.repeat(15), '[Pasted text #1 +40 lines] hi']) {
       const frame = buildPromptFrame({ ...base, cols, input, cursorPos: Math.floor(input.length / 2) });
-      const [top, row, bottom] = plain(frame.lines);
+      const lines = plain(frame.lines);
+      const top = lines[0];
+      const bottomAt = lines.findIndex((l) => l.startsWith('╰'));
+      const bottom = lines[bottomAt];
       const w = displayWidth(top);
-      expect(displayWidth(row), `input row for ${JSON.stringify(input.slice(0, 12))}`).toBe(w);
+      expect(top.startsWith('╭')).toBe(true);
+      expect(bottomAt).toBeGreaterThanOrEqual(2);
+      for (const row of lines.slice(1, bottomAt)) {
+        // long text goes onto further rows, every one of them as wide as the frame
+        expect(displayWidth(row), `input row for ${JSON.stringify(input.slice(0, 12))}`).toBe(w);
+        expect(row.startsWith('│') && row.endsWith('│')).toBe(true);
+      }
       expect(displayWidth(bottom)).toBe(w);
       expect(w).toBe(cols - 1); // the whole width, not a capped box
-      expect(top.startsWith('╭')).toBe(true);
-      expect(row.startsWith('│') && row.endsWith('│')).toBe(true);
       expect(bottom.startsWith('╰') && bottom.endsWith('╯')).toBe(true);
-      expect(frame.cursorRow).toBe(1);
+      expect(frame.cursorRow).toBeGreaterThanOrEqual(1);
+      expect(frame.cursorRow).toBeLessThan(bottomAt);
       expect(frame.cursorCol).toBeGreaterThanOrEqual(4);
       expect(frame.cursorCol).toBeLessThanOrEqual(w - 2);
     }

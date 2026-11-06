@@ -10,6 +10,7 @@ import { CLIConsoleGuard } from '../permissions/guard.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
 import { UsageTracker } from '../core/usage.js';
 import { MCPManager } from '../mcp/manager.js';
+import { getBackgroundManager } from '../core/background.js';
 
 export interface HeadlessOptions {
   planMode?: boolean;
@@ -65,7 +66,8 @@ export async function runHeadlessMode(
       console.log(pc.dim(`Task: ${userPrompt}\n`));
     }
 
-    for await (const event of agent.run(abortController.signal)) {
+    const bgManager = getBackgroundManager();
+    for await (const event of agent.run(abortController.signal, { takeNotes: () => bgManager.takeNotes(), hasNotes: () => bgManager.hasNotes() })) {
       if (event.type === 'reasoning_delta') {
         accumulatedReasoning += event.delta;
         if (!isQuiet && !isJson) {

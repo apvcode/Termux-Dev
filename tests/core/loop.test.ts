@@ -122,3 +122,49 @@ describe('Agent cancellation', () => {
     expect(execute).toHaveBeenCalledTimes(stopAt === 'tool_start' ? 0 : 1);
   });
 });
+
+describe('Agent and background news', () => {
+  const answer = (content: string) => ({ content });
+
+  it('puts the news in the conversation before the next request and says so', async () => {
+    const seen: string[][] = [];
+    const provider: LLMProvider = {
+      id: 'mock',
+      chat: async (request) => {
+        seen.push(request.messages.map(m => m.content));
+        return answer('ok');
+      },
+    };
+    const { agent, history } = setup(provider);
+    const news = ['[devx · background tasks]\nbg1 "server" failed (exit code 1) after 3s.'];
+    const events: string[] = [];
+    for await (const event of agent.run(undefined, { takeNotes: () => news.shift() ?? '' })) events.push(event.type);
+
+    expect(events).toContain('background_note');
+    expect(seen[0].some(c => c.includes('bg1 "server" failed'))).toBe(true);
+    expect(history.getMessages().filter(m => m.role === 'user').map(m => m.content)).toContain('[devx · background tasks]\nbg1 "server" failed (exit code 1) after 3s.');
+  });
+
+  it('does not end the turn while news waits: the model answers it', async () => {
+    let requests = 0;
+    // The news arrives while the model is writing its answer, after the step began.
+    let waiting = false;
+    const provider: LLMProvider = { id: 'mock', chat: async () => { requests++; if (requests === 1) waiting = true; return answer('ok'); } };
+    const { agent } = setup(provider);
+    let text = '';
+    for await (const _ of agent.run(undefined, {
+      hasNotes: () => waiting,
+      takeNotes: () => { if (!waiting) return ''; waiting = false; return 'news'; },
+    })) { /* drain */ }
+    text = String(requests);
+    expect(text).toBe('2');
+  });
+
+  it('nothing changes without news', async () => {
+    let requests = 0;
+    const provider: LLMProvider = { id: 'mock', chat: async () => { requests++; return answer('ok'); } };
+    const { agent } = setup(provider);
+    for await (const _ of agent.run(undefined, { takeNotes: () => '', hasNotes: () => false })) { /* drain */ }
+    expect(requests).toBe(1);
+  });
+});

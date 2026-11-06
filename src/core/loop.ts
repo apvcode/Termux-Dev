@@ -35,6 +35,17 @@ export function getActionDescription(toolName: string, args: any): string {
   if (t === 'bash' || t === 'execute_command' || t === 'run_command' || t === 'exec') {
     return `→ Run: ${args.command || args.cmd || ''}`;
   }
+  if (t === 'background') {
+    const id = args.id ? ` ${args.id}` : '';
+    switch (args.action) {
+      case 'start': return `→ Background: ${args.label ? `${args.label} · ` : ''}${args.command || ''}`;
+      case 'list': return `→ Background: list tasks`;
+      case 'output': return `→ Background: output${id}`;
+      case 'wait': return `→ Background: wait${id}${args.pattern ? ` for /${args.pattern}/` : ''}`;
+      case 'stop': return `→ Background: stop${id}`;
+      default: return `→ Background`;
+    }
+  }
   if (t === 'todo_list' || t === 'update_todos') {
     return `→ Update Plan & Tasks`;
   }
@@ -68,6 +79,10 @@ export interface RunHooks {
   takePending?: () => Promise<Message[]> | Message[];
   /** True when a message is waiting: the agent keeps going instead of ending the turn. */
   hasPending?: () => boolean;
+  /** News from background tasks since the last step (one message for the model, or ''). */
+  takeNotes?: () => string;
+  /** True when such news is waiting: the agent keeps going instead of ending the turn. */
+  hasNotes?: () => boolean;
 }
 
 export class Agent {
@@ -106,6 +121,13 @@ export class Agent {
       for (const message of (await hooks?.takePending?.()) ?? []) {
         this.history.addMessage(message);
         yield { type: 'user_message', content: message.content };
+      }
+
+      // A background task ended or printed what was asked for: the model learns it before it decides.
+      const news = hooks?.takeNotes?.();
+      if (news) {
+        this.history.addMessage({ role: 'user', content: news });
+        yield { type: 'background_note', content: news };
       }
 
       const toolDefinitions = Array.from(this.tools.values()).map((t) => t.definition);
@@ -247,7 +269,7 @@ export class Agent {
 
       if (!response.toolCalls || response.toolCalls.length === 0) {
         // The user wrote something while the model was finishing: answer it instead of stopping.
-        if (hooks?.hasPending?.()) {
+        if (hooks?.hasPending?.() || hooks?.hasNotes?.()) {
           iterations++;
           continue;
         }

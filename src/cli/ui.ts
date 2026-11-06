@@ -231,6 +231,16 @@ export function renderHeader(info: HeaderInfo, cols: number): string[] {
 
 // ───────────────────────── prompt frame ─────────────────────────
 
+/** `◈ 2 bg` (running tasks); a failed one turns it red: `◈ 2 bg · 1 failed`. Empty when there is nothing to say. */
+export function backgroundBadge(bg?: { running: number; failed?: number }, short = false): string {
+  if (!bg || (bg.running <= 0 && !(bg.failed && bg.failed > 0))) return '';
+  const failed = bg.failed && bg.failed > 0 ? bg.failed : 0;
+  const text = short
+    ? `◈${bg.running}${failed ? `!${failed}` : ''}`
+    : `◈ ${bg.running} bg${failed ? ` · ${failed} failed` : ''}`;
+  return failed ? palette.err(text) : palette.accent(text);
+}
+
 export interface FrameInput {
   cols: number;
   mode: UiMode;
@@ -241,10 +251,14 @@ export interface FrameInput {
   contextPercent: number;
   cost: number;
   costState?: CostState;
+  /** Background tasks: how many run, how many failed since they were last looked at. */
+  background?: { running: number; failed?: number };
   input: string;
   /** UTF-16 index of the cursor inside `input`. */
   cursorPos: number;
   placeholder: string;
+  /** The most rows the input takes before it scrolls (default: a quarter of the terminal, at most 8). */
+  maxInputRows?: number;
   /** Rows shown under the frame instead of the key hints (command / file suggestions). */
   below?: string[];
 }
@@ -330,6 +344,120 @@ export function visibleWindow(input: string, cursorPos: number, cells: number): 
   };
 }
 
+
+// ───────────────────────── multi-row input ─────────────────────────
+
+/** One visual row of the input: code point indices [start, end) of the text it shows. */
+export interface InputRow {
+  start: number;
+  end: number;
+}
+
+/** Cells of text per row inside the frame (the compact phone row has no side borders). */
+export function inputCells(cols: number): number {
+  const W = frameWidth(cols);
+  return Math.max(4, isCompact(cols) ? W - 4 : W - 6);
+}
+
+/** Rows the input may take before it scrolls: a quarter of the terminal, at most 8. */
+export function maxInputRows(termRows = process.stdout.rows || 24): number {
+  return Math.max(1, Math.min(8, Math.floor(termRows / 4)));
+}
+
+/**
+ * Cuts the input into rows of `cells` cells. A line breaks after a space when it can; an
+ * attachment tag such as `[Pasted text #1 +22 lines]` is never split unless it is wider than a row.
+ */
+export function wrapInput(input: string, cells: number): InputRow[] {
+  const cps = Array.from(input);
+  if (cps.length === 0) return [{ start: 0, end: 0 }];
+  const widths = cps.map((c) => codePointWidth(c.codePointAt(0)!));
+
+  // Where a tag starts (in code points) -> where it ends.
+  const offsets: number[] = [];
+  let unit = 0;
+  for (const c of cps) { offsets.push(unit); unit += c.length; }
+  const atoms = new Map<number, number>();
+  for (const m of input.matchAll(BADGE)) {
+    const from = offsets.indexOf(m.index!);
+    const to = offsets.indexOf(m.index! + m[0].length);
+    if (from >= 0) atoms.set(from, to >= 0 ? to : cps.length);
+  }
+
+  const rows: InputRow[] = [];
+  let i = 0;
+  while (i < cps.length) {
+    const start = i;
+    let used = 0;
+    let afterSpace = -1;
+    while (i < cps.length) {
+      let next = atoms.get(i) ?? i + 1;
+      let w = widths.slice(i, next).reduce((a, b) => a + b, 0);
+      if (next > i + 1 && w > cells) { next = i + 1; w = widths[i]; }   // a tag wider than a row is split
+      if (used + w > cells) break;
+      used += w;
+      i = next;
+      if (cps[i - 1] === ' ') afterSpace = i;
+    }
+    if (i < cps.length && cps[i] !== ' ' && afterSpace > start) i = afterSpace;   // break between words
+    if (i === start) i = start + 1;                                               // a cell wider than the row
+    rows.push({ start, end: i });
+  }
+  return rows;
+}
+
+interface InputLayout {
+  cps: string[];
+  rows: InputRow[];
+  widths: number[];
+  /** Row and cell column of the cursor. */
+  cursorRow: number;
+  cursorCell: number;
+}
+
+function layoutInput(input: string, cursorPos: number, cells: number): InputLayout {
+  const cps = Array.from(input);
+  const widths = cps.map((c) => codePointWidth(c.codePointAt(0)!));
+  let cursorCp = 0;
+  let units = 0;
+  while (cursorCp < cps.length && units < cursorPos) { units += cps[cursorCp].length; cursorCp++; }
+  const rows = wrapInput(input, cells);
+  let cursorRow = rows.findIndex((r) => cursorCp < r.end);
+  if (cursorRow < 0) cursorRow = rows.length - 1;
+  const row = rows[cursorRow];
+  const cursorCell = widths.slice(row.start, Math.min(cursorCp, row.end)).reduce((a, b) => a + b, 0);
+  return { cps, rows, widths, cursorRow, cursorCell };
+}
+
+/**
+ * The cursor one row up or down inside a wrapped input, or null when there is no such row
+ * (the arrow keys then walk the prompt history as before). Returns a UTF-16 index.
+ */
+export function moveCursorRow(input: string, cursorPos: number, cols: number, dir: -1 | 1): number | null {
+  const clean = input.replace(/[\x00-\x1f\x7f]/g, ' ');
+  const { cps, rows, widths, cursorRow, cursorCell } = layoutInput(clean, cursorPos, inputCells(cols));
+  const target = rows[cursorRow + dir];
+  if (!target) return null;
+  // The last cell of a row that is not the last one belongs to the next row, so stop before it.
+  const limit = cursorRow + dir === rows.length - 1 ? target.end : Math.max(target.start, target.end - 1);
+  let at = target.start;
+  let used = 0;
+  while (at < limit && used + widths[at] <= cursorCell) { used += widths[at]; at++; }
+  return cps.slice(0, at).join('').length;
+}
+
+/** The rows of the input as drawn, with the cursor; scrolled so that the cursor row is visible. */
+function inputRows(f: FrameInput, cells: number): { rows: string[]; firstRow: number; cursorRow: number; cursorCol: number } {
+  if (!f.input) {
+    return { rows: [palette.muted(truncateWidth(f.placeholder, cells))], firstRow: 0, cursorRow: 0, cursorCol: 0 };
+  }
+  const { cps, rows, cursorRow, cursorCell } = layoutInput(f.input, f.cursorPos, cells);
+  const limit = f.maxInputRows ?? maxInputRows();
+  const firstRow = rows.length <= limit ? 0 : Math.max(0, Math.min(cursorRow - limit + 1, rows.length - limit));
+  const shown = rows.slice(firstRow, firstRow + limit).map((r) => formatBadges(cps.slice(r.start, r.end).join('')));
+  return { rows: shown, firstRow, cursorRow: cursorRow - firstRow, cursorCol: cursorCell };
+}
+
 function keyHints(cols: number, mode: UiMode): string {
   const next = mode === 'plan' ? 'agent' : 'plan';
   const all: Array<[string, string]> = [
@@ -385,17 +513,14 @@ export function buildPromptFrame(input: FrameInput): Frame {
   }
   const top = rule('╭─') + pill + rule('─'.repeat(Math.max(0, topFree - displayWidth(topRight)))) + topRight + rule('─╮');
 
-  // ── input row: │ ❯ text │
+  // ── input rows: │ ❯ text │, the text wraps onto further rows instead of scrolling sideways
   const contentCells = W - 6;
-  const win = visibleWindow(f.input, f.cursorPos, contentCells);
-  const content = f.input
-    ? (win.leftEllipsis ? palette.faint('…') : '') +
-      formatBadges(win.text) +
-      (win.rightEllipsis ? palette.faint('…') : '')
-    : palette.muted(truncateWidth(f.placeholder, contentCells));
-  const inputRow =
-    rule('│') + ' ' + palette.accent('❯') + ' ' + padEndWidth(content, contentCells) + ' ' + rule('│');
-  const cursorCol = 4 + (f.input ? (win.leftEllipsis ? 1 : 0) + win.cursorCells : 0);
+  const body = inputRows(f, contentCells);
+  const inputLines = body.rows.map((content, i) => {
+    const glyph = i === 0 ? (body.firstRow > 0 ? palette.faint('…') : palette.accent('❯')) : ' ';
+    return rule('│') + ' ' + glyph + ' ' + padEndWidth(content, contentCells) + ' ' + rule('│');
+  });
+  const cursorCol = 4 + body.cursorCol;
 
   // ── bottom border: ╰─ ~/project git:main* ──── ━━━━──── 12% · $0.0123 ─╯
   const bottomFree = W - 4;
@@ -409,7 +534,10 @@ export function buildPromptFrame(input: FrameInput): Frame {
       : bottomFree >= displayWidth(stat) + 4
         ? ' ' + palette.muted(stat) + ' '
         : '';
-  const leftRoom = bottomFree - displayWidth(bottomRight) - 2;
+  // ◈ 2 bg: tasks that keep running while the conversation goes on (/tasks lists them)
+  const bgBadge = backgroundBadge(f.background);
+  const bgWidth = bgBadge ? displayWidth(stripAnsi(bgBadge)) + 2 : 0;
+  const leftRoom = bottomFree - displayWidth(bottomRight) - 2 - bgWidth;
   let bottomLeft = '';
   if (f.cwd && leftRoom >= 10) {
     const branch = f.branch ? `${palette.faint('git:')}${palette.muted(f.branch)}${f.dirty ? palette.warn('*') : ''}` : '';
@@ -417,6 +545,9 @@ export function buildPromptFrame(input: FrameInput): Frame {
     const showBranch = branch && leftRoom - branchW >= 12;
     const pathRoom = leftRoom - (showBranch ? branchW : 0);
     bottomLeft = ' ' + palette.muted(shortenPath(f.cwd, pathRoom)) + (showBranch ? ' ' + branch : '') + ' ';
+  }
+  if (bgBadge && bottomFree - displayWidth(bottomLeft) - displayWidth(bottomRight) - 2 >= bgWidth) {
+    bottomLeft += (bottomLeft ? '' : ' ') + bgBadge + ' ';
   }
   const bottom =
     rule('╰─') +
@@ -428,7 +559,7 @@ export function buildPromptFrame(input: FrameInput): Frame {
   // ── footer: key hints, or the suggestion list while one is open
   const footer = f.below && f.below.length > 0 ? f.below.map((l) => '  ' + l) : [hintsRow(f.cols, f.mode)];
 
-  return { lines: [top, inputRow, bottom, ...footer], cursorRow: 1, cursorCol };
+  return { lines: [top, ...inputLines, bottom, ...footer], cursorRow: 1 + body.cursorRow, cursorCol };
 }
 
 /**
@@ -442,25 +573,28 @@ function buildCompactFrame(f: FrameInput): Frame {
   const style = modeStyle(f.mode);
   const prefix = style.color(style.glyph) + ' ' + palette.accent('❯') + ' ';
   const pct = Math.max(0, Math.min(100, Math.round(f.contextPercent)));
-  const statText = `${pct}%`;
+  const bgShort = backgroundBadge(f.background, true);
+  const statText = `${bgShort ? stripAnsi(bgShort) + ' ' : ''}${pct}%`;
   const statColor = pct >= 90 ? palette.err : pct >= 75 ? palette.warn : palette.faint;
   const statWidth = displayWidth(statText) + 1;
-  const withStat = W - 4 - statWidth >= 14;
-  const cells = W - 4 - (withStat ? statWidth : 0);
+  const cells = W - 4;
+  // The count sits at the end of the last row, and only when the text there leaves it room.
+  const withStat = cells - statWidth >= 14;
 
-  const win = visibleWindow(f.input, f.cursorPos, cells);
-  const content = f.input
-    ? (win.leftEllipsis ? palette.faint('…') : '') +
-      formatBadges(win.text) +
-      (win.rightEllipsis ? palette.faint('…') : '')
-    : palette.muted(truncateWidth(f.placeholder, cells));
-  const row = prefix + padEndWidth(content, cells) + (withStat ? ' ' + statColor(statText) : '');
+  const body = inputRows(f, cells);
+  const statShown = bgShort && withStat ? bgShort + ' ' + statColor(`${pct}%`) : statColor(statText);
+  const rows = body.rows.map((content, i) => {
+    const lead = i === 0 ? (body.firstRow > 0 ? style.color(style.glyph) + ' ' + palette.faint('…') + ' ' : prefix) : '    ';
+    const room = cells - displayWidth(stripAnsi(content));
+    const stat = i === body.rows.length - 1 && withStat && room >= statWidth ? ' '.repeat(room - statWidth + 1) + statShown : '';
+    return lead + (stat ? content + stat : padEndWidth(content, cells));
+  });
   const below = (f.below ?? []).map((l) => '  ' + l);
 
   return {
-    lines: [row, ...below],
-    cursorRow: 0,
-    cursorCol: 4 + (f.input ? (win.leftEllipsis ? 1 : 0) + win.cursorCells : 0),
+    lines: [...rows, ...below],
+    cursorRow: body.cursorRow,
+    cursorCol: 4 + body.cursorCol,
   };
 }
 
@@ -739,7 +873,7 @@ export function summarizeToolResult(name: string, result: string, cols = 80, exp
 
   if (expanded && t !== 'bash' && !(t === 'edit_file' || t === 'write_file')) {
     // For these the first line is part of the output, not a summary of it.
-    const own = t.startsWith('mcp__') || t === 'web_search' || t === 'fetch_url';
+    const own = t.startsWith('mcp__') || t === 'web_search' || t === 'fetch_url' || t === 'background';
     const first = own ? [] : summarizeToolResult(name, result, cols, false);
     return [...first, ...fullRows(text, cols)];
   }
@@ -772,6 +906,17 @@ export function summarizeToolResult(name: string, result: string, cols = 80, exp
       const servers: Array<{ name: string; status: string; tools?: number }> = JSON.parse(text).servers ?? [];
       if (servers.length > 0) return [renderResultLine(servers.map((s) => `${s.name} ${s.status}${s.status === 'connected' ? ` (${s.tools ?? 0} tools)` : ''}`).join(', '), servers.some((s) => s.status === 'failed') ? 'error' : 'ok', cols)];
     } catch {}
+  }
+
+  // Background tasks: what happened on the first line (started / failed / matched), the rest folded.
+  if (t === 'background') {
+    const nonEmpty = outputRows(text).filter((l) => l.trim());
+    if (nonEmpty.length === 0) return [renderResultLine('(no output)', 'muted', cols)];
+    const bad = /^(Error:|No background task|.* failed \(exit|.*ended right after)/.test(nonEmpty[0]);
+    const good = /^(Started bg|Stopped\.)/.test(nonEmpty[0]);
+    const rest = nonEmpty.length - 1;
+    const row = renderResultLine(nonEmpty[0].trim(), bad ? 'error' : good ? 'ok' : 'muted', cols);
+    return rest > 0 ? [row, moreHint(rest)] : [row];
   }
 
   // Output of an MCP tool or a web fetch: the first line and how many more there are.

@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import pc from 'picocolors';
 import { select } from '@inquirer/prompts';
+import { palette } from './ui.js';
 import { fileURLToPath } from 'url';
 
 const GITHUB_REPO_URL = 'https://github.com/apvcode/Termux-Dev';
@@ -231,8 +232,9 @@ export async function runStartupUpdateCheck(config: any): Promise<void> {
 
   const spinner = setInterval(() => {
     if (isDone) return;
-    const frame = pc.cyan(frames[fIdx++ % frames.length]);
-    process.stdout.write(`\r  ${frame} ${pc.dim(`Checking for updates from`)} ${pc.cyan('apvcode/Termux-Dev')} ${pc.dim(`(v${currentVersion})...`)} `);
+    // The colours of the theme, like the rest of the interface.
+    const frame = palette.accent(frames[fIdx++ % frames.length]);
+    process.stdout.write(`\r  ${frame} ${palette.muted('Checking for updates from')} ${palette.accent('apvcode/Termux-Dev')} ${palette.faint(`(v${currentVersion})...`)} `);
   }, 75);
 
   const result = await checkForUpdates(10000);
@@ -244,15 +246,15 @@ export async function runStartupUpdateCheck(config: any): Promise<void> {
 
   if (result.updateAvailable) {
     console.log();
-    console.log(pc.bold(pc.cyan('  ┌───────────────────────────────────────────────────────────┐')));
-    console.log(pc.bold(pc.cyan('  │')) + pc.bold(pc.yellow(`  A new update is available: `)) + pc.dim(`v${result.currentVersion}`) + pc.bold(pc.green(` → v${result.latestVersion}`)) + ' '.repeat(Math.max(1, 23 - result.currentVersion.length - result.latestVersion.length)) + pc.bold(pc.cyan('│')));
-    console.log(pc.bold(pc.cyan('  │')) + pc.dim(`  Repository: https://github.com/apvcode/Termux-Dev          `) + pc.bold(pc.cyan('│')));
-    console.log(pc.bold(pc.cyan('  └───────────────────────────────────────────────────────────┘')));
+    console.log(palette.rule('  ┌───────────────────────────────────────────────────────────┐'));
+    console.log(palette.rule('  │') + palette.bold(palette.accent(`  A new update is available: `)) + palette.muted(`v${result.currentVersion}`) + palette.bold(palette.ok(` → v${result.latestVersion}`)) + ' '.repeat(Math.max(1, 23 - result.currentVersion.length - result.latestVersion.length)) + palette.rule('│'));
+    console.log(palette.rule('  │') + palette.faint(`  Repository: https://github.com/apvcode/Termux-Dev          `) + palette.rule('│'));
+    console.log(palette.rule('  └───────────────────────────────────────────────────────────┘'));
     console.log();
 
     try {
       const choice = await select({
-        message: pc.bold('Do you want to update devx now?'),
+        message: palette.bold('Do you want to update devx now?'),
         loop: false,
         choices: [
           {
@@ -276,7 +278,7 @@ export async function runStartupUpdateCheck(config: any): Promise<void> {
     }
   } else {
     // Briefly show up to date message
-    process.stdout.write(`  ${pc.green('✓')} ${pc.dim(`devx is up to date (v${result.currentVersion})`)}\n`);
+    process.stdout.write(`  ${palette.ok('✓')} ${palette.muted(`devx is up to date (v${result.currentVersion})`)}\n`);
     await new Promise(r => setTimeout(r, 450));
     // Clean up line
     process.stdout.write('\x1b[1A\x1b[2K');

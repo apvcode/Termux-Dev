@@ -57,6 +57,8 @@ The terminal interface is built around a framed prompt that carries the status i
   Paste screenshots straight from the clipboard with `Ctrl+V` or `Alt+V` (also `/image`, or a pasted file path). They appear as badges like `[Image #1 203kb]` and are sent to the model as real images, unless the model is known to read text only. Needs `wl-clipboard` on Wayland, `xclip` on X11, `pngpaste` on macOS.
 - **Built-in Live Web Server (`/serve`):**  
   Instantly preview web apps and HTML5 games on port 3000. Seamlessly opens on Android via `termux-open-url`.
+- **Background tasks (`/tasks`):**  
+  The agent can start a dev server, a watcher or a long test run in the background and keep working. It can wait for a line (`ready|error`), read the output later, and is told when a task ends or prints something it asked about; if you are at the prompt then, it picks the news up by itself. A `◈ 2 bg` badge in the prompt frame shows what runs; `/tasks` lists tasks, `/tasks <id>` shows output, `/tasks stop <id|all>` ends them. Starting a task asks for approval like `bash`; everything is stopped when devx exits. Set `"backgroundAutoWake": false` to stop the agent from reacting by itself.
 - **Instant Snapshot Rollback (`/undo`):**  
   Every edit made with the file tools (`write_file`, `edit_file`) is recorded and can be rolled back with a single command. Changes made by shell commands (`bash`) are **not** tracked, and snapshots live in memory for the current session only.
 - **Self-Healing Diagnostics & Auto-Installer:**  
@@ -170,6 +172,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 | **`/rename`** | Rename the chat: `/rename <name>`, or without a name the AI names it again (`/title` is the same) |
 | **`/permissions`** | What is allowed without asking (`Session` / `Always` on an approval card); `/permissions clear` resets it |
 | **`/rewind`** | Go back to one of **your messages**: the chat after it is removed (the model forgets it too), the message returns to the input line to be edited; the files can go back as well (with git) |
+| **`/tasks`** | Background tasks: list, `/tasks <id>` for output, `/tasks stop <id\|all>`, `/tasks clear` |
 | **`/undo`** | Revert all file changes from the last AI turn |
 | **`/diff`** | View colored git diff of modified project files |
 | **`/commit`** | AI-generated semantic commit message & git commit |

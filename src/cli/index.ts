@@ -43,6 +43,9 @@ import { SessionExporter } from './export.js';
 import { MCPManager, discoverProjectMcpServers, hashProjectMcpServers, readClaudeServers, removeUserServer, saveUserServers } from '../mcp/manager.js';
 import { writeSecureFile } from '../core/secure-file.js';
 import { applyLocalConfig, persistedConfig, withoutSessionOnlySettings } from '../core/local-config.js';
+import { cloneConfig, mergeConfigChanges } from '../core/config-merge.js';
+import { BackgroundNote, getBackgroundManager } from '../core/background.js';
+import { backgroundSummary, noteRows, runTasksCommand } from './background-ui.js';
 import { LiveTelemetryTracker } from './telemetry.js';
 import { renderCleanStatus, renderPowerlineStatus, GitStatusCache } from './statusline.js';
 import { formatDiffBox } from './diff.js';
@@ -114,7 +117,20 @@ function maskApiKey(key: string): string {
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }
 
-async function saveConfig(config: any) {
+/**
+ * What this process last knew of the config file (its own settings after the start-up overrides,
+ * or what it wrote last). A save writes only the difference to it, see core/config-merge.ts.
+ */
+let configBaseline: Record<string, any> | null = null;
+let saveChain: Promise<void> = Promise.resolve();
+
+/** Call once the start-up overrides (-m, project config) are applied: those are not saved by accident. */
+function markConfigBaseline(config: any) {
+  syncKeyMaps(config);
+  configBaseline = cloneConfig(persistedConfig(config));
+}
+
+function syncKeyMaps(config: any) {
   config.apiKeys = config.apiKeys || {};
   config.baseUrls = config.baseUrls || {};
   if (config.provider && config.apiKey) {
@@ -123,10 +139,39 @@ async function saveConfig(config: any) {
   if (config.provider && config.baseUrl) {
     config.baseUrls[config.provider] = config.baseUrl;
   }
+}
+
+async function writeConfigFile(config: any) {
+  syncKeyMaps(config);
   // Runtime-only flags and YOLO (one run only) must not end up in the user's config file.
-  const persisted = persistedConfig(config);
-  // The file holds API keys: owner-only permissions (0600).
-  await writeSecureFile(CONFIG_PATH, JSON.stringify(persisted, null, 2));
+  const mine = cloneConfig(persistedConfig(config)) as Record<string, any>;
+
+  // Another devx may have saved since we looked: write only our own changes on top of the file.
+  let disk: Record<string, any> | null = null;
+  try {
+    const parsed = JSON.parse(await fs.readFile(CONFIG_PATH, 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) disk = withoutSessionOnlySettings(parsed);
+  } catch {}
+  const merged = disk ? mergeConfigChanges(configBaseline ?? {}, mine, disk) : mine;
+
+  // The file holds API keys: owner-only permissions (0600). Written aside and renamed, so a second
+  // process never reads half a file.
+  const tmp = `${CONFIG_PATH}.${process.pid}.tmp`;
+  try {
+    await writeSecureFile(tmp, JSON.stringify(merged, null, 2));
+    await fs.rename(tmp, CONFIG_PATH);
+  } catch (err) {
+    await fs.rm(tmp, { force: true }).catch(() => null);
+    throw err;
+  }
+  configBaseline = mine;
+}
+
+async function saveConfig(config: any) {
+  // One save at a time inside this process; the read-merge-write of the next one sees the previous.
+  const run = saveChain.then(() => writeConfigFile(config));
+  saveChain = run.catch(() => undefined);
+  return run;
 }
 
 async function fetchModels(baseUrl: string, apiKey: string): Promise<FetchModelsResult> {
@@ -812,6 +857,8 @@ export async function main() {
     config.model = options.model;
     config.maxContextTokens = resolveContextLimit({ ...config, maxContextTokens: 0 }).limit;
   }
+  // -m and the project config are for this run: only what changes from here on is saved.
+  markConfigBaseline(config);
   if (options.yolo) {
     config.autoApprove = true;
   }
@@ -906,6 +953,10 @@ export async function main() {
   const checkpoints: Checkpoint[] = [];
   // What the user allowed on the approval card for this session ("Session"); "Always" goes to the config.
   const permissionMemory = newPermissionMemory();
+  // Commands the agent keeps running in the background (servers, watchers): shown in the prompt frame, listed by /tasks.
+  const bg = getBackgroundManager();
+  const seenBgFailures = new Set<string>();
+  const bgSummary = () => backgroundSummary(bg, seenBgFailures);
   // The most a session may cost (USD, 0 = no limit); "continue" at the limit raises it for this session only.
   let costLimitRaised: number | null = null;
   let costWarned = false;
@@ -931,6 +982,11 @@ export async function main() {
   // and start from a clean slate: history, cost, usage counters, undo stack, screen.
   const startFreshSession = async () => {
     sessionManager.startNewSession(config.model, planMode);
+    // The tasks belonged to the conversation that is being left.
+    await bg.stopAll().catch(() => 0);
+    bg.clearFinished();
+    bg.takeNotes();
+    seenBgFailures.clear();
     transcript.length = 0;
     checkpoints.length = 0;
     windowTitle = '';
@@ -1011,6 +1067,8 @@ export async function main() {
     }
 
     let answer = '';
+    // Set when this turn starts by itself, from the news of a background task (not from the user).
+    let wakeNotes = '';
 
     if (autoTriggerPrompt) {
       answer = autoTriggerPrompt;
@@ -1040,7 +1098,19 @@ export async function main() {
         dirty: GitStatusCache.getStatus()?.isDirty,
         contextPercent: usagePercent,
         cost: sessionCost.total,
-        costState: sessionCost.state()
+        costState: sessionCost.state(),
+        background: bgSummary,
+        subscribe: (signal) => {
+          const onChange = () => signal('redraw');
+          // A task ended or printed what the agent asked to hear about: the agent takes it up by itself.
+          const onNote = () => signal(config.backgroundAutoWake === false ? 'redraw' : 'wake');
+          bg.on('change', onChange);
+          bg.on('note', onNote);
+          return () => {
+            bg.off('change', onChange);
+            bg.off('note', onNote);
+          };
+        },
       });
 
       if (inputStr.startsWith('__TOGGLE_MODE__:')) {
@@ -1058,20 +1128,30 @@ export async function main() {
         continue;
       }
 
-      currentDraft = '';
+      if (inputStr.startsWith('__WAKE__:')) {
+        // The prompt was closed by news from a background task: the agent answers it. What was typed stays.
+        currentDraft = inputStr.slice('__WAKE__:'.length);
+        wakeNotes = bg.takeNotes();
+        if (!wakeNotes) continue;
+        console.log(noteRows(wakeNotes).map((r) => renderNotice('info', r)).join('\n'));
+        console.log();
+        answer = wakeNotes;
+      } else {
+        currentDraft = '';
 
-      if (inputStr === '__CANCEL__') {
-        const confirmExit = await askConfirm({ title: t('confirm.exitTitle'), question: t('confirm.exit'), record: false });
-        if (confirmExit) {
-          resetTerminalTheme();
-          printFarewell(t('confirm.goodbye'));
-          break;
-        } else {
-          continue;
+        if (inputStr === '__CANCEL__') {
+          const confirmExit = await askConfirm({ title: t('confirm.exitTitle'), question: t('confirm.exit'), record: false });
+          if (confirmExit) {
+            resetTerminalTheme();
+            printFarewell(t('confirm.goodbye'));
+            break;
+          } else {
+            continue;
+          }
         }
-      }
 
-      answer = (inputStr as string).trim();
+        answer = (inputStr as string).trim();
+      }
     }
 
     if (!answer) continue;
@@ -1094,7 +1174,7 @@ export async function main() {
           '/settings', '/update', '/model', '/provider', '/providers',
           '/plan', '/agent', '/image', '/serve', '/memory', '/permissions', '/copy', '/rename', '/title', '/rewind', '/undo',
           '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
-          '/config', '/clear', '/exit', '/quit', '/help', '/effort'
+          '/config', '/clear', '/exit', '/quit', '/help', '/effort', '/tasks', '/bg', '/jobs'
         ];
         if (!VALID_COMMANDS.includes(cmd)) {
           const customList = await CustomCommandManager.listCommands();
@@ -1120,6 +1200,7 @@ export async function main() {
             { name: '/plan         - Switch to PLAN mode (architect)', value: '/plan' },
             { name: '/agent        - Switch to AGENT mode (coder)', value: '/agent' },
             { name: '/serve        - Start local web server for web preview', value: '/serve' },
+            { name: '/tasks        - Background tasks (list, output, stop)', value: '/tasks' },
             { name: '/memory       - View or edit project memory bank', value: '/memory' },
             { name: '/permissions  - What is allowed without asking', value: '/permissions' },
             { name: '/copy         - Copy the last answer to the clipboard', value: '/copy' },
@@ -1506,6 +1587,12 @@ export async function main() {
       }
       if (cmd === '/doctor') {
         await runDoctor(config);
+        continue;
+      }
+      if (cmd === '/tasks' || cmd === '/bg' || cmd === '/jobs') {
+        const rows = await runTasksCommand(parts.slice(1).filter(Boolean), bg, process.stdout.columns || 80, (ids) => ids.forEach((id) => seenBgFailures.add(id)));
+        console.log(rows.join('\n'));
+        console.log();
         continue;
       }
       if (cmd === '/serve') {
@@ -1899,7 +1986,10 @@ export async function main() {
     }
 
     // Resolve @file and @image mentions
-    const { text: cleanAnswer, attachments, images, warnings: attachWarnings } = await resolveAtMentions(answer);
+    // News from a background task is output of a program, not a message of the user: no @file in it is read.
+    const { text: cleanAnswer, attachments, images, warnings: attachWarnings } = wakeNotes
+      ? { text: answer, attachments: [], images: [], warnings: [] as string[] }
+      : await resolveAtMentions(answer);
     for (const warning of attachWarnings) log.warn(warning);
     let finalContent = cleanAnswer;
 
@@ -1943,9 +2033,10 @@ export async function main() {
       turnCheckpoint = await createCheckpoint(process.cwd(), checkpoints[checkpoints.length - 1]?.sha);
       if (turnCheckpoint) checkpoints.push(turnCheckpoint);
     }
-    transcript.push({ kind: 'user', text: answer });
+    if (wakeNotes) transcript.push({ kind: 'raw', rows: noteRows(wakeNotes).map((r) => renderNotice('info', r)) });
+    else transcript.push({ kind: 'user', text: answer });
     // Until the model has named the chat, the start of the first message stands in for the name.
-    if (!windowTitle && !sessionManager.hasGeneratedTitle) setWindowTitle(provisionalTitle(answer));
+    if (!wakeNotes && !windowTitle && !sessionManager.hasGeneratedTitle) setWindowTitle(provisionalTitle(answer));
     history.addMessage({
       role: 'user',
       content: finalContent,
@@ -2249,8 +2340,12 @@ export async function main() {
         contextPercent: Math.min(100, Math.round((used / (config.maxContextTokens || getModelContextLimit(config.model))) * 100)),
         cost: sessionCost.total,
         costState: sessionCost.state(),
+        background: bgSummary(),
       };
     }, undefined, statusLine, sendQueuedNow);
+    // A task started or ended during the turn: the frame shows the new count.
+    const onBgChange = () => composer.refresh();
+    bg.on('change', onBgChange);
     composer.live = liveThought;
     composer.onToggle = toggleView;
     const releasePauseHook = registerPauseHook(() => {
@@ -2311,6 +2406,8 @@ export async function main() {
       for await (const event of agent.run(abortController.signal, {
         takePending: async () => Promise.all(composer.takeQueued().map(queuedToMessage)),
         hasPending: () => composer.hasQueued(),
+        takeNotes: () => bg.takeNotes(),
+        hasNotes: () => bg.hasNotes(),
       })) {
         if (aborted) break;
         if (event.type === 'reasoning_delta') {
@@ -2556,6 +2653,17 @@ export async function main() {
           if (spinnerActive) { s.stop(); spinnerActive = false; }
           if (cleanUi) console.log(renderNotice('info', event.message));
           else log.info(event.message);
+        } else if (event.type === 'background_note') {
+          // A background task ended or printed what the agent asked to hear about.
+          if (spinnerActive) { s.stop(); spinnerActive = false; }
+          finishThinking(true);
+          streamer.finish();
+          endText();
+          const rows = noteRows(event.content);
+          transcript.push({ kind: 'raw', rows: rows.map((r) => renderNotice('info', r)) });
+          for (const row of rows) console.log(cleanUi ? renderNotice('info', row) : pc.dim(row));
+          s.start(cleanUi ? t('status.waiting') : 'Connecting...');
+          spinnerActive = true;
         }
       }
       finishThinking(true);
@@ -2568,6 +2676,7 @@ export async function main() {
 
       // Hand the bottom of the screen back. Whatever was typed but not sent waits in the next prompt;
       // a message that arrived too late for the agent starts the next turn by itself.
+      bg.off('change', onBgChange);
       const leftover = composer.stop();
       if (interruptPrompt) {
         autoTriggerPrompt = interruptPrompt;
@@ -2684,6 +2793,7 @@ export async function main() {
         else log.error(pc.bold(pc.red(`${err.message}`)));
       }
     } finally {
+      bg.off('change', onBgChange);
       const unsent = composer.stop();
       if (process.stdout.isTTY) process.stdout.write('\x1b[?1004l');
       if (interruptPrompt && !autoTriggerPrompt) autoTriggerPrompt = interruptPrompt;

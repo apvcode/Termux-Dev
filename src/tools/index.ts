@@ -1,5 +1,6 @@
 import { readFileTool, writeFileTool, editFileTool, listDirTool, mkdirTool } from './fs.js';
 import { bashTool } from './bash.js';
+import { backgroundTool } from './background.js';
 import { searchTool } from './search.js';
 import { askQuestionsTool } from './questions.js';
 import { webSearchTool, fetchUrlTool } from './web.js';
@@ -22,7 +23,7 @@ export function getTools(planMode: boolean): Tool[] {
     return [...baseTools, ...mcpTools];
   }
   
-  return [...baseTools, writeFileTool, editFileTool, mkdirTool, bashTool, diagnoseCodeTool, installPackageTool, servePreviewTool, mcpManageTool, ...mcpTools];
+  return [...baseTools, writeFileTool, editFileTool, mkdirTool, bashTool, backgroundTool, diagnoseCodeTool, installPackageTool, servePreviewTool, mcpManageTool, ...mcpTools];
 }
 
 export { webSearchTool, fetchUrlTool, diagnoseCodeTool, installPackageTool, saveMemoryTool, planReadyTool, lastPlanReady, resetPlanReady, todoListTool, currentTodoList, resetTodoList, servePreviewTool };

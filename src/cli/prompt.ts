@@ -7,7 +7,7 @@ import { CustomCommandManager } from '../core/commands.js';
 import { formatPromptHeader } from './modeborder.js';
 import { filterCommandPalette, estimatePromptTokens, formatPromptTokenBadge } from './prompt_palette.js';
 import { PromptHistoryNavigator } from './history_search.js';
-import { buildPromptFrame, palette, renderUserEcho, resolveMode } from './ui.js';
+import { buildPromptFrame, moveCursorRow, palette, renderUserEcho, resolveMode } from './ui.js';
 import { padEndWidth, truncateWidth } from './width.js';
 
 import { UIConfig } from '../core/types.js';
@@ -31,6 +31,7 @@ export const SLASH_COMMANDS = [
   { cmd: '/agent', desc: 'Switch to AGENT mode (coder & executor)' },
   { cmd: '/image', desc: 'Paste the image from the clipboard (same as Ctrl+V or Alt+V)' },
   { cmd: '/serve', desc: 'Start local web server for web/game preview' },
+  { cmd: '/tasks', desc: 'Background tasks: list, /tasks <id> output, /tasks stop <id|all>' },
   { cmd: '/copy', desc: 'Copy the last answer of the AI to the clipboard' },
   { cmd: '/rewind', desc: 'Go back to one of your messages: the chat after it is removed' },
   { cmd: '/rename', desc: 'Rename the chat (/rename <name>), or let the AI name it again' },
@@ -65,6 +66,14 @@ export interface AskPromptOptions {
   contextPercent?: number;
   cost?: number;
   costState?: CostState;
+  /** Background tasks shown in the frame (asked again at every redraw). */
+  background?: () => { running: number; failed?: number };
+  /**
+   * Lets the owner talk to the open prompt: `redraw` draws the frame again (a task started or
+   * ended), `wake` closes the prompt with `__WAKE__:<draft>` (a task has news for the model).
+   * Returns the function that unsubscribes.
+   */
+  subscribe?: (signal: (kind: 'redraw' | 'wake') => void) => () => void;
   /** ctrl+p (thinking) and ctrl+o (tool output): the owner folds or unfolds the chat above; the frame is drawn again under it. */
   onViewToggle?: (kind: 'thinking' | 'output') => void;
 }
@@ -193,6 +202,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         contextPercent: opts.contextPercent ?? 0,
         cost: opts.cost ?? 0,
         costState: opts.costState,
+        background: opts.background?.(),
         input,
         cursorPos,
         placeholder,
@@ -230,6 +240,30 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       render();
     };
     process.stdout.on('resize', onResize);
+    const unsubscribeOwner = opts.subscribe?.((kind) => {
+      if (disposed) return;
+      if (kind === 'redraw') {
+        render();
+        return;
+      }
+      // News for the model: close the prompt, the owner starts a turn. What was typed is kept.
+      if (cleanLayout) eraseFrame();
+      else process.stdout.write(`\x1b[0m\r\x1b[2K`);
+      cleanup();
+      resolve(`__WAKE__:${input}`);
+    });
+
+    /** Up / down inside a text that wraps onto several rows; false when there is no row to go to (history takes over). */
+    function moveInInput(dir: -1 | 1): boolean {
+      if (!cleanLayout) return false;
+      let to = moveCursorRow(input, cursorPos, process.stdout.columns || 80, dir);
+      if (to === null) return false;
+      // Never land inside an attachment tag: go to its start.
+      const inside = getTagSpans().find((sp) => to! > sp.start && to! < sp.end);
+      if (inside) to = inside.start;
+      cursorPos = to;
+      return true;
+    }
 
     function getTagSpans(): Array<{ start: number; end: number }> {
       const spans: Array<{ start: number; end: number }> = [];
@@ -591,6 +625,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
 
     function cleanup() {
       disposed = true;
+      unsubscribeOwner?.();
       if (process.stdout.isTTY) {
         process.stdout.write('\x1b[?2004l');
       }
@@ -797,6 +832,8 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         if (items.length > 0) {
           selectedIndex = Math.max(0, selectedIndex - 1); // stops at the first item
           render();
+        } else if (moveInInput(-1)) {
+          render();
         } else {
           const prev = historyNav.navigateUp(input);
           if (prev !== null) {
@@ -812,6 +849,8 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       if (str === '\x1b[B' || str === '\x1bOB') {
         if (items.length > 0) {
           selectedIndex = Math.min(items.length - 1, selectedIndex + 1); // stops at the last item
+          render();
+        } else if (moveInInput(1)) {
           render();
         } else {
           const next = historyNav.navigateDown();

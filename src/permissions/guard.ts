@@ -279,7 +279,7 @@ function hasComplexChainingOrRedirection(commandStr?: string): boolean {
 
 // ───────────────────────── guard ─────────────────────────
 
-const SHELL_TOOLS = new Set(['bash', 'exec', 'run_command', 'execute_command']);
+const SHELL_TOOLS = new Set(['bash', 'background', 'exec', 'run_command', 'execute_command']);
 const READ_TOOLS = new Set(['read_file', 'view_file', 'read', 'list_dir', 'list_files', 'ls', 'search', 'grep_search', 'grep', 'diagnose_code']);
 const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'make_dir', 'mkdir', 'create_file', 'write_to_file', 'patch']);
 
@@ -429,6 +429,7 @@ export function buildPermissionRequest(toolName: string, args: any): PermissionR
     const danger = isDangerousBashCommand(cmd) || shellTouchesSecrets(cmd);
     if (isDangerousBashCommand(cmd)) notes.push('looks destructive or runs downloaded code');
     else if (shellTouchesSecrets(cmd)) notes.push('reads a credentials / secrets file: its content would reach the model');
+    if (t === 'background') notes.push('keeps running in the background until it ends or you stop it');
     return { title: t === 'bash' ? 'bash' : toolName, danger, lines: cmd.split('\n'), notes };
   }
 

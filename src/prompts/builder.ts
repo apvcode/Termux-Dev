@@ -39,7 +39,8 @@ export async function buildSystemPrompt(planMode: boolean): Promise<string> {
     prompt += `- Before using tools on a task, say in one short line what you are about to do. Do not narrate every step.\n`;
     prompt += `- Do the whole task step by step. For a task with several steps, keep the checklist with 'todo_list'.\n`;
     prompt += `- Read a file before you edit it. Change only what the task needs, with 'edit_file' for small changes. Do not rewrite a whole file or touch unrelated code.\n`;
-    prompt += `- 'bash' stops after 120 s and cuts long output: give long jobs a timeout or run them in the background, and print only what you need (head, tail, grep).\n`;
+    prompt += `- 'bash' stops after 120 s and cuts long output: give a long job a timeout, and print only what you need (head, tail, grep).\n`;
+    prompt += `- Anything that keeps running (dev server, watcher, long test run or build) goes to the 'background' tool, not to 'bash': action 'start' returns at once and the work goes on while you continue. Set notify_on to a regex ('ready|listening|error|FAIL') to be told when such a line appears; you are always told when a task ends. Then do other work or finish your answer: do not poll. To wait for a line use action 'wait' with a pattern, to read output use 'output', to end it use 'stop'. The user sees the tasks under /tasks. Never start the same server twice: check 'list' first.\n`;
     prompt += `- After you change code, run 'diagnose_code' and fix what it reports. Install missing dependencies with 'install_package'.\n`;
     prompt += `- After you create or change a web page or frontend app, start the local preview with 'serve_preview' (action 'start').\n`;
     if (MemoryManager.enabled) prompt += `- Save lasting decisions and user preferences with 'save_memory'.\n`;
