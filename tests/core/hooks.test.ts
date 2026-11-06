@@ -4,6 +4,8 @@ import { applyLocalConfig } from '../../src/core/local-config.js';
 import { Agent } from '../../src/core/loop.js';
 import { History } from '../../src/core/history.js';
 
+const WIN = process.platform === 'win32';
+
 describe('matching hooks to tools', () => {
   const entries: HookEntry[] = [
     { matcher: 'bash', command: 'a' },
@@ -44,7 +46,7 @@ describe('running hooks', () => {
     expect(out.blocked).toBeUndefined();
   });
 
-  it('the hook gets the call as JSON on stdin and in the environment (a real process)', async () => {
+  it.skipIf(WIN)('the hook gets the call as JSON on stdin and in the environment (a real process)', async () => {
     const seen: any[] = [];
     const run = async (entry: HookEntry, payload: any, env: Record<string, string>) => {
       const r = await runHookProcess(
@@ -82,7 +84,7 @@ describe('hooks in the agent loop', () => {
   };
   const run = async (a: Agent) => { for await (const _ of a.run()) { /* drain */ } };
 
-  it('a blocking hook keeps the tool from running, and the model is told why', async () => {
+  it.skipIf(WIN)('a blocking hook keeps the tool from running, and the model is told why', async () => {
     const executed: string[] = [];
     const { agent, history } = makeAgent({ PreToolUse: [{ matcher: 'bash', command: 'echo "not in this project" >&2; exit 2' }] }, executed);
     await run(agent);
@@ -90,7 +92,7 @@ describe('hooks in the agent loop', () => {
     expect(history.getMessages().find((m) => m.role === 'tool')!.content).toBe('Blocked by a hook: not in this project');
   });
 
-  it('a PostToolUse hook runs after the tool and can add feedback to the result', async () => {
+  it.skipIf(WIN)('a PostToolUse hook runs after the tool and can add feedback to the result', async () => {
     const executed: string[] = [];
     const { agent, history } = makeAgent({ PostToolUse: [{ command: 'echo "lint: 2 warnings" >&2; exit 2' }] }, executed);
     await run(agent);

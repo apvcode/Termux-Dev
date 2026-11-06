@@ -4,8 +4,12 @@ import { installPackageTool } from '../../src/tools/packages.js';
 describe('installPackageTool', () => {
   it('validates safe package names', () => {
     expect(() => installPackageTool.validateArgs({ package: 'express' })).not.toThrow();
-    expect(() => installPackageTool.validateArgs({ package: '@types/node@^20.0.0' })).not.toThrow();
-    expect(() => installPackageTool.validateArgs({ package: 'requests>=2.25.1' })).not.toThrow();
+    // version ranges are refused on Windows, where the shell would read < > ^ as operators
+    const ranges = [{ package: '@types/node@^20.0.0' }, { package: 'requests>=2.25.1' }];
+    for (const args of ranges) {
+      const check = expect(() => installPackageTool.validateArgs(args));
+      if (process.platform === 'win32') check.toThrow(/Windows/); else check.not.toThrow();
+    }
   });
 
   it('rejects malicious command injection payloads in package names', () => {

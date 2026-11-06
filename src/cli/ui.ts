@@ -97,10 +97,11 @@ export function formatDuration(ms: number): string {
 
 /** `/home/me/projects/app` → `~/projects/app`, shortened from the left to fit `max` cells. */
 export function shortenPath(p: string, max: number, home: string = os.homedir()): string {
-  let s = p;
-  if (s === home) s = '~';
-  else if (s.startsWith(home + path.sep)) s = '~' + s.slice(home.length);
-  s = s.split(path.sep).join('/');
+  const slashed = (v: string) => v.split(path.sep).join('/').replace(/\\/g, '/');
+  let s = slashed(p);
+  const h = slashed(home).replace(/\/+$/, '');
+  if (s === h) s = '~';
+  else if (h && s.startsWith(h + '/')) s = '~' + s.slice(h.length);
   if (displayWidth(s) <= max) return s;
 
   const parts = s.split('/');

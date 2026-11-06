@@ -13,6 +13,7 @@ let clip: typeof import('../../src/cli/clipboard.js');
 beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'devx-clip-'));
   vi.stubEnv('HOME', home);
+  vi.stubEnv('USERPROFILE', home);
   vi.resetModules();
   clip = await import('../../src/cli/clipboard.js');
 });

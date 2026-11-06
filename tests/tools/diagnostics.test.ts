@@ -15,7 +15,7 @@ describe('diagnose_code', () => {
   });
   afterEach(async () => {
     process.chdir(original);
-    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }).catch((e) => { if (process.platform !== 'win32') throw e; });
   });
 
   it('rejects shell metacharacters in the file name and runs nothing', async () => {

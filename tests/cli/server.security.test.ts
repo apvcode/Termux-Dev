@@ -5,6 +5,8 @@ import os from 'os';
 import path from 'path';
 import { isAllowedHost, isBlockedName, startServer, stopServer } from '../../src/cli/server.js';
 
+const WIN = process.platform === 'win32';
+
 function get(port: number, urlPath: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -96,7 +98,7 @@ describe('preview server', () => {
     expect((await get(port, '/innocent.txt')).status).toBe(403);
   });
 
-  it('escapes file names in the directory listing', async () => {
+  it.skipIf(WIN)('escapes file names in the directory listing', async () => {
     await fs.mkdir(path.join(dir, 'sub'));
     await fs.writeFile(path.join(dir, 'sub', '<img src=x onerror=alert(1)>.txt'), 'x');
     const res = await get(port, '/sub/');

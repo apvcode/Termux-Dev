@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
 import { DraftState, FrameBase, TurnComposer, applyKey, renderComposer } from '../../src/cli/typeahead.js';
 import { setActiveTheme } from '../../src/cli/theme.js';
 import { displayWidth, stripAnsi } from '../../src/cli/width.js';
@@ -89,7 +91,7 @@ describe('editing the line', () => {
   });
 });
 
-const BASE: FrameBase = { mode: 'agent', model: 'glm-5.3-flash · think max', cwd: '/home/mega/Downloads/test', contextPercent: 12, cost: 0.0123 };
+const BASE: FrameBase = { mode: 'agent', model: 'glm-5.3-flash · think max', cwd: path.join(os.homedir(), 'Downloads', 'test'), contextPercent: 12, cost: 0.0123 };
 
 describe('the composer frame', () => {
   beforeEach(() => setActiveTheme('cyan'));

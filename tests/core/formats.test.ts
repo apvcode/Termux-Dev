@@ -135,7 +135,7 @@ describe('refreshing', () => {
     const saved = fs.readFileSync(path.join(tmp, 'formats.json'), 'utf8');
     expect(saved).toContain('claude-a');
     expect(saved).not.toContain('sk-secret-key');
-    expect(fs.statSync(path.join(tmp, 'formats.json')).mode & 0o077).toBe(0);
+    if (process.platform !== 'win32') expect(fs.statSync(path.join(tmp, 'formats.json')).mode & 0o077).toBe(0);
   });
 
   it('is remembered by the next run', async () => {

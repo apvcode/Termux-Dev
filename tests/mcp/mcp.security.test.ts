@@ -44,7 +44,7 @@ afterEach(async () => {
   process.chdir(original);
   if (originalHome === undefined) delete process.env.HOME; else process.env.HOME = originalHome;
   delete process.env.USERPROFILE;
-  await fs.rm(dir, { recursive: true, force: true });
+  await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }).catch((e) => { if (process.platform !== 'win32') throw e; });
 });
 
 describe('MCPClient server-initiated messages', () => {

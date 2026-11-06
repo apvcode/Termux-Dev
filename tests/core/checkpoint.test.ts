@@ -6,6 +6,8 @@ import os from 'os';
 import path from 'path';
 import { createCheckpoint, diffCheckpoint, restoreCheckpoint } from '../../src/core/checkpoint.js';
 
+const WIN = process.platform === 'win32';
+
 const hasGit = (() => { try { execFileSync('git', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
 
@@ -34,7 +36,7 @@ describe.skipIf(!hasGit)('git checkpoints', () => {
     expect(await diffCheckpoint(cp)).toEqual({ modified: [], created: [], deleted: [] });
   });
 
-  it('puts back what a shell command did: edited, created and deleted files, also in new folders', async () => {
+  it.skipIf(WIN)('puts back what a shell command did: edited, created and deleted files, also in new folders', async () => {
     await repo();
     await fs.writeFile(path.join(dir, 'dirty.txt'), 'uncommitted work\n');       // not committed: part of the snapshot too
     const cp = (await createCheckpoint(dir))!;

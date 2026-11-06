@@ -72,7 +72,7 @@ describe('isDangerousBashCommand', () => {
     'rm -rf node_modules',
     'rm -rf dist/*',
     'rm -rf ./build/cache',
-    `rm -rf ${path.join(os.tmpdir(), 'devx-build-123')}`,
+    `rm -rf ${path.join(os.tmpdir(), 'devx-build-123').split(path.sep).join('/')}`,
     'find . -name "*.pyc" -delete',
     'find src -type f -name "*.tmp" -exec rm {} \\;',
     'chmod +x script.sh',
