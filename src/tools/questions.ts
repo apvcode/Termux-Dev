@@ -1,5 +1,8 @@
-import { select, input } from '@inquirer/prompts';
-import pc from 'picocolors';
+import { input } from '@inquirer/prompts';
+import { runPicker, PickerItem } from '../cli/picker.js';
+import { palette } from '../cli/ui.js';
+import { wrapWords } from '../cli/width.js';
+import { t } from '../core/i18n.js';
 import { Tool } from '../core/types.js';
 
 interface QuestionItem {
@@ -55,84 +58,69 @@ export const askQuestionsTool: Tool = {
 
     const results: Array<{ question: string; answer: string }> = [];
     const total = args.questions.length;
+    const cols = process.stdout.columns || 80;
 
     console.log();
 
-    // Pause raw mode for interactive prompt
+    // Pause raw mode for the typed answer (the picker handles its own keys)
     const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
-    if (wasRaw) {
-      process.stdin.setRawMode(false);
-    }
 
     try {
       for (let i = 0; i < total; i++) {
         const q = args.questions[i];
-        const stepHeader = pc.cyan(`‹ ${i + 1} of ${total} ›`);
-        const messageTitle = `${pc.bold(q.question)}  ${stepHeader}`;
+        // The question stays on screen as plain text, the card under it holds the choices.
+        for (const line of wrapWords(q.question, Math.max(20, cols - 8))) console.log('  ' + palette.bold(palette.text(line)));
 
-        const choices: Array<{ name: string; value: string }> = q.options.map((opt, idx) => ({
-          name: `${pc.cyan(String(idx + 1))}  ${opt}`,
-          value: opt
-        }));
+        const items: Array<PickerItem<string>> = q.options.map((opt, idx) => ({ value: opt, label: `${idx + 1}  ${opt}` }));
+        if (q.allowCustom !== false) items.push({ value: '__custom__', label: t('questions.custom') });
+        items.push({ value: '__skip__', label: t('questions.skip') });
 
-        if (q.allowCustom !== false) {
-          choices.push({
-            name: `${pc.dim('+ Type custom answer...')}`,
-            value: '__custom__'
-          });
-        }
-
-        choices.push({
-          name: `${pc.dim('Skip')}`,
-          value: '__skip__'
+        let answer: string | undefined = await runPicker({
+          title: q.id && q.id.length <= 24 ? q.id : t('questions.title'),
+          subtitle: total > 1 ? `${i + 1} / ${total}` : undefined,
+          items,
         });
 
-        try {
-          let answer = await select({
-            message: messageTitle,
-            choices,
-            loop: false,
-            pageSize: Math.min(8, choices.length)
-          });
-
-          if (answer === '__custom__') {
-            const customAns = await input({
-              message: pc.cyan('Your custom answer:'),
-              validate: (v) => v.trim().length > 0 || 'Answer cannot be empty'
-            });
-            answer = customAns.trim();
-          } else if (answer === '__skip__') {
-            answer = '(Skipped)';
+        if (answer === '__custom__') {
+          if (wasRaw) process.stdin.setRawMode(false);
+          try {
+            answer = (await input({
+              message: palette.accent(t('questions.yourAnswer')),
+              validate: (v) => v.trim().length > 0 || t('questions.empty'),
+            })).trim();
+          } catch {
+            answer = undefined;
+          } finally {
+            if (wasRaw) process.stdin.setRawMode(true);
+            process.stdin.resume();
           }
-
-          results.push({
-            question: q.question,
-            answer
-          });
-        } catch {
-          results.push({
-            question: q.question,
-            answer: '(Skipped)'
-          });
+        } else if (answer === '__skip__') {
+          answer = undefined;
         }
+
+        const given = answer ?? t('questions.skipped');
+        results.push({ question: q.question, answer: given });
+        // What was asked and what was answered stays in the conversation, quietly.
+        console.log(renderAnswerRow(q.question, given, answer === undefined, cols));
       }
     } finally {
-      // Restore raw mode
       if (wasRaw && process.stdin.isTTY) {
         process.stdin.setRawMode(true);
         process.stdin.resume();
       }
     }
 
-    // Print styled Q&A block in console
-    console.log('\n' + pc.cyan('────────────────────────────────────────────'));
-    const formattedBlocks = results.map(r => {
-      console.log(pc.bold(pc.white(`Q: ${r.question}`)));
-      console.log(pc.green(`A: ${r.answer}\n`));
-      return `Q: ${r.question}\n\nA: ${r.answer}`;
-    });
-    console.log(pc.cyan('────────────────────────────────────────────\n'));
-
-    return formattedBlocks.join('\n\n');
+    console.log();
+    return results.map((r) => `Q: ${r.question}\n\nA: ${r.answer}`).join('\n\n');
   }
 };
+
+/** `  ✓ question` and the answer under it; a skipped one is muted. */
+export function renderAnswerRow(question: string, answer: string, skipped: boolean, cols: number): string {
+  const room = Math.max(10, cols - 8);
+  const q = wrapWords(question.replace(/\s+/g, ' ').trim(), room);
+  const a = wrapWords(answer.replace(/\s+/g, ' ').trim(), room - 2);
+  const head = q.map((line, i) => (i === 0 ? `  ${skipped ? palette.faint('-') : palette.ok('✓')} ${palette.muted(line)}` : `    ${palette.muted(line)}`));
+  const body = a.map((line, i) => `    ${i === 0 ? palette.accent('›') : ' '} ${skipped ? palette.faint(line) : palette.text(line)}`);
+  return [...head, ...body].join('\n');
+}

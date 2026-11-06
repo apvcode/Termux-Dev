@@ -1,9 +1,12 @@
 import { AgentConfig, AgentEvent, LLMProvider, Message, PermissionGuard, Tool } from './types.js';
 import { History } from './history.js';
 import { CONTEXT_USAGE_RATIO, toolSchemaTokens } from './context-stats.js';
+import { t } from './i18n.js';
+import { redactSecrets } from './redact.js';
+import { runHooks } from './hooks.js';
 import { isNetworkOrRetryableError, getHumanReadableNetworkError, waitDelay } from './network.js';
 
-function getActionDescription(toolName: string, args: any): string {
+export function getActionDescription(toolName: string, args: any): string {
   const t = toolName.toLowerCase();
   if (t === 'read_file' || t === 'view_file' || t === 'read') {
     return `→ Read ${args.path || args.filePath || args.targetFile || ''}`;
@@ -34,6 +37,14 @@ function getActionDescription(toolName: string, args: any): string {
   }
   if (t === 'todo_list' || t === 'update_todos') {
     return `→ Update Plan & Tasks`;
+  }
+  if (t.startsWith('mcp__')) {
+    const [, server = 'mcp', ...rest] = toolName.split('__');
+    let brief = '';
+    try {
+      brief = args && Object.keys(args).length ? JSON.stringify(args) : '';
+    } catch {}
+    return `→ MCP: ${server} · ${rest.join('__')}${brief ? ' ' + (brief.length > 120 ? brief.slice(0, 117) + '...' : brief) : ''}`;
   }
   if (t === 'plan_ready') {
     return `→ Finalize Plan`;
@@ -192,7 +203,7 @@ export class Agent {
           }
 
           const errMsg = isNetwork
-            ? `Ошибка сети: Не удалось восстановить интернет-соединение после ${attempt} попыток (${err.message}).`
+            ? t('net.failedAfter', { n: attempt, reason: err.message })
             : `API Error: ${err.message}`;
           yield { type: 'error', message: errMsg, isFatal: true };
           return;
@@ -263,20 +274,33 @@ export class Agent {
           } else {
             try {
               tool.validateArgs(call.arguments);
-              const allowed = !this.guard.check(tool.name, call.arguments)
-                || await this.guard.askUser(tool.name, call.arguments);
+              // A hook of the user may say no before the user is even asked.
+              const pre = await runHooks(this.config.hooks, 'PreToolUse', tool.name, call.arguments);
+              if (pre.blocked) {
+                result = `Blocked by a hook: ${pre.blocked}`;
+              } else {
+                const allowed = !this.guard.check(tool.name, call.arguments)
+                  || await this.guard.askUser(tool.name, call.arguments);
 
-              // Cancellation may arrive while waiting for confirmation.
-              if (signal?.aborted) return;
-              result = allowed
-                ? await tool.execute(call.arguments, this.config, { signal })
-                : 'Action denied by user.';
+                // Cancellation may arrive while waiting for confirmation.
+                if (signal?.aborted) return;
+                result = allowed
+                  ? await tool.execute(call.arguments, this.config, { signal })
+                  : 'Action denied by user.';
+                if (allowed) {
+                  const post = await runHooks(this.config.hooks, 'PostToolUse', tool.name, call.arguments, result);
+                  if (post.notes.length > 0) result += `\n[hook] ${post.notes.join('\n[hook] ')}`;
+                }
+              }
             } catch (err: any) {
               result = signal?.aborted
                 ? '[Operation cancelled by user]'
                 : `Error executing tool: ${err.message}`;
             }
           }
+
+          // Keys and tokens in the output must not reach the model, the chat or the saved session.
+          result = redactSecrets(result);
 
           // Save the result before yielding: the UI can stop consuming at any event.
           this.history.addMessage({

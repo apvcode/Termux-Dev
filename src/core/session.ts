@@ -16,6 +16,8 @@ export interface ChatSession {
   totalCost: number;
   /** Part of totalCost is a catalogue estimate. */
   costEstimated?: boolean;
+  /** The title was made by the model (not just the start of the first message). */
+  titleGenerated?: boolean;
 }
 
 const SESSIONS_DIR = path.join(os.homedir(), '.devx', 'sessions');
@@ -39,6 +41,16 @@ export class SessionManager {
       messages: [],
       totalCost: 0
     };
+  }
+
+  /** Names the chat (after the model made a title) and keeps it from being renamed by the first message again. */
+  public setTitle(title: string): void {
+    this.currentSession.title = title;
+    this.currentSession.titleGenerated = true;
+  }
+
+  public get hasGeneratedTitle(): boolean {
+    return this.currentSession.titleGenerated === true;
   }
 
   public getSession(): ChatSession {

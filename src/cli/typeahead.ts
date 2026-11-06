@@ -1,6 +1,10 @@
-import { splitKeys } from './keys.js';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { CTRL_ENTER, EXTENDED_KEYS_OFF, EXTENDED_KEYS_ON, normalizeKey, splitKeys } from './keys.js';
 import { FrameInput, buildPromptFrame, palette } from './ui.js';
 import { displayWidth, truncateWidth } from './width.js';
+import { t } from '../core/i18n.js';
 
 /**
  * Typing while the agent works.
@@ -24,6 +28,20 @@ export interface KeyResult {
   state: DraftState;
   /** The text to queue when Enter was pressed on a non-empty line. */
   submit?: string;
+  /** Ctrl+Enter: hand what is queued (and this line) to the agent now, do not wait for its next step. */
+  sendNow?: boolean;
+}
+
+/** The down arrow in every form a terminal may send it: `ESC [ B`, `ESC O B` (application mode), `ESC [ 1 ; mods B` (with modifier fields). */
+const DOWN_ARROW = /^\x1b(?:\[|O)(?:1;[\d:]+)?B$/;
+
+/** DEVX_DEBUG_KEYS=1: what the terminal sends is written to ~/.devx/keys.log, to find out why a key does nothing. */
+function logKeys(chunk: string, queued: number, draft: string): void {
+  try {
+    const file = path.join(os.homedir(), '.devx', 'keys.log');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify({ keys: chunk, queued, draftEmpty: draft === '', at: new Date().toISOString() }) + '\n');
+  } catch {}
 }
 
 const chars = (text: string): string[] => Array.from(text);
@@ -36,14 +54,26 @@ export function applyKey(state: DraftState, key: string): KeyResult {
   const at = Math.max(0, Math.min(cs.length, state.cursor));
   const set = (next: string[], cursor: number): KeyResult => ({ state: { text: next.join(''), cursor } });
 
+  const wordBackspace = (chars: string[], pos: number): KeyResult => {
+    let start = pos;
+    while (start > 0 && !isWordChar(chars[start - 1])) start--;
+    while (start > 0 && isWordChar(chars[start - 1])) start--;
+    return start === pos ? { state } : set([...chars.slice(0, start), ...chars.slice(pos)], start);
+  };
+
   switch (key) {
+    case CTRL_ENTER: {
+      const text = state.text.trim();
+      return { state: text ? { text: '', cursor: 0 } : state, submit: text || undefined, sendNow: true };
+    }
     case '\r':
     case '\n': {
       const text = state.text.trim();
       return text ? { state: { text: '', cursor: 0 }, submit: text } : { state };
     }
+    case '\b': // Ctrl+Backspace in most terminals (plain Backspace is 0x7f): erase a word
+      return wordBackspace(cs, at);
     case '\x7f':
-    case '\b':
       return at > 0 ? set([...cs.slice(0, at - 1), ...cs.slice(at)], at - 1) : { state };
     case '\x1b[3~':
       return at < cs.length ? set([...cs.slice(0, at), ...cs.slice(at + 1)], at) : { state };
@@ -69,12 +99,8 @@ export function applyKey(state: DraftState, key: string): KeyResult {
       return set(cs.slice(at), 0);
     case '\x0b': // Ctrl+K: everything after the cursor
       return set(cs.slice(0, at), at);
-    case '\x17': { // Ctrl+W: the word before the cursor
-      let start = at;
-      while (start > 0 && !isWordChar(cs[start - 1])) start--;
-      while (start > 0 && isWordChar(cs[start - 1])) start--;
-      return set([...cs.slice(0, start), ...cs.slice(at)], start);
-    }
+    case '\x17': // Ctrl+W, Alt+Backspace: the word before the cursor
+      return wordBackspace(cs, at);
     case '\x1b': // Esc: throw the line away
       return state.text ? { state: { text: '', cursor: 0 } } : { state };
     default:
@@ -117,17 +143,18 @@ export function renderComposer({ state, queued, cols, base }: ComposerInput): st
   const room = Math.max(8, cols - 5);
   if (queued.length > 0) {
     const last = queued[queued.length - 1].replace(/\s+/g, ' ');
-    const label = queued.length === 1 ? 'queued' : `${queued.length} queued`;
+    const label = queued.length === 1 ? t('composer.queued') : t('composer.queuedMany', { n: queued.length });
     const prefix = palette.warn('↳ ' + label) + palette.faint(': ');
-    note = prefix + palette.muted(truncateWidth(last, Math.max(4, room - displayWidth(prefix))));
+    // What can be done with it: ctrl+enter sends it now, the down arrow takes it back to edit.
+    const hint = t('composer.queuedHint');
+    const suffixWidth = displayWidth(' · ' + hint);
+    const withHint = room - displayWidth(prefix) - suffixWidth >= 12;
+    const message = truncateWidth(last, Math.max(4, room - displayWidth(prefix) - (withHint ? suffixWidth : 0)));
+    note = prefix + palette.muted(message) + (withHint ? palette.faint(' · ') + palette.text(hint) : '');
   } else {
-    const variants = [
-      'enter queues it for the agent · ctrl+c stop',
-      'enter queues it · ctrl+c stop',
-      'enter queues · ctrl+c stop',
-      'enter queues',
-    ];
-    note = palette.faint(variants.find((v) => displayWidth(v) <= room) ?? '');
+    const variants = [t('composer.hint1'), t('composer.hint2'), t('composer.hint3'), t('composer.hint4')];
+    const text = variants.find((v) => displayWidth(v) <= room) ?? '';
+    note = palette.faint(text);
   }
 
   const frame = buildPromptFrame({
@@ -135,7 +162,7 @@ export function renderComposer({ state, queued, cols, base }: ComposerInput): st
     cols,
     input: withMark,
     cursorPos: withMark === '' ? 0 : at,
-    placeholder: CURSOR_MARK + 'Ask or describe a task…',
+    placeholder: CURSOR_MARK + t('composer.placeholder'),
     below: [note],
   });
   return frame.lines.map((line) => line.split(CURSOR_MARK).join(CURSOR_CELL));
@@ -173,16 +200,28 @@ export class TurnComposer {
   private original: ComposerOut['write'] | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
 
+  /** Called on ctrl+p (thinking) and ctrl+o (tool output). */
+  onToggle?: (kind: 'thinking' | 'output') => void;
+  /** The line of live reasoning shown above the working line while thinking is collapsed; empty for none. */
+  live?: () => string;
+
   constructor(
     private out: ComposerOut = process.stdout,
     private frameBase: () => FrameBase,
     private onQueue?: (text: string) => void,
     /** The working line shown above the frame for the whole turn; called on every animation tick. */
-    private status?: () => string
+    private status?: () => string,
+    /** Ctrl+Enter: the user wants the queued messages to reach the agent right now. */
+    private onSendNow?: () => void
   ) {}
 
   get enabled(): boolean {
     return this.active;
+  }
+
+  /** An approval card or a question has the keyboard. */
+  get isSuspended(): boolean {
+    return this.suspended;
   }
 
   get draft(): string {
@@ -201,6 +240,8 @@ export class TurnComposer {
   takeQueued(): string[] {
     const taken = this.queue;
     this.queue = [];
+    // The "queued" note is part of the frame: it has to be built again, or it stays on screen.
+    this.lines = this.render();
     this.redraw();
     return taken;
   }
@@ -222,7 +263,7 @@ export class TurnComposer {
     this.shown = false;
     this.original = this.out.write.bind(this.out);
     this.out.write = ((chunk: any, encoding?: any, cb?: any) => this.through(chunk, encoding, cb)) as ComposerOut['write'];
-    this.write('\x1b[?25l' + this.drawSeq());
+    this.write(EXTENDED_KEYS_ON + this.drawSeq());
     // The working line animates: its time and counter are redrawn while the output is quiet.
     if (this.status) {
       this.timer = setInterval(() => this.tick(), 60);
@@ -239,7 +280,7 @@ export class TurnComposer {
       this.timer = null;
     }
     if (this.active) {
-      this.write(this.eraseSeq() + '\x1b[?25h');
+      this.write(this.eraseSeq() + EXTENDED_KEYS_OFF + '\x1b[?25h');
       if (this.original) this.out.write = this.original;
       this.original = null;
     }
@@ -253,14 +294,15 @@ export class TurnComposer {
   /** Hides the frame while something else (an approval card, a question) needs the keyboard and the screen. */
   suspend(): void {
     if (!this.active || this.suspended) return;
-    this.write(this.eraseSeq());
+    // The card or question that takes over reads plain keys: the extended encodings go off for it.
+    this.write(this.eraseSeq() + EXTENDED_KEYS_OFF);
     this.suspended = true;
   }
 
   resume(): void {
     if (!this.active || !this.suspended) return;
     this.suspended = false;
-    this.write(this.drawSeq());
+    this.write(EXTENDED_KEYS_ON + this.drawSeq());
   }
 
   /** Builds the frame again (the context percentage or the cost changed) and draws it. */
@@ -277,18 +319,32 @@ export class TurnComposer {
   /** Raw terminal input. Ignored while suspended. */
   handleData(chunk: string): void {
     if (!this.active || this.suspended) return;
-    for (const key of splitKeys(chunk)) {
+    if (process.env.DEVX_DEBUG_KEYS) logKeys(chunk, this.queue.length, this.state.text);
+    let sendNow = false;
+    for (const raw of splitKeys(chunk)) {
+      const key = normalizeKey(raw);
       // Ctrl+C is the app's (it stops the generation); Ctrl+D does nothing.
       if (key === '\x03' || key === '\x04') continue;
+      // Down arrow with nothing typed: the message that waits comes back into the line to be edited.
+      if (DOWN_ARROW.test(key) && this.queue.length > 0 && this.state.text === '') {
+        const back = this.queue.pop()!;
+        this.state = { text: back, cursor: Array.from(back).length };
+        continue;
+      }
+      if (key === '\x10') { this.onToggle?.('thinking'); continue; }   // ctrl+p
+      if (key === '\x0f') { this.onToggle?.('output'); continue; }     // ctrl+o
       const result = applyKey(this.state, key);
       this.state = result.state;
       if (result.submit) {
         this.queue.push(result.submit);
         this.onQueue?.(result.submit);
       }
+      if (result.sendNow && this.queue.length > 0) sendNow = true;
     }
     this.lines = this.render();
     this.redraw();
+    // After the redraw: the caller takes the queue and stops the turn.
+    if (sendNow) this.onSendNow?.();
   }
 
   // ── terminal output
@@ -319,7 +375,8 @@ export class TurnComposer {
   /** Redraws the working line only (the frame does not change between ticks). */
   private tick(): void {
     if (!this.active || this.suspended || this.lines.length < 3) return;
-    this.lines[1] = this.status?.() ?? '';
+    this.lines[1] = this.oneRow(this.live?.() ?? '');
+    this.lines[2] = this.oneRow(this.status?.() ?? '');
     this.redraw();
   }
 
@@ -329,7 +386,13 @@ export class TurnComposer {
    */
   private render(): string[] {
     const frame = renderComposer({ state: this.state, queued: this.queue, cols: this.out.columns ?? 80, base: this.frameBase() });
-    return this.status ? ['', this.status(), '', ...frame] : ['', ...frame];
+    // the live reasoning, then the working line right above the frame (always in the same place), and a blank row
+    return this.status ? ['', this.oneRow(this.live?.() ?? ''), this.oneRow(this.status()), '', ...frame] : ['', ...frame];
+  }
+
+  /** The drawing code moves down one row per line: a line with a line break inside would shift the whole frame. */
+  private oneRow(line: string): string {
+    return line.replace(/[\r\n\x00-\x08\x0b-\x1a\x1c-\x1f]+/g, ' ');
   }
 
   /** Wipes the frame: everything under the cursor row. The cursor stays on its text. */
@@ -345,8 +408,10 @@ export class TurnComposer {
     if (lines.length === 0) return '';
     this.shown = true;
     const n = lines.length;
+    // The real cursor only marks where the output goes on. Whatever showed it in the meantime
+    // (an approval card, a spinner that stopped) must not leave it blinking under the output.
     // ESC D moves down (scrolling at the bottom edge) and keeps the column; then back up.
-    let seq = '\x1bD'.repeat(n) + `\x1b[${n}A` + '\x1b7';
+    let seq = '\x1b[?25l' + '\x1bD'.repeat(n) + `\x1b[${n}A` + '\x1b7';
     for (const line of lines) seq += `\x1b[1B\r\x1b[2K${line}\x1b[0m`;
     return seq + '\x1b8';
   }

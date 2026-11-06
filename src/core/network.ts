@@ -1,6 +1,7 @@
 /**
  * Network Resilience & Error Utilities for devx
  */
+import { t } from './i18n.js';
 
 export function isNetworkOrRetryableError(err: any): boolean {
   if (!err) return false;
@@ -77,25 +78,25 @@ export function isNetworkOrRetryableError(err: any): boolean {
 }
 
 export function getHumanReadableNetworkError(err: any): string {
-  if (!err) return 'Неизвестная ошибка сети (Network error)';
+  if (!err) return t('net.unknown');
   const msg = (err.message || String(err)).toLowerCase();
   const code = (err.code || err.cause?.code || '').toLowerCase();
   const status = err.status || err.statusCode || 0;
 
   if (status === 429 || msg.includes('429') || msg.includes('rate limit')) {
-    return 'Превышен лимит запросов API (Rate limit / 429)';
+    return t('net.rateLimit');
   }
   if (status === 502 || msg.includes('502') || msg.includes('bad gateway')) {
-    return 'Шлюз провайдера временно недоступен (Bad Gateway / 502)';
+    return t('net.badGateway');
   }
   if (status === 503 || msg.includes('503') || msg.includes('service unavailable')) {
-    return 'Сервер провайдера перегружен (Service Unavailable / 503)';
+    return t('net.unavailable');
   }
   if (status === 504 || msg.includes('504') || msg.includes('gateway timeout')) {
-    return 'Таймаут шлюза провайдера (Gateway Timeout / 504)';
+    return t('net.gatewayTimeout');
   }
   if (code.includes('enotfound') || msg.includes('enotfound') || code.includes('eai_again')) {
-    return 'Нет подключения к сети или DNS (Host not found / Offline)';
+    return t('net.offline');
   }
   if (
     code.includes('econnreset') ||
@@ -104,7 +105,7 @@ export function getHumanReadableNetworkError(err: any): string {
     msg.includes('socket hang up') ||
     msg.includes('terminated')
   ) {
-    return 'Обрыв соединения с сервером (Connection reset / Socket closed)';
+    return t('net.reset');
   }
   if (
     code.includes('etimedout') ||
@@ -112,16 +113,16 @@ export function getHumanReadableNetworkError(err: any): string {
     msg.includes('time out') ||
     code.includes('und_err_connect_timeout')
   ) {
-    return 'Таймаут сетевого соединения (Network timeout)';
+    return t('net.timeout');
   }
   if (code.includes('econnrefused') || msg.includes('connection refused')) {
-    return 'Сервер отклонил подключение (Connection refused)';
+    return t('net.refused');
   }
   if (msg.includes('fetch failed')) {
-    return 'Сбой сетевого соединения (Fetch failed / Connection dropped)';
+    return t('net.fetchFailed');
   }
 
-  return err.message || 'Сбой интернет-соединения';
+  return err.message || t('net.generic');
 }
 
 export function waitDelay(ms: number, signal?: AbortSignal): Promise<void> {

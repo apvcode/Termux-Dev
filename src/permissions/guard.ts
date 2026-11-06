@@ -3,8 +3,8 @@ import pc from 'picocolors';
 import path from 'path';
 import os from 'os';
 import fsSync from 'fs';
-import { askPermission } from '../cli/permission.js';
-import { PermissionRequest } from '../cli/ui.js';
+import { askPermissionDecision } from '../cli/permission.js';
+import { PermissionAnswer, PermissionOffer, PermissionRequest } from '../cli/ui.js';
 
 // ───────────────────────── path helpers ─────────────────────────
 
@@ -209,6 +209,23 @@ function analyzeSegment(tokens: string[]): boolean {
   return false;
 }
 
+/**
+ * A shell command that names a credentials store or a secrets file (`cat ~/.devxrc.json`,
+ * `grep key ~/.ssh/config`, `head .env`). Such a command is asked about even in YOLO mode:
+ * its output would reach the model and the chat. Templates such as `.env.example` are fine.
+ */
+export function shellTouchesSecrets(commandStr?: string): boolean {
+  if (!commandStr || typeof commandStr !== 'string') return false;
+  const home = os.homedir();
+  const tokens = commandStr.split(/[\s;|&<>()`]+/).filter(Boolean);
+  return tokens.some((raw) => {
+    const t = raw.replace(/^["']+|["']+$/g, '').replace(/^~(?=\/|$)/, home).replace(/^\$\{?HOME\}?(?=\/|$)/, home);
+    if (!t || t.startsWith('-') || /[$*?]/.test(t)) return false;
+    // `cd ~ && cat .devxrc.json`: the folder is not in the token, so the file name alone counts.
+    return isCredentialStore(t) || isSecretFile(t) || HOME_SENSITIVE_FILES.includes(path.basename(t));
+  });
+}
+
 const SHELL_INTERPRETER = '(?:\\S*\\/)?(?:ba|z|da|k|c|fi|a)?sh';
 
 /**
@@ -271,11 +288,64 @@ function pathArg(args: any): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
+/** What the user allowed on the approval card for this session (and what was saved with "Always"). */
+export interface PermissionMemory {
+  /** Command prefixes (`npm test`, `git status`) that run without asking. */
+  bash: Set<string>;
+  /** Names of MCP tools that run without asking. */
+  tools: Set<string>;
+}
+
+export function newPermissionMemory(): PermissionMemory {
+  return { bash: new Set(), tools: new Set() };
+}
+
+export interface RememberKey {
+  kind: 'bash' | 'tool';
+  /** What is stored: the command prefix, or the tool name. */
+  key: string;
+}
+
+/**
+ * What an "Allow for the session / Always" answer would remember for a request: a plain single
+ * command by its program and subcommand (`npm test`, `git status`, `ls`), or an MCP tool by its
+ * name. Dangerous commands, commands that read secrets, chains and redirections are never
+ * remembered: those are asked every time.
+ */
+export function rememberKeyFor(toolName: string, args: any): RememberKey | null {
+  const t = (toolName || '').toLowerCase();
+  if (t.startsWith('mcp__')) return { kind: 'tool', key: toolName };
+  if (!SHELL_TOOLS.has(t)) return null;
+  const cmd = String(args?.command || args?.cmd || '').trim();
+  if (!cmd || isDangerousBashCommand(cmd) || shellTouchesSecrets(cmd) || hasComplexChainingOrRedirection(cmd)) return null;
+  const tokens = tokenize(cmd);
+  if (tokens.length === 0) return null;
+  const program = path.basename(tokens[0]).toLowerCase();
+  if (!/^[a-z0-9._+-]+$/.test(program)) return null;
+  const sub = tokens[1];
+  // The subcommand is a plain word (`test`, `status`); a flag, a path or a value makes the program alone the key.
+  const withSub = sub && /^[a-z][a-z0-9:_-]{0,19}$/.test(sub) && tokens.length <= 3 ? `${program} ${sub.toLowerCase()}` : program;
+  return { kind: 'bash', key: withSub };
+}
+
+export interface GuardOptions {
+  memory?: PermissionMemory;
+  /** Called when the user answered "Always": store the key for the next sessions. */
+  onAlways?: (remember: RememberKey) => void;
+  /** For tests: stands in for the approval card. */
+  decide?: (request: PermissionRequest, offer: PermissionOffer, danger: boolean) => Promise<PermissionAnswer>;
+}
+
 export class CLIConsoleGuard implements PermissionGuard {
+  private memory: PermissionMemory;
+
   constructor(
     private autoApprove: boolean = false,
-    private bashAllowlist: string[] = []
-  ) {}
+    private bashAllowlist: string[] = [],
+    private options: GuardOptions = {}
+  ) {
+    this.memory = options.memory ?? newPermissionMemory();
+  }
 
   check(toolName: string, args: any): boolean {
     const t = (toolName || '').toLowerCase();
@@ -283,9 +353,12 @@ export class CLIConsoleGuard implements PermissionGuard {
     const target = pathArg(args);
 
     // Critical safety net. These ask for confirmation even in YOLO mode.
-    if (SHELL_TOOLS.has(t) && isDangerousBashCommand(cmd)) return true;
+    if (SHELL_TOOLS.has(t) && (isDangerousBashCommand(cmd) || shellTouchesSecrets(cmd))) return true;
     if (target && (READ_TOOLS.has(t) || WRITE_TOOLS.has(t)) && isCredentialStore(target)) return true;
     if (target && READ_TOOLS.has(t) && isSecretFile(target)) return true;
+
+    // Adding a server starts a program on this machine every time devx runs: always asked.
+    if (t === 'mcp_manage' && (args?.action === 'add' || args?.action === 'import_claude')) return true;
 
     if (this.autoApprove) return false;
 
@@ -293,7 +366,7 @@ export class CLIConsoleGuard implements PermissionGuard {
     if (SHELL_TOOLS.has(t) && cmd) {
       if (!hasComplexChainingOrRedirection(cmd)) {
         const lowerCmd = cmd.toLowerCase();
-        const isAllowed = this.bashAllowlist.some(pattern => {
+        const isAllowed = [...this.bashAllowlist, ...this.memory.bash].some(pattern => {
           const pat = pattern.trim().toLowerCase();
           return lowerCmd === pat || lowerCmd.startsWith(pat + ' ');
         });
@@ -311,7 +384,7 @@ export class CLIConsoleGuard implements PermissionGuard {
     // Anything that touches files outside the project needs approval (reads included).
     if ((WRITE_TOOLS.has(t) || READ_TOOLS.has(t)) && isPathOutsideCwd(target)) return true;
 
-    if (t.startsWith('mcp__')) return true;
+    if (t.startsWith('mcp__')) return !this.memory.tools.has(toolName);
 
     return false;
   }
@@ -324,8 +397,20 @@ export class CLIConsoleGuard implements PermissionGuard {
     }
 
     const request = buildPermissionRequest(toolName, args);
+    // Only requests that are safe to remember offer "Session" and "Always".
+    const remember = request.danger ? null : rememberKeyFor(toolName, args);
+    const offer: PermissionOffer = remember ? { session: true, always: true } : {};
     // Risky requests start on "Deny": a stray Enter must not approve them.
-    return askPermission(request, !request.danger);
+    const defaultAnswer: PermissionAnswer = request.danger ? 'deny' : 'allow';
+    const answer = this.options.decide
+      ? await this.options.decide(request, offer, !!request.danger)
+      : await askPermissionDecision(request, defaultAnswer, undefined, offer);
+    if (answer === 'deny') return false;
+    if (remember && (answer === 'session' || answer === 'always')) {
+      (remember.kind === 'bash' ? this.memory.bash : this.memory.tools).add(remember.key);
+      if (answer === 'always') this.options.onAlways?.(remember);
+    }
+    return true;
   }
 }
 
@@ -341,9 +426,23 @@ export function buildPermissionRequest(toolName: string, args: any): PermissionR
   else if (target && isPathOutsideCwd(target)) notes.push('outside the project folder');
 
   if (SHELL_TOOLS.has(t)) {
-    const danger = isDangerousBashCommand(cmd);
-    if (danger) notes.push('looks destructive or runs downloaded code');
+    const danger = isDangerousBashCommand(cmd) || shellTouchesSecrets(cmd);
+    if (isDangerousBashCommand(cmd)) notes.push('looks destructive or runs downloaded code');
+    else if (shellTouchesSecrets(cmd)) notes.push('reads a credentials / secrets file: its content would reach the model');
     return { title: t === 'bash' ? 'bash' : toolName, danger, lines: cmd.split('\n'), notes };
+  }
+
+  if (t === 'mcp_manage') {
+    if (args?.action === 'import_claude') {
+      return { title: 'mcp · import from Claude Code', lines: ['servers of ~/.claude.json -> ~/.devx/mcp.json'], notes: ['they start as programs on your machine'] };
+    }
+    const full = args?.url ? String(args.url) : [String(args?.command ?? ''), ...(Array.isArray(args?.args) ? args.args.map(String) : [])].join(' ');
+    const envNames = args?.env && typeof args.env === 'object' ? Object.keys(args.env) : [];
+    return {
+      title: `mcp · add server ${String(args?.name ?? '')}`,
+      lines: [full, ...(envNames.length ? [`env: ${envNames.join(', ')}`] : [])],
+      notes: ['saved to ~/.devx/mcp.json and started now and at every start of devx'],
+    };
   }
 
   if (t.startsWith('mcp__')) {

@@ -9,6 +9,7 @@ import { saveMemoryTool } from '../core/memory.js';
 import { planReadyTool, lastPlanReady, resetPlanReady } from './plan.js';
 import { todoListTool, currentTodoList, resetTodoList } from './todo.js';
 import { servePreviewTool } from './server.js';
+import { mcpManageTool } from './mcp.js';
 import { Tool } from '../core/types.js';
 
 import { MCPManager } from '../mcp/manager.js';
@@ -21,7 +22,7 @@ export function getTools(planMode: boolean): Tool[] {
     return [...baseTools, ...mcpTools];
   }
   
-  return [...baseTools, writeFileTool, editFileTool, mkdirTool, bashTool, diagnoseCodeTool, installPackageTool, servePreviewTool, ...mcpTools];
+  return [...baseTools, writeFileTool, editFileTool, mkdirTool, bashTool, diagnoseCodeTool, installPackageTool, servePreviewTool, mcpManageTool, ...mcpTools];
 }
 
 export { webSearchTool, fetchUrlTool, diagnoseCodeTool, installPackageTool, saveMemoryTool, planReadyTool, lastPlanReady, resetPlanReady, todoListTool, currentTodoList, resetTodoList, servePreviewTool };

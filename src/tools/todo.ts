@@ -1,5 +1,6 @@
 import { Tool } from '../core/types.js';
 import pc from 'picocolors';
+import { displayWidth, padEndWidth, truncateWidth } from '../cli/width.js';
 
 export interface TaskItem {
   text: string;
@@ -12,29 +13,33 @@ export function resetTodoList() {
   currentTodoList = [];
 }
 
+/**
+ * The plan as a closed box (classic layout; the clean layout draws it with the theme, see
+ * `renderTaskCard`). Every row has the same width, so both borders line up.
+ */
 export function formatTodoListCard(tasks: TaskItem[]): string {
   if (!tasks || tasks.length === 0) return '';
-  const cols = Math.min(process.stdout.columns || 80, 80);
-  const boxWidth = Math.max(30, Math.min(cols - 4, 65));
-  const borderChar = '─';
+  const cols = process.stdout.columns || 80;
+  const width = Math.max(30, Math.min(cols - 4, 65));
+  const inner = width - 4;
 
-  const lines: string[] = [];
-  lines.push('\n' + pc.bold(pc.cyan('┌─ Plan & Tasks ' + borderChar.repeat(Math.max(2, boxWidth - 19)) + '┐')));
+  const title = ' Plan & Tasks ';
+  const top = '┌─' + title + '─'.repeat(Math.max(1, width - 3 - displayWidth(title))) + '┐';
+  const lines: string[] = [pc.bold(pc.cyan(top))];
 
   for (const task of tasks) {
-    let taskLine = '';
-    if (task.status === 'completed') {
-      taskLine = pc.green('[✓] ') + pc.dim(task.text);
-    } else if (task.status === 'in_progress') {
-      taskLine = pc.bold(pc.green('[ ] ' + task.text));
-    } else {
-      taskLine = pc.dim('[ ] ') + pc.white(task.text);
-    }
-    lines.push(pc.cyan('│ ') + taskLine);
+    const marker = task.status === 'completed' ? '[✓]' : task.status === 'in_progress' ? '[•]' : '[ ]';
+    const text = truncateWidth(String(task.text ?? '').replace(/\s+/g, ' ').trim(), inner - 4);
+    const plain = padEndWidth(`${marker} ${text}`, inner);
+    const body =
+      task.status === 'completed' ? pc.green(plain)
+      : task.status === 'in_progress' ? pc.bold(pc.cyan(plain))
+      : plain;
+    lines.push(pc.cyan('│ ') + body + pc.cyan(' │'));
   }
 
-  lines.push(pc.cyan('└' + borderChar.repeat(boxWidth) + '┘\n'));
-  return lines.join('\n');
+  lines.push(pc.cyan('└' + '─'.repeat(width - 2) + '┘'));
+  return lines.join('\n') + '\n';
 }
 
 export const todoListTool: Tool = {

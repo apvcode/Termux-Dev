@@ -13,11 +13,14 @@ import { Agent } from '../core/loop.js';
 import { buildSystemPrompt } from '../prompts/builder.js';
 import { createProvider } from '../providers/index.js';
 import { getTools, lastPlanReady, resetPlanReady } from '../tools/index.js';
-import { CLIConsoleGuard } from '../permissions/guard.js';
+import { CLIConsoleGuard, newPermissionMemory } from '../permissions/guard.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
-import { MemoryManager } from '../core/memory.js';
+import { MemoryManager, memoryForPrompt } from '../core/memory.js';
 import { startServer, stopServer, displayServerBanner } from './server.js';
-import { notifyDevice, acquireWakeLock } from '../core/notify.js';
+import { notifyDevice, acquireWakeLock, isTermux, notificationBody, sendDesktopNotification } from '../core/notify.js';
+import { copyToClipboard } from './clipboard-write.js';
+import { savePlanFile } from '../core/planfile.js';
+import { BASE_TITLE, RESTORE_TERMINAL_TITLE, SAVE_TERMINAL_TITLE, cleanTitle, generateChatTitle, provisionalTitle, terminalTitleSequence } from '../core/title.js';
 import { runDoctor } from './doctor.js';
 
 import { ALL_PROVIDERS } from './providers.js';
@@ -34,9 +37,9 @@ import { CustomCommandManager } from '../core/commands.js';
 import { UsageTracker } from '../core/usage.js';
 import { CostLedger, CostState } from '../core/cost.js';
 import { SessionExporter } from './export.js';
-import { MCPManager, discoverProjectMcpServers, hashProjectMcpServers } from '../mcp/manager.js';
+import { MCPManager, discoverProjectMcpServers, hashProjectMcpServers, readClaudeServers, removeUserServer, saveUserServers } from '../mcp/manager.js';
 import { writeSecureFile } from '../core/secure-file.js';
-import { applyLocalConfig } from '../core/local-config.js';
+import { applyLocalConfig, persistedConfig, withoutSessionOnlySettings } from '../core/local-config.js';
 import { LiveTelemetryTracker } from './telemetry.js';
 import { renderCleanStatus, renderPowerlineStatus, GitStatusCache } from './statusline.js';
 import { formatDiffBox } from './diff.js';
@@ -47,6 +50,7 @@ import {
   GutterWriter,
   HeaderInfo,
   UiSpinner,
+  formatCost,
   formatTokens as formatTokensShort,
   palette,
   pickTip,
@@ -54,6 +58,7 @@ import {
   renderNotice,
   renderResultBlock,
   renderResultLine,
+  renderTaskCard,
   renderToolLine,
   renderTurnSummary,
   registerPauseHook,
@@ -64,6 +69,13 @@ import {
   summarizeToolResult,
 } from './ui.js';
 import { SettingsState, runSettings } from './settings.js';
+import { runMcpPanel } from './mcp-panel.js';
+import { renderResumedMessages } from './resume.js';
+import { askConfirm, askPlanDecision, printFarewell } from './confirm.js';
+import { Checkpoint, createCheckpoint, diffCheckpoint, restoreCheckpoint } from '../core/checkpoint.js';
+import { log, note } from './log.js';
+import { displayWidth, tailWidth } from './width.js';
+import { TranscriptItem, collapsedThoughtLine, messagesToItems, renderTranscript, toolResultRows } from './transcript.js';
 import { runPicker } from './picker.js';
 import { chooseEffort, effortCommand, Say } from './effort.js';
 import { effectiveReasoning, parseEffortArg, detectRoute, thinkLabel } from '../core/reasoning.js';
@@ -72,6 +84,8 @@ import { modelAcceptsImages } from '../core/vision.js';
 import { contextBreakdown } from '../core/context-stats.js';
 import { runUsagePanel } from './usage-panel.js';
 import { TurnComposer } from './typeahead.js';
+import { EXTENDED_KEYS_OFF, normalizeKey, splitKeys } from './keys.js';
+import { getLanguage, setLanguage, t } from '../core/i18n.js';
 import { anthropicOnlyModels, formatFromBaseUrl, refreshFormats } from '../core/formats.js';
 import { providerFormat } from '../providers/index.js';
 
@@ -107,8 +121,8 @@ async function saveConfig(config: any) {
   if (config.provider && config.baseUrl) {
     config.baseUrls[config.provider] = config.baseUrl;
   }
-  // Runtime-only flags must not end up in the user's config file.
-  const { projectMcpTrusted: _projectMcpTrusted, effortOverride: _effortOverride, ...persisted } = config;
+  // Runtime-only flags and YOLO (one run only) must not end up in the user's config file.
+  const persisted = persistedConfig(config);
   // The file holds API keys: owner-only permissions (0600).
   await writeSecureFile(CONFIG_PATH, JSON.stringify(persisted, null, 2));
 }
@@ -165,7 +179,7 @@ const POPULAR_PROVIDER_MODELS: Record<string, string[]> = {
 };
 
 async function selectModel(baseUrl: string, apiKey: string, currentModel: string, providerId: string = '', allowCancel = true): Promise<{ model: string; contextLimit: number } | null> {
-  const s = p.spinner();
+  const s = new UiSpinner();
   s.start('Fetching available models from provider...');
   const result = await fetchModels(baseUrl, apiKey);
   // The same gateway may list more models (Claude) in its Anthropic format, with the same key.
@@ -241,7 +255,7 @@ async function selectModel(baseUrl: string, apiKey: string, currentModel: string
     const limit = (found && found.contextLength) || getModelContextLimit(modelChoice);
     return { model: modelChoice, contextLimit: limit };
   } else {
-    p.log.warn('Could not fetch models automatically.');
+    log.warn('Could not fetch models automatically.');
     try {
       const typedModel = await input({
         message: 'Type the model name you want to use (e.g. gpt-4o):',
@@ -428,7 +442,8 @@ async function loadConfig(interactive: boolean = true): Promise<any> {
   let globalConfig: any = {};
   try {
     const data = await fs.readFile(CONFIG_PATH, 'utf8');
-    globalConfig = JSON.parse(data);
+    globalConfig = withoutSessionOnlySettings(JSON.parse(data));
+    setLanguage(globalConfig.language);   // the questions below are asked in the chosen language
     if (!globalConfig.model || !globalConfig.baseUrl) throw new Error('Invalid config');
     globalConfig.maxContextTokens = resolveContextLimit(globalConfig).limit;
     globalConfig.apiKeys = globalConfig.apiKeys || {};
@@ -470,26 +485,17 @@ async function loadConfig(interactive: boolean = true): Promise<any> {
   // Workspace & Project Trust Check on first time opening this directory
   if (isTrusted === undefined) {
     if (interactive) {
-      console.log('');
-      p.log.warn(pc.bold(pc.yellow(`[WORKSPACE TRUST] First time opening this workspace:`)));
-      console.log(pc.dim(`   Directory: ${cwd}`));
-      if (localConfig) {
-        if (localConfig.autoApprove === true) {
-          console.log(pc.yellow(`   • Local .devx.json requests Auto-approval (YOLO mode)`));
-        }
-        if (localConfig.bashAllowlist) {
-          console.log(pc.yellow(`   • Local .devx.json requests Bash allowlist: ${localConfig.bashAllowlist.join(', ')}`));
-        }
-      }
-
-      const answer = await p.confirm({
-        message: 'Do you trust this workspace and allow agent operations?',
-        initialValue: false
+      const trusted = await askConfirm({
+        title: t('trust.title'),
+        question: t('trust.question'),
+        details: [cwd, ...(localConfig?.autoApprove === true ? [t('trust.wantsYolo')] : []), ...(localConfig?.bashAllowlist ? [t('trust.wantsAllowlist', { list: localConfig.bashAllowlist.join(', ') })] : [])],
+        yes: t('trust.yes'),
+        no: t('trust.no'),
       });
 
-      if (p.isCancel(answer) || answer !== true) {
+      if (!trusted) {
         resetTerminalTheme();
-        p.outro(pc.yellow('Workspace not trusted. Exiting devx.'));
+        printFarewell(t('trust.exiting'), 'warn');
         process.exit(0);
       }
 
@@ -497,7 +503,7 @@ async function loadConfig(interactive: boolean = true): Promise<any> {
       globalConfig.trustedProjects[cwd] = true;
       await saveConfig(globalConfig);
       isTrusted = true;
-      p.log.success(pc.green('Workspace marked as trusted. Full capabilities enabled.'));
+      log.success(pc.green('Workspace marked as trusted. Full capabilities enabled.'));
     } else {
       isTrusted = false; // Never auto-trust in non-interactive headless mode
     }
@@ -519,19 +525,14 @@ async function loadConfig(interactive: boolean = true): Promise<any> {
     if (globalConfig.trustedMcp[cwd] === fingerprint) {
       effectiveConfig.projectMcpTrusted = true;
     } else if (interactive) {
-      console.log('');
-      p.log.warn(pc.bold(pc.yellow('[MCP] This project wants to start the following MCP servers (they run as local programs):')));
-      for (const s of projectMcpServers) {
-        const cmdline = `${s.config.command} ${(s.config.args || []).join(' ')}`.trim();
-        console.log(`   ${pc.cyan(s.name)} ${pc.dim(`(${s.file})`)}  ${pc.green(cmdline)}`);
-      }
-      const allow = await p.confirm({ message: 'Allow these MCP servers to start?', initialValue: false });
-      if (allow === true) {
+      const listing = projectMcpServers.map((srv) => `${srv.name}  (${srv.file})  ${`${srv.config.command} ${(srv.config.args || []).join(' ')}`.trim()}`);
+      const allow = await askConfirm({ title: 'mcp', question: t('trust.mcpQuestion'), details: listing });
+      if (allow) {
         globalConfig.trustedMcp[cwd] = fingerprint;
         await saveConfig(globalConfig);
         effectiveConfig.projectMcpTrusted = true;
       } else {
-        p.log.info(pc.dim('Project MCP servers skipped. Servers from ~/.devxrc.json still start.'));
+        console.log(renderNotice('info', 'Project MCP servers skipped. Your own servers still start.'));
       }
     } else {
       console.error(pc.yellow(`Skipped ${projectMcpServers.length} project MCP server(s): not approved yet. Run devx interactively in this folder once to review and approve them.`));
@@ -568,7 +569,7 @@ process.on('exit', () => {
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false);
   }
-  if (process.stdout.isTTY) process.stdout.write('\x1B[?25h');
+  if (process.stdout.isTTY) process.stdout.write(EXTENDED_KEYS_OFF + '\x1B[?1004l' + RESTORE_TERMINAL_TITLE + '\x1B[?25h');
   resetTerminalTheme();
 });
 
@@ -580,7 +581,7 @@ process.on('SIGINT', () => {
       process.stdin.setRawMode(false);
       process.stdin.pause();
     }
-    process.stdout.write('\x1B[?25h'); // restore cursor
+    process.stdout.write(EXTENDED_KEYS_OFF + '\x1B[?1004l' + RESTORE_TERMINAL_TITLE + '\x1B[?25h'); // restore cursor
     resetTerminalTheme();
     process.exit(0);
   }
@@ -650,7 +651,7 @@ async function handleSessionDelete(bannerMode: BannerMode) {
     const sessions = await SessionManager.listSessions();
     if (sessions.length === 0) {
       drawLogo(bannerMode);
-      p.log.warn('No saved sessions found.');
+      log.warn('No saved sessions found.');
       break;
     }
 
@@ -685,19 +686,16 @@ async function handleSessionDelete(bannerMode: BannerMode) {
 
     if (!chosenSessionId || chosenSessionId === '__cancel__') {
       drawLogo(bannerMode);
-      p.log.info('Session deletion finished.');
+      log.info('Session deletion finished.');
       break;
     }
 
     if (chosenSessionId === '__all__') {
-      const confirmAll = await p.confirm({
-        message: `Are you sure you want to delete ALL ${sessions.length} saved sessions?`,
-        initialValue: false
-      });
-      if (!p.isCancel(confirmAll) && confirmAll) {
+      const confirmAll = await askConfirm({ title: 'sessions', question: t('confirm.deleteAll', { n: sessions.length }) });
+      if (confirmAll) {
         const count = await SessionManager.deleteAllSessions();
         drawLogo(bannerMode);
-        p.log.success(`Deleted all ${count} sessions.`);
+        log.success(`Deleted all ${count} sessions.`);
         break;
       }
       continue;
@@ -708,9 +706,9 @@ async function handleSessionDelete(bannerMode: BannerMode) {
     const ok = await SessionManager.deleteSession(chosenSessionId);
     drawLogo(bannerMode);
     if (ok) {
-      p.log.success(`Deleted session: "${title}"`);
+      log.success(`Deleted session: "${title}"`);
     } else {
-      p.log.error(`Failed to delete session: "${title}"`);
+      log.error(`Failed to delete session: "${title}"`);
     }
   }
 }
@@ -743,7 +741,7 @@ async function handleThemeSelect(config: any): Promise<void> {
       await saveConfig(config);
       const th = setActiveTheme(selected);
       // No redraw of the screen: that would wipe the conversation. New output uses the new colours.
-      if (config.ui?.layout === 'classic') p.log.success(th.boldFn(`Theme switched to ${th.colorFn(th.symbol)} ${th.name}!`));
+      if (config.ui?.layout === 'classic') log.success(th.boldFn(`Theme switched to ${th.colorFn(th.symbol)} ${th.name}!`));
       else console.log(renderNotice('ok', `theme ${th.name}`));
     }
   } catch {}
@@ -758,6 +756,8 @@ async function handleSettings(config: any): Promise<any> {
     maxIterations: config.maxIterations || 100,
     memory: config.enableMemory !== false,
     updates: config.checkUpdates !== false,
+    costLimit: Number(config.maxCostPerSession) || 0,
+    language: getLanguage(),
   };
 
   // One panel, redrawn in place; every change is visible at once and saved when it closes.
@@ -765,6 +765,8 @@ async function handleSettings(config: any): Promise<any> {
     version: DEVX_VERSION,
     onChange: (key, state) => {
       if (key === 'theme') setActiveTheme(state.themeId);
+      if (key === 'language') setLanguage(state.language);
+      if (key === 'memory') MemoryManager.enabled = state.memory;
       if (key === 'pureBlack') {
         if (state.pureBlack) enableDarkTheme(true);
         else resetTerminalTheme();
@@ -781,6 +783,8 @@ async function handleSettings(config: any): Promise<any> {
   config.maxIterations = final.maxIterations;
   config.enableMemory = final.memory;
   config.checkUpdates = final.updates;
+  config.language = final.language;
+  config.maxCostPerSession = final.costLimit;
   await saveConfig(config);
 
   process.stdin.resume();
@@ -837,6 +841,7 @@ export async function main() {
   const isHeadless = !!options.prompt;
 
   let config = await loadConfig(!isHeadless);
+  setLanguage(config.language);
   // What each model offers for reasoning: the stored answers of the endpoint and the catalogue.
   installCapabilities();
   probeEndpointsAllowed = config.probeEndpoints !== false;
@@ -938,6 +943,7 @@ export async function main() {
 
   let history = new History();
   
+  MemoryManager.enabled = config.enableMemory !== false;
   const sysPrompt = await buildSystemPrompt(planMode);
   history.addMessage({ role: 'system', content: sysPrompt });
 
@@ -954,14 +960,50 @@ export async function main() {
     contextBreakdown(history.getMessages(), getTools(planMode).map(t => t.definition), config.maxContextTokens || getModelContextLimit(config.model));
   let currentDraft = '';
   let autoTriggerPrompt = '';
+  // ctrl+p and ctrl+o while the agent works: reasoning and tool output, collapsed unless switched on.
+  let thinkingExpanded = false;
+  let outputExpanded = false;
+  // Everything said on screen so far, kept as items: ctrl+p and ctrl+o draw it again, folded or unfolded.
+  const transcript: TranscriptItem[] = [];
+  // Snapshots of the working folder before each turn of the agent (git): /undo puts back what changed, also by shell commands.
+  const checkpoints: Checkpoint[] = [];
+  // What the user allowed on the approval card for this session ("Session"); "Always" goes to the config.
+  const permissionMemory = newPermissionMemory();
+  // The most a session may cost (USD, 0 = no limit); "continue" at the limit raises it for this session only.
+  let costLimitRaised: number | null = null;
+  let costWarned = false;
+  const costLimit = () => costLimitRaised ?? (Number(config.maxCostPerSession) || 0);
+  for (const name of (config.allowedTools || [])) permissionMemory.tools.add(name);
+  // The name of the chat: in the title of the terminal window (`◈ Short title`) and in the list of sessions.
+  let windowTitle = '';
+  let titleAttempts = 0;
+  let terminalFocused = true;   // updated by the terminal's focus reports while a task runs
+  const setWindowTitle = (title: string) => {
+    windowTitle = title;
+    if (process.stdout.isTTY) process.stdout.write(terminalTitleSequence(title));
+  };
+  if (process.stdout.isTTY) process.stdout.write(SAVE_TERMINAL_TITLE);
+  /** Clears the screen and draws the whole conversation again, folded or unfolded as the switches say. */
+  const redrawChat = () => {
+    drawLogo(config.banner || 'full');
+    const rows = renderTranscript(transcript, { cols: process.stdout.columns || 80, thinkingExpanded, outputExpanded, diffColors: !!config.ui?.diffColors });
+    if (rows.length > 0) console.log(rows.join('\n'));
+  };
 
   // /clear and /new: leave the current conversation (it stays saved and can be resumed)
   // and start from a clean slate: history, cost, usage counters, undo stack, screen.
   const startFreshSession = async () => {
     sessionManager.startNewSession(config.model, planMode);
+    transcript.length = 0;
+    checkpoints.length = 0;
+    windowTitle = '';
+    titleAttempts = 0;
+    if (process.stdout.isTTY) process.stdout.write(RESTORE_TERMINAL_TITLE + SAVE_TERMINAL_TITLE);
     history = new History();
     history.addMessage({ role: 'system', content: await buildSystemPrompt(planMode) });
     sessionCost.reset();
+    costLimitRaised = null;
+    costWarned = false;
     currentDraft = '';
     UsageTracker.getInstance().reset();
     globalSnapshotManager.reset();
@@ -969,7 +1011,7 @@ export async function main() {
     drawLogo(config.banner || 'full');
   };
   const announce = (message: string) => {
-    if (config.ui?.layout === 'classic') p.log.success(message);
+    if (config.ui?.layout === 'classic') log.success(message);
     else console.log(renderNotice('ok', message));
   };
 
@@ -1044,8 +1086,14 @@ export async function main() {
         message: 'Ask anything...',
         placeholder: config.ui?.layout === 'classic'
           ? 'Fix a TODO, type /help, or press Tab to switch mode'
-          : 'Ask or describe a task…',
+          : t('composer.placeholder'),
         initialValue: currentDraft,
+        // Between turns the same keys work at the prompt: the chat above is drawn again.
+        onViewToggle: (kind) => {
+          if (kind === 'thinking') thinkingExpanded = !thinkingExpanded;
+          else outputExpanded = !outputExpanded;
+          redrawChat();
+        },
         planMode,
         isYolo: !!config.autoApprove,
         ui: config.ui,
@@ -1065,7 +1113,7 @@ export async function main() {
         history.updateSystemPrompt(newSys);
         // Clean layout: the prompt frame changes colour and label, no extra line needed.
         if (config.ui?.layout === 'classic') {
-          p.log.info(planMode 
+          log.info(planMode 
             ? pc.bold(pc.cyan('Mode: PLAN (Architect & Planner) — Press Tab to switch to AGENT'))
             : pc.bold(pc.green('Mode: AGENT (Coder & Executor) — Press Tab to switch to PLAN'))
           );
@@ -1076,13 +1124,10 @@ export async function main() {
       currentDraft = '';
 
       if (inputStr === '__CANCEL__') {
-        const confirmExit = await p.confirm({
-          message: 'Are you sure you want to exit devx?',
-          initialValue: false
-        });
-        if (!p.isCancel(confirmExit) && confirmExit === true) {
+        const confirmExit = await askConfirm({ title: t('confirm.exitTitle'), question: t('confirm.exit'), record: false });
+        if (confirmExit) {
           resetTerminalTheme();
-          p.outro('Goodbye!');
+          printFarewell(t('confirm.goodbye'));
           break;
         } else {
           continue;
@@ -1104,13 +1149,13 @@ export async function main() {
         const cmdArgs = answer.slice(cmd.length).trim();
         const expandedPrompt = CustomCommandManager.expandTemplate(customCmd.promptTemplate, cmdArgs);
         answer = expandedPrompt;
-        p.log.info(pc.cyan(`Executing custom command: ${pc.bold(customCmd.cmd)} (${customCmd.desc})`));
+        log.info(pc.cyan(`Executing custom command: ${pc.bold(customCmd.cmd)} (${customCmd.desc})`));
       } else {
         const VALID_COMMANDS = [
           '/new', '/reset', '/resume', '/session', '/sessions', '/history',
           '/theme', '/themes', '/usage', '/export', '/mcp',
           '/settings', '/update', '/model', '/provider', '/providers',
-          '/plan', '/agent', '/image', '/serve', '/memory', '/undo',
+          '/plan', '/agent', '/image', '/serve', '/memory', '/permissions', '/copy', '/rename', '/title', '/undo',
           '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
           '/config', '/clear', '/exit', '/quit', '/help', '/effort'
         ];
@@ -1139,6 +1184,9 @@ export async function main() {
             { name: '/agent        - Switch to AGENT mode (coder)', value: '/agent' },
             { name: '/serve        - Start local web server for web preview', value: '/serve' },
             { name: '/memory       - View or edit project memory bank', value: '/memory' },
+            { name: '/permissions  - What is allowed without asking', value: '/permissions' },
+            { name: '/copy         - Copy the last answer to the clipboard', value: '/copy' },
+            { name: '/rename       - Rename the chat', value: '/rename' },
             { name: '/undo         - Revert last file changes made by AI', value: '/undo' },
             { name: '/diff         - Show git diff of modified files', value: '/diff' },
             { name: '/commit       - AI-generated git commit message', value: '/commit' },
@@ -1183,35 +1231,36 @@ export async function main() {
       if (cmd === '/settings') {
         // The panel erases itself; the conversation above it stays where it is.
         config = await handleSettings(config);
+        costLimitRaised = null;
+        costWarned = false;
+        // The project memory switch changes what the system prompt contains.
+        history.updateSystemPrompt(await buildSystemPrompt(planMode));
         continue;
       }
 
       if (cmd === '/update') {
-        const s = p.spinner();
+        const s = new UiSpinner();
         s.start('Checking for updates from https://github.com/apvcode/Termux-Dev...');
         const res = await checkForUpdates(10000);
         s.stop();
         if (res.updateAvailable) {
-          p.log.info(pc.bold(pc.yellow(`Update available: v${res.currentVersion} → v${res.latestVersion}`)));
-          const doUpdate = await p.confirm({
-            message: `Do you want to update devx to v${res.latestVersion} now?`,
-            initialValue: true
-          });
-          if (!p.isCancel(doUpdate) && doUpdate) {
+          log.info(pc.bold(pc.yellow(`Update available: v${res.currentVersion} → v${res.latestVersion}`)));
+          const doUpdate = await askConfirm({ title: 'update', question: t('confirm.update', { version: res.latestVersion }), initial: true });
+          if (doUpdate) {
             await performSelfUpdate(res.latestVersion);
           }
         } else {
-          p.log.success(pc.green(`devx is up to date! (v${res.currentVersion})`));
+          log.success(pc.green(`devx is up to date! (v${res.currentVersion})`));
         }
         continue;
       }
 
       if (cmd === '/help') {
-        p.note('/settings - Configure permissions (Auto-Approve / Ask every time)\n/resume - Resume previous chat session\n/session del - Select and delete saved sessions\n/new - Start a new chat session (or /new <prompt>)\n/model - Switch model for current provider\n/effort - Set the reasoning effort (only levels the model supports)\n/provider - Switch AI provider (with saved keys)\n/config - View configuration\n/plan - Switch to plan mode\n/agent - Switch to agent mode\n/clear - Clear context and start a new session\n/exit - Exit', 'Commands');
+        note('/settings - Configure permissions (Auto-Approve / Ask every time)\n/resume - Resume previous chat session\n/session del - Select and delete saved sessions\n/new - Start a new chat session (or /new <prompt>)\n/model - Switch model for current provider\n/effort - Set the reasoning effort (only levels the model supports)\n/provider - Switch AI provider (with saved keys)\n/config - View configuration\n/plan - Switch to plan mode\n/agent - Switch to agent mode\n/clear - Clear context and start a new session\n/exit - Exit', 'Commands');
         continue;
       }
       if (cmd === '/exit') {
-        p.outro('Goodbye!');
+        printFarewell(t('confirm.goodbye'));
         break;
       }
       if (cmd === '/clear') {
@@ -1238,7 +1287,7 @@ export async function main() {
 
         const sessions = await SessionManager.listSessions();
         if (sessions.length === 0) {
-          p.log.warn('No saved sessions found.');
+          log.warn('No saved sessions found.');
           continue;
         }
 
@@ -1303,45 +1352,20 @@ export async function main() {
           const recentMessages = nonSysMessages.slice(-displayLimit);
           const shownCount = recentMessages.length;
 
-          // Header banner showing messages loaded
-          const countInfo = totalMsgs > displayLimit
-            ? `Loaded recent ${shownCount} messages of ${totalMsgs}`
-            : `Loaded all ${totalMsgs} messages`;
-
-          console.log('\n' + pc.bold(pc.cyan(`─── ${countInfo} (Session: "${loaded.title}") ───`)) + '\n');
-
-          // Render each message in chronological order
-          for (const msg of recentMessages) {
-            if (msg.role === 'user') {
-              console.log(pc.cyan('◆') + '  ' + pc.bold(pc.white(msg.content)));
-              if (msg.images && msg.images.length > 0) {
-                console.log(pc.magenta(`  [${msg.images.map(i => i.path).join(', ')}]`));
-              }
-              console.log();
-            } else if (msg.role === 'assistant') {
-              if (msg.content) {
-                console.log(renderMarkdown(msg.content));
-              }
-              if (msg.tool_calls && msg.tool_calls.length > 0) {
-                for (const tc of msg.tool_calls) {
-                  console.log(pc.dim(`  ${tc.name}`));
-                }
-              }
-              console.log();
-            } else if (msg.role === 'tool') {
-              if (msg.content) {
-                const firstLine = msg.content.trim().split('\n')[0];
-                if (firstLine.includes('+') || firstLine.includes('lines') || firstLine.includes('Successfully')) {
-                  console.log(pc.green(`  └─ ${firstLine}`));
-                }
-              }
-            }
-          }
-
-          console.log(pc.bold(pc.cyan(`────────────────────────────────────────────────────────────────────────\n`)));
-          p.log.success(`Resumed session: "${loaded.title}" (${totalMsgs} total messages in history)`);
+          transcript.length = 0;
+          titleAttempts = 0;
+          if (loaded.title && loaded.title !== 'New Session') setWindowTitle(loaded.title);
+          transcript.push(...messagesToItems(recentMessages));
+          console.log(renderResumedMessages(recentMessages, {
+            title: loaded.title,
+            shown: shownCount,
+            total: totalMsgs,
+            cols: process.stdout.columns || 80,
+            thinkingExpanded,
+            outputExpanded,
+          }).join('\n'));
         } else {
-          p.log.error('Failed to load session.');
+          log.error('Failed to load session.');
         }
         continue;
       }
@@ -1360,16 +1384,40 @@ export async function main() {
         continue;
       }
       if (cmd === '/undo') {
-        const { revertedFiles, count } = await globalSnapshotManager.undoLastTurn();
-        if (count === 0) {
-          p.log.warn('No changes to undo.');
-        } else {
-          history.popLastTurn();
-          p.log.success(pc.bold(pc.green(`Successfully reverted changes in ${count} file(s):`)));
-          for (const f of revertedFiles) {
-            console.log(pc.cyan(`  • ${f}`));
+        // With git: the whole folder goes back to how it was before the last turn, shell commands included.
+        const cp = checkpoints[checkpoints.length - 1];
+        const diff = cp ? await diffCheckpoint(cp).catch(() => null) : null;
+        if (cp && diff && diff.modified.length + diff.created.length + diff.deleted.length > 0) {
+          const list = [
+            ...diff.modified.map((f) => `changed  ${f}`),
+            ...diff.deleted.map((f) => `deleted  ${f}`),
+            ...diff.created.map((f) => `new      ${f}`),
+          ];
+          const shown = list.slice(0, 12);
+          if (list.length > shown.length) shown.push(`… +${list.length - shown.length} more`);
+          const ok = await askConfirm({
+            title: 'undo',
+            question: t('undo.question', { n: list.length }),
+            details: [...shown, t('undo.note')],
+            initial: true,
+          });
+          if (ok) {
+            await restoreCheckpoint(cp, diff);
+            checkpoints.pop();
+            await globalSnapshotManager.undoLastTurn().catch(() => null);
+            history.popLastTurn();
+            log.success(t('undo.done', { n: list.length }));
           }
-          console.log(pc.dim('  Note: only edits made with the file tools are reverted. Changes made by shell commands (bash) are not tracked.'));
+        } else {
+          const { revertedFiles, count } = await globalSnapshotManager.undoLastTurn();
+          if (count === 0) {
+            log.warn('No changes to undo.');
+          } else {
+            history.popLastTurn();
+            log.success(`Reverted changes in ${count} file(s)`);
+            for (const f of revertedFiles) console.log(pc.cyan(`  • ${f}`));
+            console.log(pc.dim('  Note: without git only edits made with the file tools are reverted, not those of shell commands.'));
+          }
         }
         continue;
       }
@@ -1377,7 +1425,7 @@ export async function main() {
         try {
           const diffOutput = execSync('git diff', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
           if (!diffOutput.trim()) {
-            p.log.info('No uncommitted changes in git repository.');
+            log.info('No uncommitted changes in git repository.');
           } else {
             console.log('\n' + pc.bold(pc.cyan('─── Git Diff ─────────────────────────')));
             for (const line of diffOutput.split('\n')) {
@@ -1394,7 +1442,7 @@ export async function main() {
             console.log(pc.bold(pc.cyan('──────────────────────────────────────\n')));
           }
         } catch {
-          p.log.warn('Git is not available or current directory is not a git repo.');
+          log.warn('Git is not available or current directory is not a git repo.');
         }
         continue;
       }
@@ -1402,7 +1450,7 @@ export async function main() {
         try {
           const statusOutput = execSync('git status --short', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
           if (!statusOutput.trim()) {
-            p.log.success('Working directory clean, no modified files.');
+            log.success('Working directory clean, no modified files.');
           } else {
             console.log('\n' + pc.bold(pc.cyan('─── Git Status ───────────────────────')));
             for (const line of statusOutput.split('\n')) {
@@ -1420,7 +1468,7 @@ export async function main() {
             console.log(pc.bold(pc.cyan('──────────────────────────────────────\n')));
           }
         } catch {
-          p.log.warn('Git is not available or current directory is not a git repo.');
+          log.warn('Git is not available or current directory is not a git repo.');
         }
         continue;
       }
@@ -1428,7 +1476,7 @@ export async function main() {
         try {
           const status = execSync('git status --short', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
           if (!status.trim()) {
-            p.log.info('No changes to commit.');
+            log.info('No changes to commit.');
             continue;
           }
           const diff = execSync('git diff', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -1436,7 +1484,7 @@ export async function main() {
           let commitMsg = userMsg;
 
           if (!commitMsg) {
-            const s = p.spinner();
+            const s = new UiSpinner();
             s.start('Generating conventional commit message with AI...');
             await refreshFormats(config).catch(() => null);
             const provider = createProvider(config);
@@ -1457,31 +1505,28 @@ export async function main() {
             commitMsg = (genRes.content || 'chore: update project files').trim().replace(/^["'`]|["'`]$/g, '').split('\n')[0];
           }
 
-          const confirmed = await p.confirm({
-            message: `Commit changes with message:\n"${pc.bold(pc.green(commitMsg))}"?`,
-            initialValue: true
-          });
+          const confirmed = await askConfirm({ title: 'commit', question: t('confirm.commit'), details: [commitMsg], initial: true });
 
-          if (!p.isCancel(confirmed) && confirmed) {
+          if (confirmed) {
             execFileSync('git', ['add', '-A'], { stdio: 'ignore' });
             execFileSync('git', ['commit', '-m', commitMsg], { stdio: 'ignore' });
-            p.log.success(pc.bold(pc.green(`Committed: ${commitMsg}`)));
+            log.success(pc.bold(pc.green(`Committed: ${commitMsg}`)));
           } else {
-            p.log.info('Commit cancelled.');
+            log.info('Commit cancelled.');
           }
         } catch (err: any) {
-          p.log.error(`Git commit failed: ${err.message}`);
+          log.error(`Git commit failed: ${err.message}`);
         }
         continue;
       }
       if (cmd === '/compact') {
         const msgs = history.getMessages();
         if (msgs.length <= 2) {
-          p.log.info('Conversation is already short, no compaction needed.');
+          log.info('Conversation is already short, no compaction needed.');
           continue;
         }
 
-        const s = p.spinner();
+        const s = new UiSpinner();
         s.start('Compacting conversation context with AI...');
         try {
           await refreshFormats(config).catch(() => null);
@@ -1511,10 +1556,10 @@ export async function main() {
             role: 'user',
             content: `[CONVERSATION COMPACTED] Summary of our conversation so far:\n${res.content}`
           });
-          p.log.success(pc.bold(pc.green('Context successfully compacted! Freed up tokens while retaining task summary.')));
+          log.success(pc.bold(pc.green('Context successfully compacted! Freed up tokens while retaining task summary.')));
         } catch (err: any) {
           s.stop();
-          p.log.error(`Compaction failed: ${err.message}`);
+          log.error(`Compaction failed: ${err.message}`);
         }
         continue;
       }
@@ -1536,11 +1581,11 @@ export async function main() {
       if (cmd === '/init') {
         const agentsPath = path.join(process.cwd(), 'AGENTS.md');
         if (fsSync.existsSync(agentsPath)) {
-          p.log.warn('AGENTS.md already exists in current workspace.');
+          log.warn('AGENTS.md already exists in current workspace.');
         } else {
           const template = `# Project Developer Instructions (AGENTS.md)\n\n## Overview\nProject description and goals.\n\n## Tech Stack\n- TypeScript / Node.js\n\n## Coding Guidelines\n- Clean, modular code\n- Verify changes after editing\n`;
           await fs.writeFile(agentsPath, template, 'utf8');
-          p.log.success(`Created ${pc.bold('AGENTS.md')} in project root! Customize it to give devx persistent instructions.`);
+          log.success(`Created ${pc.bold('AGENTS.md')} in project root! Customize it to give devx persistent instructions.`);
         }
         continue;
       }
@@ -1552,9 +1597,9 @@ export async function main() {
         const sub = parts[1]?.toLowerCase();
         if (sub === 'stop') {
           if (stopServer()) {
-            p.log.success('Web server stopped.');
+            log.success('Web server stopped.');
           } else {
-            p.log.info('No web server is currently running.');
+            log.info('No web server is currently running.');
           }
         } else {
           const customPort = parseInt(parts[1], 10) || 3000;
@@ -1562,7 +1607,7 @@ export async function main() {
             const { port, localUrl, networkUrl } = await startServer(customPort);
             await displayServerBanner(localUrl, networkUrl);
           } catch (err: any) {
-            p.log.error(`Failed to start web server: ${err.message}`);
+            log.error(`Failed to start web server: ${err.message}`);
           }
         }
         continue;
@@ -1578,10 +1623,69 @@ export async function main() {
             announce(`theme ${th.name}`);
           } else {
             const themes = listThemes();
-            p.log.warn(`Unknown theme: "${themeArg}". Available themes: ${themes.map(t => `${t.colorFn(t.symbol)} ${t.id}`).join(', ')}`);
+            log.warn(`Unknown theme: "${themeArg}". Available themes: ${themes.map(t => `${t.colorFn(t.symbol)} ${t.id}`).join(', ')}`);
           }
         } else {
           await handleThemeSelect(config);
+        }
+        continue;
+      }
+      if (cmd === '/copy') {
+        const last = [...history.getMessages()].reverse().find((m) => m.role === 'assistant' && m.content && m.content.trim());
+        if (!last) {
+          log.warn(t('copy.none'));
+        } else {
+          const method = await copyToClipboard(last.content);
+          if (method === 'none') log.error(t('copy.failed'));
+          else log.success(t('copy.done', { n: Array.from(last.content).length }));
+        }
+        continue;
+      }
+      if (cmd === '/rename' || cmd === '/title') {
+        const name = cleanTitle(parts.slice(1).join(' '));
+        if (name) {
+          sessionManager.setTitle(name);
+          setWindowTitle(name);
+          await sessionManager.save(history.getMessages(), sessionCost.total, config.model, planMode, sessionCost.estimated);
+          log.success(t('rename.done', { name }));
+        } else {
+          // Without a name the model names the chat again.
+          const msgs = history.getMessages();
+          const firstUser = msgs.find((m) => m.role === 'user')?.content ?? '';
+          const reply = [...msgs].reverse().find((m) => m.role === 'assistant' && m.content && m.content.trim())?.content ?? '';
+          if (!firstUser.trim() || !reply.trim()) {
+            log.warn(t('rename.usage'));
+          } else {
+            const generated = await generateChatTitle(createProvider(config), firstUser.split('\n\n--- Attached Files ---')[0], reply);
+            if (!generated) log.error(t('rename.failed'));
+            else {
+              sessionManager.setTitle(generated);
+              setWindowTitle(generated);
+              await sessionManager.save(history.getMessages(), sessionCost.total, config.model, planMode, sessionCost.estimated);
+              log.success(t('rename.done', { name: generated }));
+            }
+          }
+        }
+        continue;
+      }
+      if (cmd === '/permissions') {
+        if ((parts[1] || '').toLowerCase() === 'clear') {
+          config.bashAllowlist = [];
+          config.allowedTools = [];
+          permissionMemory.bash.clear();
+          permissionMemory.tools.clear();
+          await saveConfig(config);
+          log.success(t('permissions.cleared'));
+        } else {
+          const bash = Array.from(new Set([...(config.bashAllowlist || []), ...permissionMemory.bash]));
+          const tools = Array.from(permissionMemory.tools);
+          const rows = [
+            ...bash.map((k) => `command   ${k}`),
+            ...tools.map((k) => `tool      ${k}`),
+          ];
+          if (rows.length === 0) log.info(t('permissions.none'));
+          else note(rows.join('\n'), t('permissions.title'));
+          if (rows.length > 0) log.info(t('permissions.hint'));
         }
         continue;
       }
@@ -1589,21 +1693,39 @@ export async function main() {
         const sub = parts[1]?.toLowerCase();
         if (sub === 'clear') {
           await MemoryManager.clearMemory();
-          p.log.success('Cleared project memory bank (.devx/memory.md).');
+          history.updateSystemPrompt(await buildSystemPrompt(planMode));
+          log.success('Cleared project memory bank (.devx/memory.md).');
+        } else if (sub === 'remove' || sub === 'rm') {
+          const name = parts[2];
+          if (!name) {
+            console.log(renderNotice('warn', t('mcp.removeUsage')));
+          } else if (!removeUserServer(name)) {
+            console.log(renderNotice('warn', t('mcp.removeNotFound', { name })));
+          } else {
+            const sp = new UiSpinner();
+            sp.start('Reloading MCP servers...');
+            await MCPManager.getInstance().reload();
+            sp.stop();
+            console.log(renderNotice('ok', t('mcp.removed', { name })));
+          }
         } else if (sub === 'add') {
           const fact = parts.slice(2).join(' ').trim();
           if (!fact) {
-            p.log.warn('Usage: /memory add <fact or rule to remember>');
+            log.warn('Usage: /memory add <fact or rule to remember>');
           } else {
             await MemoryManager.addFact(fact);
-            p.log.success(`Saved to memory: "${fact}"`);
+            // The model sees the new rule from the next message on, not only after a restart.
+            history.updateSystemPrompt(await buildSystemPrompt(planMode));
+            log.success(`Saved to memory: "${fact}"`);
           }
         } else {
           const mem = await MemoryManager.loadMemory();
           if (!mem.trim()) {
-            p.log.info('Project memory is empty. AI will remember facts as you work, or use /memory add <fact>.');
+            log.info('Project memory is empty. AI will remember facts as you work, or use /memory add <fact>.');
           } else {
-            p.note(mem, 'Project Memory Bank (.devx/memory.md)');
+            note(mem, 'Project Memory Bank (.devx/memory.md)');
+            const capped = memoryForPrompt(mem);
+            if (capped.omitted > 0) log.warn(t('memory.capped', { n: capped.omitted }));
             console.log(pc.dim('Commands: /memory add <text> | /memory clear\n'));
           }
         }
@@ -1628,20 +1750,57 @@ export async function main() {
         const targetName = parts.slice(1).join(' ').trim();
         const res = await SessionExporter.exportToMarkdown(history.getMessages(), config.model, targetName || undefined);
         if (res.success) {
-          p.log.success(pc.bold(pc.green(`Session exported to: ${res.filePath}`)));
+          log.success(pc.bold(pc.green(`Session exported to: ${res.filePath}`)));
         } else {
-          p.log.error(`Failed to export session: ${res.error}`);
+          log.error(`Failed to export session: ${res.error}`);
         }
         continue;
       }
       if (cmd === '/mcp') {
         const sub = (parts[1] || '').toLowerCase();
         if (sub === 'reload' || sub === 'restart' || sub === 'r') {
-          const s = p.spinner();
+          const s = new UiSpinner();
           s.start('Reloading MCP servers...');
           await MCPManager.getInstance().reload();
           s.stop();
           console.log('\n' + MCPManager.getInstance().renderStatusCard());
+        } else if (sub === 'import') {
+          // The servers that Claude Code already knows (~/.claude.json) become devx servers.
+          const found = readClaudeServers();
+          if (Object.keys(found).length === 0) {
+            console.log(renderNotice('warn', 'No servers found in ~/.claude.json'));
+          } else {
+            const added = saveUserServers(found);
+            const skipped = Object.keys(found).filter((n) => !added.includes(n));
+            const s = new UiSpinner();
+            s.start('Starting MCP servers...');
+            await MCPManager.getInstance().reload();
+            s.stop();
+            console.log(renderNotice('ok', added.length ? `imported: ${added.join(', ')} (saved to ~/.devx/mcp.json)` : 'nothing new to import'));
+            if (skipped.length) console.log(renderNotice('info', `already in devx: ${skipped.join(', ')}`));
+            console.log('\n' + MCPManager.getInstance().renderStatusCard());
+          }
+        } else if (sub === 'add') {
+          // /mcp add <name> <command> [args...]
+          const [name, command, ...rest] = parts.slice(2);
+          if (!name || !command) {
+            console.log(renderNotice('warn', 'Usage: /mcp add <name> <command|url> [args...]   e.g. /mcp add notion npx -y mcp-remote https://mcp.notion.com/mcp'));
+          } else {
+            // An address is a remote server (over HTTP); anything else is a program to start.
+            saveUserServers({ [name]: /^https?:\/\//i.test(command) ? { url: command } : { command, ...(rest.length ? { args: rest } : {}) } }, true);
+            const s = new UiSpinner();
+            s.start(`Starting ${name}...`);
+            await MCPManager.getInstance().reload();
+            s.stop();
+            const st = MCPManager.getInstance().getStatus(name);
+            console.log(st?.status === 'connected'
+              ? renderNotice('ok', `${name} connected, ${st.toolsCount} tools (saved to ~/.devx/mcp.json)`)
+              : renderNotice('error', `${name}: ${st?.error || st?.status || 'not started'}`));
+          }
+        } else if (process.stdin.isTTY && process.stdout.isTTY) {
+          // The panel erases itself when it is closed; the conversation above it stays where it is.
+          await runMcpPanel(MCPManager.getInstance());
+          process.stdin.resume();
         } else {
           console.log('\n' + MCPManager.getInstance().renderStatusCard());
         }
@@ -1656,7 +1815,7 @@ export async function main() {
             masked.apiKeys[k] = maskApiKey(masked.apiKeys[k]);
           }
         }
-        p.note(JSON.stringify(masked, null, 2), 'Configuration (Secrets Masked)');
+        note(JSON.stringify(masked, null, 2), 'Configuration (Secrets Masked)');
         continue;
       }
       if (cmd === '/model') {
@@ -1668,7 +1827,7 @@ export async function main() {
           await refreshEndpoint(config).catch(() => null);
           announce(`model ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
         } else {
-          p.log.info('Model selection cancelled.');
+          log.info('Model selection cancelled.');
         }
         continue;
       }
@@ -1676,9 +1835,9 @@ export async function main() {
         const showSay = (say: Say) => {
           if (config.ui?.layout === 'classic') {
             const text = say.detail ? `${say.text}\n${say.detail}` : say.text;
-            if (say.kind === 'ok') p.log.success(text);
-            else if (say.kind === 'warn') p.log.warn(text);
-            else p.log.info(text);
+            if (say.kind === 'ok') log.success(text);
+            else if (say.kind === 'warn') log.warn(text);
+            else log.info(text);
           } else {
             console.log(renderNotice(say.kind, say.text));
             if (say.detail) console.log(renderResultBlock(say.detail, 'muted', process.stdout.columns || 80));
@@ -1728,7 +1887,7 @@ export async function main() {
           await refreshEndpoint(config).catch(() => null);
           announce(`provider ${config.provider || 'custom'} · ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
         } else {
-          p.log.info('Provider selection cancelled.');
+          log.info('Provider selection cancelled.');
         }
         continue;
       }
@@ -1773,7 +1932,7 @@ export async function main() {
             planMode = false;
             const newSys = await buildSystemPrompt(false);
             history.updateSystemPrompt(newSys);
-            p.log.success(pc.bold(pc.green('Plan approved! Auto-switched to AGENT mode. Starting execution...')));
+            log.success(pc.bold(pc.green('Plan approved! Auto-switched to AGENT mode. Starting execution...')));
           }
         }
       }
@@ -1781,7 +1940,7 @@ export async function main() {
 
     // Resolve @file and @image mentions
     const { text: cleanAnswer, attachments, images, warnings: attachWarnings } = await resolveAtMentions(answer);
-    for (const warning of attachWarnings) p.log.warn(warning);
+    for (const warning of attachWarnings) log.warn(warning);
     let finalContent = cleanAnswer;
 
     if (attachments.length > 0) {
@@ -1789,18 +1948,43 @@ export async function main() {
         `[Attached file: ${a.path}]\n\`\`\`\n${a.content}\n\`\`\``
       ).join('\n\n');
       finalContent = `${cleanAnswer}\n\n--- Attached Files ---\n${attachBlocks}`;
-      p.log.info(pc.cyan(`Attached ${attachments.length} file(s): ${attachments.map(a => a.path).join(', ')}`));
+      log.info(pc.cyan(`Attached ${attachments.length} file(s): ${attachments.map(a => a.path).join(', ')}`));
     }
 
     if (images.length > 0) {
       if (modelAcceptsImages(config.model) === false) {
-        p.log.warn(`${config.model} cannot read images: ${images.length === 1 ? 'the image' : 'the images'} will not be sent. Switch to a model with vision (/model).`);
+        log.warn(`${config.model} cannot read images: ${images.length === 1 ? 'the image' : 'the images'} will not be sent. Switch to a model with vision (/model).`);
       } else {
-        p.log.info(pc.cyan(`Attached ${images.length} image(s): ${images.map(i => path.basename(i.path)).join(', ')}`));
+        log.info(pc.cyan(`Attached ${images.length} image(s): ${images.map(i => path.basename(i.path)).join(', ')}`));
       }
     }
 
+    // The session is over its cost limit: ask before spending more.
+    if (costLimit() > 0 && sessionCost.total >= costLimit()) {
+      const proceed = await askConfirm({
+        title: t('cost.title'),
+        question: t('cost.reached', { spent: formatCost(sessionCost.total), limit: formatCost(costLimit()) }),
+        details: [t('cost.raise', { limit: formatCost(costLimit() * 2) })],
+        yes: t('cost.continue'),
+        no: t('cost.cancel'),
+      });
+      if (!proceed) {
+        log.info(t('cost.cancelled'));
+        currentDraft = answer;
+        continue;
+      }
+      costLimitRaised = costLimit() * 2;
+      costWarned = false;
+    }
+
     globalSnapshotManager.beginTurn();
+    if (!planMode) {
+      const cp = await createCheckpoint(process.cwd(), checkpoints[checkpoints.length - 1]?.sha);
+      if (cp) checkpoints.push(cp);
+    }
+    transcript.push({ kind: 'user', text: answer });
+    // Until the model has named the chat, the start of the first message stands in for the name.
+    if (!windowTitle && !sessionManager.hasGeneratedTitle) setWindowTitle(provisionalTitle(answer));
     history.addMessage({
       role: 'user',
       content: finalContent,
@@ -1811,12 +1995,21 @@ export async function main() {
     await refreshFormats(config).catch(() => null);
     const provider = createProvider(config);
     const tools = getTools(planMode);
-    const guard = new CLIConsoleGuard(config.autoApprove, config.bashAllowlist || []);
+    const guard = new CLIConsoleGuard(config.autoApprove, [...(config.bashAllowlist || [])], {
+      memory: permissionMemory,
+      // "Always": kept in the config for the next sessions (`/permissions` lists and clears them).
+      onAlways: (r) => {
+        if (r.kind === 'bash') config.bashAllowlist = Array.from(new Set([...(config.bashAllowlist || []), r.key]));
+        else config.allowedTools = Array.from(new Set([...(config.allowedTools || []), r.key]));
+        void saveConfig(config).catch(() => null);
+      },
+    });
     const agentConfig: AgentConfig = {
       maxContextTokens: config.maxContextTokens || 100000,
       maxIterations: config.maxIterations || 100,
       autoApprove: config.autoApprove,
-      bashAllowlist: config.bashAllowlist
+      bashAllowlist: config.bashAllowlist,
+      hooks: config.hooks,
     };
 
     const agent = new Agent(agentConfig, provider, tools, history, guard);
@@ -1827,7 +2020,19 @@ export async function main() {
     let spinnerActive = false;
     let thinkingActive = false;
     let thinkingStartTime = 0;
+    // Thinking is collapsed by default: only a live line shows the newest words. ctrl+p shows it in full.
+    let thinkingStreaming = false;
+    let thoughtBuffer = '';
+    let thoughtPrinted = 0;
+    let liveShown = 0;   // how much of the reasoning the live line has flowed through
+    let liveAt = 0;
+    // The same for commands and their output (ctrl+o).
     let textActive = false;
+    let assistantBuf = '';
+    // The last finished reasoning waits for the reply it belongs to, to be saved with it.
+    let pendingReasoning: { text: string; sec: string; stats: string } | null = null;
+    let pendingRedraw = false;
+    let gapBeforeTool = false;
 
     const cleanUi = config.ui?.layout !== 'classic';
     const s = (cleanUi ? new UiSpinner() : p.spinner()) as any;
@@ -1862,45 +2067,80 @@ export async function main() {
 
     // Tool results in the clean layout: a quiet "╰ summary" line, a diff box for edits.
     const renderCleanToolResult = (name: string, result: string) => {
-      const cols = process.stdout.columns || 80;
-      let handled = false;
-      try {
-        const parsed = JSON.parse(result);
-        if (parsed && typeof parsed === 'object') {
-          if (parsed.type === 'todo_list' && parsed.displayCard) {
-            process.stdout.write(parsed.displayCard);
-            handled = true;
-          } else if (parsed.action === 'edit' && parsed.diffLines) {
-            const box = formatDiffBox(parsed.path, parsed.diffLines, Math.min(cols - 4, 80), undefined, !!config.ui?.diffColors);
-            console.log(box.split('\n').map((l: string) => '    ' + l).join('\n'));
-            if (parsed.summary) console.log(renderResultLine(parsed.summary, 'ok', cols));
-            handled = true;
-          } else if (parsed.summary) {
-            console.log(renderResultLine(parsed.summary, 'ok', cols));
-            handled = true;
-          }
-        }
-      } catch {}
-      if (!handled) {
-        const lines = summarizeToolResult(name, result, cols);
-        if (lines.length > 0) console.log(lines.join('\n'));
-      }
+      const rows = toolResultRows(name, result, { cols: process.stdout.columns || 80, expanded: outputExpanded, diffColors: !!config.ui?.diffColors });
+      if (rows.length > 0) console.log(rows.join('\n'));
     };
 
     const telemetry = new LiveTelemetryTracker();
     telemetry.start('connecting');
     uiSpinner?.setMetaProvider(liveTokens);
 
+    // Only a text that is being written holds it back (its line cannot be cut in the middle).
+    /** The reasoning goes into the saved session with the reply it came before. */
+    const attachReasoning = () => {
+      if (!pendingReasoning) return;
+      const messages = history.getMessages();
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') {
+          if (!messages[i].reasoning) {
+            messages[i].reasoning = pendingReasoning;
+            pendingReasoning = null;
+          }
+          return;
+        }
+        if (messages[i].role === 'user') return;   // the reply is not written yet
+      }
+    };
+    const safeToRedraw = () => !textActive;
+
+    /** Clears the screen and draws the whole conversation again, folded or unfolded as the switches say. */
+    const redraw = () => {
+      composer.suspend();
+      // A reasoning that was being printed in full is part of the screen that is wiped: it starts again.
+      if (thinkingActive) {
+        thinkingActive = false;
+        thoughtPrinted = 0;
+        thoughtStreamer.reset();
+        thoughtGutter.reset();
+      }
+      redrawChat();
+      composer.resume();
+    };
+    const runPendingRedraw = () => {
+      if (pendingRedraw && safeToRedraw()) {
+        pendingRedraw = false;
+        redraw();
+      }
+    };
+
+    /** The assistant's text is complete: close its line and keep it in the conversation. */
+    const endText = () => {
+      if (textActive) {
+        process.stdout.write('\n');
+        textActive = false;
+      }
+      if (assistantBuf.trim()) transcript.push({ kind: 'assistant', text: assistantBuf });
+      assistantBuf = '';
+      runPendingRedraw();
+    };
+
     const finishThinking = (extraNewline = true) => {
-      if (!thinkingActive) return;
-      thoughtStreamer.flush();
-      thoughtGutter.flush();
+      if (!thinkingActive && !thinkingStreaming) return;
+      if (thinkingActive) {
+        thoughtStreamer.flush();
+        thoughtGutter.flush();
+      }
       const elapsedSec = thinkingStartTime > 0 ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : '0.0';
       const teleStats = config.ui?.liveTelemetry && telemetry.getTotalTokens() > 0
         ? ` · ${LiveTelemetryTracker.formatTokenCount(telemetry.getTotalTokens())} tok · ${telemetry.getTokensPerSecond()} tok/s`
         : '';
-      if (cleanUi) {
-        process.stdout.write('\n' + palette.faint(`  ╰ thought for ${elapsedSec}s${teleStats}`) + '\n');
+      if (cleanUi && !thinkingActive) {
+        // Folded: one quiet line instead of the whole reasoning.
+        if (spacerBeforeText) process.stdout.write('\n');
+        process.stdout.write(collapsedThoughtLine(`${t('status.thoughtFor', { sec: elapsedSec })}${teleStats}`, !!thoughtBuffer.trim(), process.stdout.columns || 80) + '\n');
+        spacerBeforeText = true;
+      } else if (cleanUi) {
+        process.stdout.write('\n' + palette.faint(`  ╰ ${t('status.thoughtFor', { sec: elapsedSec })}${teleStats}`) + '\n');
         thoughtGutter.reset();
         spacerBeforeText = true;
       } else {
@@ -1909,11 +2149,77 @@ export async function main() {
         const fillLen = Math.max(2, width - label.length);
         process.stdout.write('\n\n' + pc.dim(label + '─'.repeat(fillLen)) + (extraNewline ? '\n\n' : '\n'));
       }
+      if (cleanUi) {
+        transcript.push({ kind: 'thought', text: thoughtBuffer, sec: elapsedSec, stats: teleStats });
+        gapBeforeTool = true;
+      }
+      if (thoughtBuffer.trim()) pendingReasoning = { text: thoughtBuffer.trim(), sec: elapsedSec, stats: teleStats };
+      thoughtBuffer = '';
+      thoughtPrinted = 0;
+      liveShown = 0;
       thinkingActive = false;
+      thinkingStreaming = false;
       thinkingStartTime = 0;
+      runPendingRedraw();
     };
 
-    const stopGeneration = () => {
+    /** Prints the header of the reasoning block (once) and what has not been written of it yet. */
+    const showThought = () => {
+      if (!thinkingActive) {
+        process.stdout.write((cleanUi ? (spacerBeforeText ? '\n' : '') : '\n') + (cleanUi ? palette.muted(`  ∴ ${t('status.thinkingLine')}`) : pc.bold(pc.white('› Thought:'))) + '\n');
+        if (cleanUi) spacerBeforeText = false;
+        thinkingActive = true;
+      }
+      if (thoughtBuffer.length > thoughtPrinted) {
+        thoughtStreamer.push(thoughtBuffer.slice(thoughtPrinted));
+        thoughtPrinted = thoughtBuffer.length;
+      }
+    };
+
+    /**
+     * The newest words of the reasoning on one line while it is folded: half the width of the
+     * screen, the oldest words fading out on the left, an ellipsis at the end. The text flows
+     * in a few characters at a time (faster the further it is behind) instead of jumping with
+     * every chunk the model sends.
+     */
+    const liveThought = (): string => {
+      if (!cleanUi || !thinkingStreaming || thinkingActive) return '';
+      const text = thoughtBuffer.replace(/\s+/g, ' ').trimStart();
+      const now = Date.now();
+      const lag = text.length - liveShown;
+      if (lag > 0) liveShown = Math.min(text.length, liveShown + Math.max(1, Math.ceil((now - liveAt) * Math.max(0.12, lag / 220))));
+      else liveShown = text.length;
+      liveAt = now;
+      const cols = process.stdout.columns || 80;
+      const hint = `  (${t('view.expandThought')})`;
+      const width = Math.max(16, Math.min(Math.floor(cols / 2) - 2, cols - 8 - displayWidth(hint)));
+      const tail = Array.from(tailWidth(text.slice(0, liveShown), width));
+      if (tail.length === 0) return '';
+      const third = Math.ceil(tail.length / 3);
+      const old = tail.slice(0, third).join('');
+      const mid = tail.slice(third, third * 2).join('');
+      const fresh = tail.slice(third * 2).join('');
+      return '  ' + palette.faint('∴') + ' ' + palette.faint(old) + palette.muted(mid) + palette.text(fresh) + palette.faint('…' + hint);
+    };
+
+    /** ctrl+p / ctrl+o: fold or unfold the reasoning / the tool output of the whole chat, also what is already above. */
+    const toggleView = (kind: 'thinking' | 'output') => {
+      if (!cleanUi) return;
+      if (kind === 'thinking') thinkingExpanded = !thinkingExpanded;
+      else outputExpanded = !outputExpanded;
+      composer.refresh();
+      if (safeToRedraw()) {
+        redraw();
+        // A thought that is being written goes on in full from its beginning.
+        if (thinkingExpanded && thinkingStreaming) showThought();
+      } else {
+        pendingRedraw = true;
+      }
+    };
+
+    // Ctrl+Enter: what the user typed goes to the agent right now, replacing the task it was on.
+    let interruptPrompt = '';
+    const stopGeneration = (quiet = false, reason?: string) => {
       if (aborted) return;
       aborted = true;
       abortController.abort();
@@ -1925,16 +2231,22 @@ export async function main() {
       thoughtStreamer.reset();
       finishThinking(true);
       streamer.finish();
-      if (textActive) {
-        process.stdout.write('\n');
-      }
-      if (cleanUi) {
-        console.log(renderNotice('warn', isConnecting ? 'connection cancelled' : 'stopped'));
+      endText();
+      if (reason) {
+        console.log(renderNotice('warn', reason));
+        console.log();
+      } else if (quiet) {
+        // The message that caused the stop is echoed by the next turn: only a quiet separator here.
+        if (cleanUi) console.log(renderNotice('info', t('stop.interrupted')));
+        else console.log(pc.yellow('\n' + t('stop.classicInterrupted')));
+        console.log();
+      } else if (cleanUi) {
+        console.log(renderNotice('warn', isConnecting ? t('stop.connection') : t('stop.stopped')));
         console.log();
       } else if (isConnecting) {
-        console.log(pc.yellow('\nПодключение отменено / Connection cancelled (Ctrl+C).'));
+        console.log(pc.yellow('\n' + t('stop.classicConnection')));
       } else {
-        console.log(pc.yellow('\nGeneration stopped / Ответ остановлен (Ctrl+C).'));
+        console.log(pc.yellow('\n' + t('stop.classicStopped')));
       }
     };
 
@@ -1942,10 +2254,16 @@ export async function main() {
       stopGeneration();
     };
 
+    const sendQueuedNow = () => {
+      if (aborted) return;
+      interruptPrompt = composer.takeQueued().join('\n');
+      if (interruptPrompt) stopGeneration(true);
+    };
+
     // The input line at the bottom while the agent works: what is typed there is queued and
     // reaches the model at its next step (see TurnComposer).
     // The working line (time and tokens) stays above the frame for the whole turn.
-    let statusLabel = 'Waiting for the model';
+    let statusLabel = t('status.waiting');
     let statusFrame = 0;
     const statusStartedAt = Date.now();
     const statusLine = () => renderStatusLine({
@@ -1969,19 +2287,28 @@ export async function main() {
         cost: sessionCost.total,
         costState: sessionCost.state(),
       };
-    }, undefined, statusLine);
+    }, undefined, statusLine, sendQueuedNow);
+    composer.live = liveThought;
+    composer.onToggle = toggleView;
     const releasePauseHook = registerPauseHook(() => {
       composer.suspend();
       return () => composer.resume();
     });
 
     const onRawData = (data: Buffer | string) => {
-      const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data));
-      if (buf.includes(3) || buf.includes(0x03) || data === '\x03') {
+      let text = (Buffer.isBuffer(data) ? data : Buffer.from(String(data))).toString('utf8');
+      // Focus reports: ESC [ I (got the focus) and ESC [ O (lost it). They are not keys.
+      if (text.includes('\x1b[I') || text.includes('\x1b[O')) {
+        terminalFocused = text.lastIndexOf('\x1b[I') > text.lastIndexOf('\x1b[O');
+        text = text.replace(/\x1b\[[IO]/g, '');
+        if (!text) return;
+      }
+      // Ctrl+C is 0x03, or `CSI 99;5u` while the extended keyboard modes are on.
+      if (text.includes('\x03') || splitKeys(text).some((k) => normalizeKey(k) === '\x03')) {
         stopGeneration();
         return;
       }
-      composer.handleData(buf.toString('utf8'));
+      composer.handleData(text);
     };
     const onResize = () => composer.onResize();
 
@@ -2006,11 +2333,12 @@ export async function main() {
         if (cleanUi && config.ui?.typeAhead !== false && composer.start()) {
           process.stdout.on('resize', onResize);
           uiSpinner?.mute(true);
+          process.stdout.write('\x1b[?1004h');   // the terminal tells when it loses or gets the focus
         }
       } catch {}
     }
 
-    s.start(cleanUi ? 'Waiting for the model' : 'Connecting...');
+    s.start(cleanUi ? t('status.waiting') : 'Connecting...');
     spinnerActive = true;
 
     const turnStartTime = Date.now();
@@ -2025,24 +2353,27 @@ export async function main() {
         if (event.type === 'reasoning_delta') {
           isConnecting = false;
           telemetry.setPhase('thinking');
-          statusLabel = 'Thinking';
+          statusLabel = t('status.thinking');
           telemetry.recordTokens(telemetry.estimateTokensFromText(event.delta));
           requestOutEstimate += telemetry.estimateTokensFromText(event.delta);
           if (spinnerActive) {
             s.stop();
             spinnerActive = false;
           }
-          if (!thinkingActive) {
+          if (!thinkingStreaming) {
+            thinkingStreaming = true;
             thinkingStartTime = Date.now();
-            process.stdout.write((cleanUi ? (spacerBeforeText ? '\n' : '') : '\n') + (cleanUi ? palette.muted('  ∴ thinking') : pc.bold(pc.white('› Thought:'))) + '\n');
-            if (cleanUi) spacerBeforeText = false;
-            thinkingActive = true;
+            thoughtBuffer = '';
+            thoughtPrinted = 0;
+            liveShown = 0;
+            liveAt = Date.now();
           }
-          thoughtStreamer.push(event.delta);
+          thoughtBuffer += event.delta;
+          if (!cleanUi || thinkingExpanded) showThought();
         } else if (event.type === 'text_delta') {
           isConnecting = false;
           telemetry.setPhase('generating');
-          statusLabel = 'Writing';
+          statusLabel = t('status.writing');
           telemetry.recordTokens(telemetry.estimateTokensFromText(event.delta));
           requestOutEstimate += telemetry.estimateTokensFromText(event.delta);
           if (spinnerActive) {
@@ -2058,6 +2389,8 @@ export async function main() {
               assistantGutter.reset();
             }
           }
+          assistantBuf += event.delta;
+          gapBeforeTool = false;
           streamer.push(event.delta);
         } else if (event.type === 'text') {
           isConnecting = false;
@@ -2073,6 +2406,7 @@ export async function main() {
               assistantGutter.reset();
               assistantGutter.write(renderMarkdown(event.content) + '\n');
               console.log();
+              transcript.push({ kind: 'assistant', text: event.content });
             } else {
               console.log('\n' + renderMarkdown(event.content) + '\n');
             }
@@ -2087,6 +2421,12 @@ export async function main() {
             ? ` · ${LiveTelemetryTracker.formatTokenCount(telemetry.getTotalTokens())} tok · ${telemetry.getTokensPerSecond()} tok/s`
             : '';
           const telemetrySuffix = config.ui?.liveTelemetry ? ` ${pc.dim(`(${telemetry.getElapsedSeconds()}s${teleStats})`)}` : '';
+          // The model has started on a tool call: its text is complete. (A long write can take minutes, and
+          // ctrl+p / ctrl+o must work meanwhile: they wait only for a text that is still being written.)
+          if (textActive) {
+            streamer.finish();
+            endText();
+          }
           if (!spinnerActive) {
             streamer.finish();
             finishThinking(false);
@@ -2105,18 +2445,17 @@ export async function main() {
           }
           finishThinking(true);
           streamer.finish();
-          if (textActive) {
-            process.stdout.write('\n');
-            textActive = false;
-          }
-          statusLabel = 'Waiting for the model';
+          endText();
+          statusLabel = t('status.waiting');
           const typed = event.content.split('\n\n--- Attached Files ---')[0];
+          transcript.push({ kind: 'user', text: typed });
           console.log();
           console.log(renderUserEcho(typed, process.stdout.columns || 80).join('\n'));
           console.log();
-          s.start(cleanUi ? 'Waiting for the model' : 'Connecting...');
+          s.start(cleanUi ? t('status.waiting') : 'Connecting...');
           spinnerActive = true;
         } else if (event.type === 'tool_start') {
+          attachReasoning();
           isConnecting = false;
           telemetry.reset();
           statusLabel = event.actionDesc || event.name;
@@ -2128,23 +2467,27 @@ export async function main() {
           }
           streamer.finish();
           finishThinking(false);
-          if (textActive) {
-            process.stdout.write('\n');
-            textActive = false;
-          }
+          endText();
           if (cleanUi) {
-            console.log(renderToolLine(event.actionDesc, process.stdout.columns || 80));
+            if (gapBeforeTool) console.log();
+            gapBeforeTool = false;
+            transcript.push({ kind: 'tool', name: event.name, desc: event.actionDesc || event.name });
+            console.log(renderToolLine(event.actionDesc, process.stdout.columns || 80, outputExpanded));
             assistantGutter.reset();
           } else {
             console.log('\n' + pc.bold(pc.white(event.actionDesc)));
           }
           if (event.name !== 'ask_questions' && event.name !== 'todo_list') {
-            s.start(cleanUi ? 'Running' : 'Executing...');
+            s.start(cleanUi ? t('status.running') : 'Executing...');
             spinnerActive = true;
           }
         } else if (event.type === 'tool_end') {
+          for (let i = transcript.length - 1; i >= 0; i--) {
+            const it = transcript[i];
+            if (it.kind === 'tool' && it.result === undefined) { it.result = event.result || ''; break; }
+          }
           if (event.name === 'ask_questions') composer.resume();
-          statusLabel = 'Waiting for the model';
+          statusLabel = t('status.waiting');
           composer.refresh();
           toolsExecutedCount++;
           GitStatusCache.invalidate();
@@ -2179,7 +2522,18 @@ export async function main() {
             }
           }
         } else if (event.type === 'usage') {
+          attachReasoning();
           sessionCost.add(event.usage);
+          // The cost limit: a warning at 80%, the task is stopped at 100%.
+          const limit = costLimit();
+          if (limit > 0 && !aborted) {
+            if (sessionCost.total >= limit) {
+              stopGeneration(false, t('cost.stopped', { limit: formatCost(limit) }));
+            } else if (!costWarned && sessionCost.total >= limit * 0.8) {
+              costWarned = true;
+              console.log(renderNotice('warn', t('cost.warn', { spent: formatCost(sessionCost.total), limit: formatCost(limit) })));
+            }
+          }
           composer.refresh();
           if (typeof event.usage.cost === 'number') {
             turnCost.priced = (turnCost.priced ?? 0) + 1;
@@ -2192,56 +2546,53 @@ export async function main() {
           requestOutEstimate = 0;
           toolArgsEstimate = 0;
         } else if (event.type === 'reconnecting') {
-          statusLabel = 'Reconnecting';
+          statusLabel = t('status.reconnecting');
           telemetry.reset();
           if (spinnerActive) {
             s.stop();
             spinnerActive = false;
           }
-          if (thinkingActive) {
+          if (thinkingActive || thinkingStreaming) {
             finishThinking(false);
           }
-          if (textActive) {
-            process.stdout.write('\n');
-            textActive = false;
-          }
+          endText();
           streamer.reset();
 
           if (cleanUi) {
-            console.log(renderNotice('warn', `connection unstable (${event.reason})`));
-            s.start(`reconnecting ${event.attempt}/${event.maxAttempts} · retry in ${(event.delayMs / 1000).toFixed(1)}s`);
+            console.log(renderNotice('warn', t('conn.unstable', { reason: event.reason })));
+            s.start(t('conn.reconnecting', { attempt: event.attempt, max: event.maxAttempts, delay: (event.delayMs / 1000).toFixed(1) }));
           } else {
             console.log();
-            console.log(pc.bold(pc.yellow(`Интернет-соединение нестабильно (${event.reason})`)));
-            console.log(pc.cyan(`Попытка переподключения [${event.attempt}/${event.maxAttempts}] (пауза ${(event.delayMs / 1000).toFixed(1)}с)...`));
+            console.log(pc.bold(pc.yellow(t('conn.classicUnstable', { reason: event.reason }))));
+            console.log(pc.cyan(t('conn.classicRetry', { attempt: event.attempt, max: event.maxAttempts, delay: (event.delayMs / 1000).toFixed(1) })));
             
-            s.start(pc.cyan(`Ожидание сети [${event.attempt}/${event.maxAttempts}]...`));
+            s.start(pc.cyan(t('conn.classicWaiting', { attempt: event.attempt, max: event.maxAttempts })));
           }
           spinnerActive = true;
         } else if (event.type === 'reconnected') {
-          statusLabel = 'Waiting for the model';
+          statusLabel = t('status.waiting');
           if (spinnerActive) {
             s.stop();
             spinnerActive = false;
           }
           if (cleanUi) {
-            console.log(renderNotice('ok', 'connection restored'));
+            console.log(renderNotice('ok', t('conn.restored')));
           } else {
-            console.log(pc.bold(pc.green(`✓ Соединение восстановлено! Возобновляем генерацию...`)));
+            console.log(pc.bold(pc.green(t('conn.classicRestored'))));
             console.log();
           }
-          s.start(cleanUi ? 'Waiting for the model' : 'Connecting...');
+          s.start(cleanUi ? t('status.waiting') : 'Connecting...');
           spinnerActive = true;
         } else if (event.type === 'error') {
           if (spinnerActive) { s.stop(); spinnerActive = false; }
           finishThinking(true);
           streamer.finish();
           if (cleanUi) console.log(renderNotice('error', event.message));
-          else p.log.error(pc.bold(pc.red(`${event.message}`)));
+          else log.error(pc.bold(pc.red(`${event.message}`)));
         } else if (event.type === 'system') {
           if (spinnerActive) { s.stop(); spinnerActive = false; }
           if (cleanUi) console.log(renderNotice('info', event.message));
-          else p.log.info(event.message);
+          else log.info(event.message);
         }
       }
       finishThinking(true);
@@ -2250,40 +2601,75 @@ export async function main() {
         s.stop();
         spinnerActive = false;
       }
-      if (textActive) {
-        process.stdout.write('\n');
-      }
+      endText();
 
       // Hand the bottom of the screen back. Whatever was typed but not sent waits in the next prompt;
       // a message that arrived too late for the agent starts the next turn by itself.
       const leftover = composer.stop();
-      if (leftover.queued.length > 0) {
+      if (interruptPrompt) {
+        autoTriggerPrompt = interruptPrompt;
+        if (leftover.draft) currentDraft = leftover.draft;
+      } else if (leftover.queued.length > 0) {
         if (aborted) currentDraft = [...leftover.queued, leftover.draft].filter(Boolean).join(' ');
         else autoTriggerPrompt = leftover.queued.join('\n');
       } else if (leftover.draft) {
         currentDraft = leftover.draft;
       }
 
+      attachReasoning();
       const turnElapsedMs = Date.now() - turnStartTime;
       if (cleanUi && !aborted) {
-        console.log(renderTurnSummary({
+        const summaryRow = renderTurnSummary({
           ms: turnElapsedMs,
           tools: toolsExecutedCount,
           outputTokens: turnOutputTokens,
           inputTokens: turnInputTokens,
           cost: sessionCost.total - costAtTurnStart,
           costState: turnCost
-        }));
+        });
+        console.log(summaryRow);
         console.log();
+        transcript.push({ kind: 'raw', rows: [summaryRow] });
       }
       const shouldNotify = (turnElapsedMs >= 15000) || (toolsExecutedCount > 0) || (planMode && lastPlanReady !== null);
-      if (shouldNotify && !aborted) {
+      if (!aborted) {
         const secs = Math.round(turnElapsedMs / 1000);
-        notifyDevice('devx', `Task completed in ${secs}s!`);
+        const lastReply = [...history.getMessages()].reverse().find((m) => m.role === 'assistant' && m.content && m.content.trim());
+        const preview = notificationBody(lastReply?.content ?? '');
+        const heading = windowTitle || BASE_TITLE;
+        if (isTermux()) {
+          if (shouldNotify) notifyDevice(heading, preview || `Task completed in ${secs}s!`);
+        } else if (!terminalFocused) {
+          // The terminal is not in front: a notification with the start of the answer.
+          if (sendDesktopNotification(heading, preview || `Task completed in ${secs}s`) === 'none' && shouldNotify) notifyDevice(heading, preview || `Task completed in ${secs}s!`);
+        } else if (shouldNotify) {
+          notifyDevice(heading, `Task completed in ${secs}s!`);
+        }
       }
 
       // Auto-save session
       await sessionManager.save(history.getMessages(), sessionCost.total, config.model, planMode, sessionCost.estimated);
+
+      // The first exchange names the chat. It runs in the background and never holds the prompt back.
+      if (!aborted && !sessionManager.hasGeneratedTitle && titleAttempts < 2) {
+        titleAttempts++;
+        const msgs = history.getMessages();
+        const firstUser = msgs.find((m) => m.role === 'user')?.content ?? '';
+        const reply = [...msgs].reverse().find((m) => m.role === 'assistant' && m.content && m.content.trim())?.content ?? '';
+        if (firstUser.trim() && reply.trim()) {
+          const forSession = sessionManager.getSession().id;
+          void (async () => {
+            try {
+              const title = await generateChatTitle(createProvider(config), firstUser.split('\n\n--- Attached Files ---')[0], reply);
+              // The user may have started another chat meanwhile.
+              if (!title || sessionManager.getSession().id !== forSession) return;
+              sessionManager.setTitle(title);
+              setWindowTitle(title);
+              await sessionManager.save(history.getMessages(), sessionCost.total, config.model, planMode, sessionCost.estimated);
+            } catch {}
+          })();
+        }
+      }
 
       // Check if plan was finalized in PLAN mode
       if (planMode && !aborted) {
@@ -2291,6 +2677,8 @@ export async function main() {
         const hasPlanReadyTool = lastPlanReady !== null;
         const hasPlanText = lastMsg && lastMsg.role === 'assistant' && (
           lastMsg.content.includes('Цель и архитектурный обзор') ||
+          lastMsg.content.includes('Goal and architecture') ||
+          lastMsg.content.includes('Step-by-step changes') ||
           lastMsg.content.includes('Пошаговый список изменений') ||
           lastMsg.content.includes('FINAL PLAN') ||
           lastMsg.content.includes('План готов') ||
@@ -2299,37 +2687,23 @@ export async function main() {
         );
 
         if (hasPlanReadyTool || hasPlanText) {
+          const approvedPlan = lastPlanReady ? { summary: lastPlanReady.summary, files: lastPlanReady.files, steps: lastPlanReady.steps } : (hasPlanText && lastMsg ? lastMsg.content : null);
           resetPlanReady();
           console.log();
-          let choice = '';
-          try {
-            choice = await select({
-              message: pc.bold(pc.cyan('Plan is ready! What would you like to do?')),
-              loop: false,
-              choices: [
-                {
-                  name: pc.bold(pc.green('Go (Switch to AGENT mode and start execution)')),
-                  value: 'go',
-                  description: 'Automatically switch to AGENT mode and start implementing the plan immediately'
-                },
-                {
-                  name: pc.bold(pc.yellow('+ Other (Modify, add details, or ask questions)')),
-                  value: 'other',
-                  description: 'Stay in PLAN mode and open prompt to type adjustments or additions'
-                }
-              ]
-            });
-          } catch {}
+          const choice = await askPlanDecision();
 
           if (choice === 'go') {
             planMode = false;
+            // The approved plan is kept in the project: it survives /clear and a restart.
+            if (approvedPlan) await savePlanFile(process.cwd(), approvedPlan).catch(() => null);
             const newSys = await buildSystemPrompt(false);
             history.updateSystemPrompt(newSys);
-            p.log.success(pc.bold(pc.green('Switched to AGENT mode! Starting execution of approved plan...')));
+            log.success(t('plan.started'));
             currentDraft = '';
             autoTriggerPrompt = 'Go!';
             continue;
           } else {
+            log.info(t('plan.editHint'));
             currentDraft = '';
             continue;
           }
@@ -2344,10 +2718,12 @@ export async function main() {
       }
       if (!aborted && err.name !== 'AbortError' && !err.message?.includes('aborted')) {
         if (cleanUi) console.log(renderNotice('error', err.message));
-        else p.log.error(pc.bold(pc.red(`${err.message}`)));
+        else log.error(pc.bold(pc.red(`${err.message}`)));
       }
     } finally {
       const unsent = composer.stop();
+      if (process.stdout.isTTY) process.stdout.write('\x1b[?1004l');
+      if (interruptPrompt && !autoTriggerPrompt) autoTriggerPrompt = interruptPrompt;
       releasePauseHook();
       process.stdout.removeListener('resize', onResize);
       if (!currentDraft && (unsent.draft || unsent.queued.length > 0)) {
@@ -2364,6 +2740,12 @@ export async function main() {
   }
 
   MCPManager.getInstance().stopAll();
+  // The cards leave stdin resumed; nothing else keeps devx alive after the main loop, so end it here.
+  if (process.stdin.isTTY) {
+    try { process.stdin.setRawMode(false); } catch {}
+  }
+  process.stdin.pause();
+  process.exit(0);
 }
 
 process.on('exit', () => {

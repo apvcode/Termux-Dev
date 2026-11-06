@@ -159,3 +159,23 @@ export function wrapWords(text: string, width: number): string[] {
   if (current) lines.push(current);
   return lines;
 }
+
+/** The last `maxCells` cells of a text (what a running line shows: the newest words). */
+export function tailWidth(text: string, maxCells: number): string {
+  const chars = Array.from(text);
+  let cells = 0;
+  let start = chars.length;
+  while (start > 0) {
+    const w = codePointWidth(chars[start - 1].codePointAt(0)!);
+    if (cells + w > maxCells) break;
+    cells += w;
+    start--;
+  }
+  return chars.slice(start).join('');
+}
+
+/** Wraps at word boundaries; text without spaces (Chinese, Japanese) is wrapped anywhere. */
+export function wrapText(text: string, width: number): string[] {
+  const unbreakable = text.split(/\s+/).some((word) => displayWidth(word) > width);
+  return unbreakable ? wrapWidth(text, width) : wrapWords(text, width);
+}

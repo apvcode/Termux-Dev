@@ -1,6 +1,6 @@
 import type { CostSource } from './cost.js';
 
-export const DEVX_VERSION = '1.7.0';
+export const DEVX_VERSION = '1.8.0';
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -28,6 +28,12 @@ export interface Message {
    * unchanged so the model keeps its chain of thought across tool calls.
    */
   thinking_blocks?: ThinkingBlock[];
+  /**
+   * The reasoning the model showed before this reply, kept with the saved session so a resumed
+   * chat can unfold it again (ctrl+p). For the screen only: never sent to a provider and not
+   * counted in the context.
+   */
+  reasoning?: { text: string; sec: string; stats: string };
 }
 
 export type ThinkingBlock =
@@ -114,6 +120,8 @@ export interface UIConfig {
 export type BannerMode = 'clean' | 'full' | 'minimal' | 'off';
 
 export interface AgentConfig {
+  /** Interface language id (see core/i18n.ts); English when missing. */
+  language?: string;
   maxContextTokens: number;
   maxIterations: number;
   provider?: string;
@@ -123,6 +131,10 @@ export interface AgentConfig {
   planMode?: boolean;
   autoApprove?: boolean;
   bashAllowlist?: string[];
+  /** MCP tools the user allowed with "Always" on an approval card. */
+  allowedTools?: string[];
+  /** Commands run before and after tools (see core/hooks.ts). */
+  hooks?: import('./hooks.js').HooksConfig;
   trustedProjects?: Record<string, boolean>;
   dataSaverLimitMB?: number;
   pureBlackTheme?: boolean;

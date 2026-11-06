@@ -20,6 +20,8 @@ import {
   renderNotice,
   renderResultBlock,
   renderResultLine,
+  renderTaskCard,
+  renderStatusLine,
   renderToolLine,
   renderTurnSummary,
   renderUserEcho,
@@ -30,6 +32,7 @@ import {
   TIPS,
 } from '../../src/cli/ui.js';
 import { displayWidth, stripAnsi } from '../../src/cli/width.js';
+import { setActiveTheme } from '../../src/cli/theme.js';
 
 const plain = (lines: string | string[]) => (Array.isArray(lines) ? lines.map(stripAnsi) : stripAnsi(lines));
 const WIDTHS = [26, 30, 38, 40, 46, 60, 80, 120, 200];
@@ -382,20 +385,25 @@ describe('tool lines and results', () => {
     expect(parseAction('→ Update Plan & Tasks')).toEqual({ verb: 'Update', target: 'Plan & Tasks' });
   });
 
-  it('renders a compact tool line that fits the screen', () => {
+  it('renders a one-row tool line that fits the screen; ctrl+o shows the whole command', () => {
     expect(plain(renderToolLine('→ Read src/a.ts', 80))).toBe('  ◆ Read  src/a.ts');
-    const wide = renderToolLine('→ Run: ' + 'very-long-command '.repeat(20), 100).split('\n');
-    expect(wide).toHaveLength(2); // desktop: wrapped, but never more than two rows
-    for (const row of wide) expect(displayWidth(row)).toBeLessThanOrEqual(99);
-    expect(plain(wide.join('\n'))).toContain('…');
-    const phone = renderToolLine('→ Run: ' + 'very-long-command '.repeat(20), 40).split('\n');
-    expect(phone).toHaveLength(1); // phone: one row, cut with an ellipsis, never wrapped mid-word
-    expect(displayWidth(phone[0])).toBeLessThanOrEqual(39);
-    expect(plain(phone[0])).toContain('…');
+    for (const cols of [100, 40]) {
+      const row = renderToolLine('→ Run: ' + 'very-long-command '.repeat(20), cols);
+      expect(row.split('\n')).toHaveLength(1);
+      expect(displayWidth(row)).toBeLessThanOrEqual(cols - 1);
+      expect(plain(row)).toContain('…');
+    }
     const withLines = renderToolLine('→ Run: cd /x && for d in a; do\n echo $d\ndone', 40);
     expect(withLines.split('\n')).toHaveLength(1);
     expect(plain(withLines)).toMatch(/\(\+2 lines\)$/);
+
+    const full = plain(renderToolLine('→ Run: cd /x && for d in a; do\n  echo $d\ndone', 80, true)).split('\n');
+    expect(full).toEqual(['  ◆ Run  cd /x && for d in a; do', '           echo $d', '         done']);
+    const long = plain(renderToolLine('→ Run: ' + 'word '.repeat(60), 60, true)).split('\n');
+    expect(long.length).toBeGreaterThan(2);
+    for (const row of long) expect(displayWidth(row)).toBeLessThanOrEqual(59);
   });
+
 
   it('shows the first line of a multi-line script and counts the rest', () => {
     const script = 'cd /home/me && for d in Projects/*/; do\n  if [ -d "$d/.git" ]; then\n    echo $d\n  fi\ndone';
@@ -417,50 +425,67 @@ describe('tool lines and results', () => {
   describe('summarizeToolResult', () => {
     const summarize = (name: string, result: string) => plain(summarizeToolResult(name, result, 80));
 
-    it('previews the first lines of a successful command like a terminal would', () => {
-      expect(summarize('bash', 'a\nb\nc\n[Exit code: 0]')).toEqual(['    ╰ a', '      b', '      c']);
+    const expandedRows = (name: string, result: string, cols = 80) => plain(summarizeToolResult(name, result, cols, true));
+
+    it('collapsed: one row, the first line of the output and how many more there are', () => {
+      expect(summarize('bash', 'a\nb\nc\n[Exit code: 0]')).toEqual(['    ╰ a', '      … +2 lines (ctrl+o to expand)']);
       expect(summarize('bash', 'hello\n[Exit code: 0]')).toEqual(['    ╰ hello']);
       expect(summarize('bash', '\n[Exit code: 0]')).toEqual(['    ╰ (no output)']);
+      const out = Array.from({ length: 24 }, (_, i) => `line ${i + 1}`).join('\n') + '\n[Exit code: 0]';
+      expect(summarize('bash', out)).toEqual(['    ╰ line 1', '      … +23 lines (ctrl+o to expand)']);
     });
 
-    it('cuts a long output after a few lines and says how much is hidden', () => {
+    it('expanded (ctrl+o): all of the output', () => {
+      expect(expandedRows('bash', 'a\nb\nc\n[Exit code: 0]')).toEqual(['      a', '      b', '      c']);
       const out = Array.from({ length: 24 }, (_, i) => `line ${i + 1}`).join('\n') + '\n[Exit code: 0]';
-      const lines = summarize('bash', out);
-      expect(lines).toEqual(['    ╰ line 1', '      line 2', '      line 3', '      line 4', '      … +20 lines']);
-      expect(plain(summarizeToolResult('bash', out, 40))).toHaveLength(4); // phone: 3 lines + the counter
+      expect(expandedRows('bash', out)).toHaveLength(24);
+      const huge = Array.from({ length: 500 }, (_, i) => `l${i}`).join('\n') + '\n[Exit code: 0]';
+      const rows = expandedRows('bash', huge);
+      expect(rows).toHaveLength(301);
+      expect(rows[300]).toContain('… +200 lines');
     });
 
     it('cleans the output: colour codes, tabs, carriage returns, blank edges, long lines', () => {
       const out = '\n\n\x1b[32mgreen\x1b[39m\ttab\r\n' + 'x'.repeat(300) + '\n\n[Exit code: 0]';
-      const lines = summarize('bash', out);
-      expect(lines[0]).toBe('    ╰ green  tab');
-      expect(displayWidth(lines[1])).toBeLessThanOrEqual(79);
-      expect(lines[1]).toContain('…');
+      expect(summarize('bash', out)).toEqual(['    ╰ green  tab', '      … +1 lines (ctrl+o to expand)']);
+      const lines = expandedRows('bash', out);
+      expect(lines[0]).toBe('      green  tab');
+      for (const l of lines) expect(displayWidth(l)).toBeLessThanOrEqual(79);
       expect(lines.join('')).not.toContain('\x1b');
     });
 
-    it('shows what failed instead of the end of a stack trace', () => {
+    it('a failure: exit code and the line that names the error, all of it when expanded', () => {
       const out = [
         'node:internal/modules/cjs/loader:1',
         "Error: Cannot find module '/x/y.js'",
         '    at Module._resolveFilename (node:internal/a:1:1)',
-        '    at node:internal/main:33:47 {',
         "  code: 'MODULE_NOT_FOUND'",
-        '}',
         'Node.js v22',
         '[Exit code: 1]',
       ].join('\n');
       const lines = summarize('bash', out);
-      expect(lines[0]).toBe('    ╰ exit 1');
-      expect(lines[1]).toContain("Error: Cannot find module '/x/y.js'");
-      expect(lines.join('\n')).not.toContain('at Module._resolveFilename');
-      expect(lines[lines.length - 1]).toMatch(/… \+\d+ lines?/);
+      expect(lines).toHaveLength(2);
+      expect(lines[1]).toContain('+4 lines (ctrl+o to expand)');
+      expect(lines[0]).toContain('exit 1');
+      expect(lines[0]).toContain("Error: Cannot find module '/x/y.js'");
+      const all = expandedRows('bash', out);
+      expect(all[0]).toBe('    ╰ exit 1');
+      expect(all.join('\n')).toContain('at Module._resolveFilename');
+      expect(all).toHaveLength(6);
     });
 
-    it('falls back to the last lines when nothing looks like an error', () => {
+    it('a failure without an obvious error line shows the last line', () => {
       const lines = summarize('bash', 'one\ntwo\nthree\nfour\n[Exit code: 2]');
-      expect(lines[0]).toBe('    ╰ exit 2');
-      expect(lines.slice(1, 4).map((l) => l.trim())).toEqual(['two', 'three', 'four']);
+      expect(lines).toHaveLength(2);
+      expect(lines[1]).toContain('+3 lines');
+      expect(lines[0]).toContain('exit 2');
+      expect(lines[0]).toContain('four');
+    });
+
+    it('expanded results of other tools show the content under their summary', () => {
+      expect(expandedRows('read_file', 'a\nb')).toEqual(['    ╰ 2 lines', '      a', '      b']);
+      expect(expandedRows('mcp__x__y', 'result text')).toEqual(['      result text']);
+      expect(summarize('mcp__x__y', 'result text')).toEqual(['    ╰ result text']);
     });
 
     it('reports cancelled and timed out commands', () => {
@@ -482,7 +507,7 @@ describe('tool lines and results', () => {
     it('surfaces tool errors and stays silent otherwise', () => {
       expect(summarize('read_file', 'Error executing tool: Failed to read file: ENOENT')[0]).toContain('Error executing tool');
       expect(summarize('write_file', 'Action denied by user.')[0]).toContain('Action denied by user');
-      expect(summarize('web_search', 'some long result')).toEqual([]);
+      expect(summarize('write_file', '')).toEqual([]);
       expect(summarize('read_file', '')).toEqual([]);
     });
   });
@@ -720,5 +745,138 @@ describe('easeToward', () => {
     expect(easeToward(500, 100, 60)).toBeGreaterThan(100);
     expect(easeToward(5, 100, 0)).toBe(5);
     expect(easeToward(99.8, 100, 60)).toBe(100);
+  });
+});
+
+describe('renderTaskCard', () => {
+  const tasks = [
+    { text: 'Собрать сцену: небо, река, берег, туман, свет', status: 'in_progress' as const },
+    { text: 'Модель бомжа: голова, борода, одежда, руки, ботинки', status: 'pending' as const },
+    { text: 'Проверить в headless-браузере и открыть превью', status: 'completed' as const },
+  ];
+
+  beforeEach(() => setActiveTheme('cyan'));
+
+  it('is a closed box: every row has the same width, both borders line up', () => {
+    for (const cols of [40, 60, 80, 120]) {
+      const rows = renderTaskCard(tasks, cols).map(stripAnsi);
+      expect(rows[0].trimStart().startsWith('╭─ Plan & Tasks')).toBe(true);
+      expect(rows[rows.length - 1].trimStart().startsWith('╰')).toBe(true);
+      const widths = new Set(rows.map((r) => displayWidth(r)));
+      expect(widths.size).toBe(1);
+      expect([...widths][0]).toBeLessThanOrEqual(cols - 1);
+      for (const r of rows.slice(1, -1)) expect(r.trimStart().startsWith('│') && r.endsWith('│')).toBe(true);
+    }
+  });
+
+  it('has no blank rows around it and shows the progress', () => {
+    const rows = renderTaskCard(tasks, 80);
+    expect(rows.every((r) => stripAnsi(r).trim() !== '')).toBe(true);
+    expect(stripAnsi(rows[0])).toContain('1/3');
+    expect(stripAnsi(rows.join('\n'))).toContain('[✓]');
+  });
+
+  it('wraps a long step under its own text instead of breaking the box', () => {
+    const rows = renderTaskCard([{ text: 'word '.repeat(40), status: 'pending' }], 50).map(stripAnsi);
+    expect(rows.length).toBeGreaterThan(3);
+    expect(new Set(rows.map((r) => displayWidth(r))).size).toBe(1);
+  });
+
+  it('draws nothing for an empty plan', () => {
+    expect(renderTaskCard([], 80)).toEqual([]);
+  });
+});
+
+describe('the working line keeps its details in place', () => {
+  it('the details sit close to the label, a little further for a longer one, in steps', () => {
+    const at = (label: string, columns = 100) => {
+      const line = stripAnsi(renderStatusLine({ label, elapsedMs: 5000, meta: '↓ 1.2k tokens', frame: 0, columns }));
+      const start = displayWidth(line.slice(0, line.indexOf('(')));
+      const labelEnd = displayWidth(line.slice(0, line.indexOf('(')).trimEnd());
+      return { start, gap: start - labelEnd };
+    };
+    const short = at('Thinking');
+    const waiting = at('Waiting for the model');
+    const long = at('Run: cd /tmp && timeout 90 chromium --headless=new --no-sandbox --disable-gpu ' + 'x'.repeat(80));
+    expect(short.gap).toBeGreaterThanOrEqual(2);
+    expect(short.gap).toBeLessThanOrEqual(10);
+    expect(waiting.gap).toBeGreaterThanOrEqual(2);
+    expect(waiting.gap).toBeLessThanOrEqual(10);
+    expect(short.start).toBeLessThan(waiting.start);
+    expect(at('Reading').start).toBe(at('Writing').start);          // same length class: same column
+    expect(long.start).toBeLessThanOrEqual(4 + 28 + 2);
+    expect(short.start).toBeLessThan(24);
+  });
+
+  it('stays inside a narrow screen', () => {
+    for (const columns of [30, 40, 60]) {
+      const line = renderStatusLine({ label: 'Run: ' + 'x'.repeat(100), elapsedMs: 5000, meta: '↓ 1.2k tokens', frame: 0, columns });
+      expect(displayWidth(stripAnsi(line))).toBeLessThanOrEqual(columns - 1);
+    }
+  });
+});
+
+describe('the working line is one row', () => {
+  it('a multi-line command in the label never produces a line break', () => {
+    const label = "→ Run: cd /tmp && python3 - <<'PY'\np='bum.html'; s=open(p).read()\ndef rep(a,b):\r\n    global s";
+    for (const columns of [40, 80, 150]) {
+      const line = renderStatusLine({ label, elapsedMs: 64000, meta: '↓ 3.8k tokens', frame: 0, columns });
+      expect(line).not.toMatch(/[\r\n]/);
+      expect(displayWidth(stripAnsi(line))).toBeLessThanOrEqual(columns - 1);
+    }
+  });
+});
+
+describe('tailWidth', () => {
+  it('keeps the newest words that fit, also with wide characters', async () => {
+    const { tailWidth } = await import('../../src/cli/width.js');
+    expect(tailWidth('one two three four', 10)).toBe('three four');
+    expect(tailWidth('short', 20)).toBe('short');
+    expect(tailWidth('日本語のテキスト', 6)).toBe('キスト');
+    expect(tailWidth('', 5)).toBe('');
+  });
+});
+
+describe('output of MCP tools', () => {
+  const rows = (name: string, text: string, expanded = false) => summarizeToolResult(name, text, 80, expanded).map(stripAnsi);
+
+  it('shows the first line and how many more, and all of it when expanded', () => {
+    const text = '{"results": [1, 2]}\nsecond\nthird';
+    expect(rows('mcp__notion__notion-search', text)).toEqual(['    ╰ {"results": [1, 2]}', '      … +2 lines (ctrl+o to expand)']);
+    expect(rows('mcp__notion__notion-search', text, true)).toEqual(['      {"results": [1, 2]}', '      second', '      third']);
+    expect(rows('mcp__x__y', '   \n')).toEqual([]);
+    expect(rows('mcp__x__y', 'x'.repeat(300))[0].length).toBeLessThanOrEqual(80);
+  });
+
+  it('a failure of the tool is shown as an error', () => {
+    expect(rows('mcp__x__y', 'Error executing tool: MCP error -32602: bad input')[0]).toContain('Error executing tool');
+  });
+
+  it('mcp_manage reports the servers in one row', () => {
+    const json = JSON.stringify({ servers: [{ name: 'notion', status: 'connected', tools: 77 }, { name: 'bad', status: 'failed', tools: 0 }] });
+    expect(rows('mcp_manage', json)).toEqual(['    ╰ notion connected (77 tools), bad failed']);
+  });
+});
+
+describe('fitModelLabel', () => {
+  it('keeps the reasoning level when the model name is long', async () => {
+    const { fitModelLabel } = await import('../../src/cli/ui.js');
+    expect(fitModelLabel('o3 · think high', 32)).toBe('o3 · think high');
+    const cut = fitModelLabel('deepseek-v4.1-flash-abliterated · think max', 32);
+    expect(cut.endsWith(' · think max')).toBe(true);
+    expect(displayWidth(cut)).toBeLessThanOrEqual(32);
+    expect(cut.startsWith('deepseek-v4')).toBe(true);
+    expect(cut).toContain('…');
+  });
+
+  it('cuts the whole label when there is no room even for the level, or no level at all', async () => {
+    const { fitModelLabel } = await import('../../src/cli/ui.js');
+    expect(displayWidth(fitModelLabel('very-long-model-name-without-level-here', 20))).toBeLessThanOrEqual(20);
+    expect(displayWidth(fitModelLabel('name · a very long reasoning description that cannot fit', 12))).toBeLessThanOrEqual(12);
+  });
+
+  it('shows the level in the border of the prompt frame for a long name', () => {
+    const frame = buildPromptFrame({ cols: 120, mode: 'agent', model: 'deepseek-v4.1-flash-abliterated · think max', cwd: '/x', contextPercent: 1, cost: 0, input: '', cursorPos: 0, placeholder: 'x' } as any);
+    expect(stripAnsi(frame.lines[0])).toContain('think max');
   });
 });

@@ -22,6 +22,8 @@ const base: SettingsState = {
   maxIterations: 30,
   memory: true,
   updates: false,
+  costLimit: 0,
+  language: 'en',
 };
 const plain = (lines: string[]) => lines.map(stripAnsi);
 

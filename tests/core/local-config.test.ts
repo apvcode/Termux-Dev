@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyLocalConfig } from '../../src/core/local-config.js';
+import { applyLocalConfig, persistedConfig, withoutSessionOnlySettings } from '../../src/core/local-config.js';
 
 const userConfig = () => ({
   provider: 'openrouter',
@@ -56,5 +56,32 @@ describe('applyLocalConfig', () => {
     expect(applyLocalConfig(config, 'text', false)).toEqual([]);
     expect(applyLocalConfig(config, {}, false)).toEqual([]);
     expect(config).toEqual(userConfig());
+  });
+});
+
+describe('YOLO lasts for one run', () => {
+  it('is never written to the config file, the other settings are', () => {
+    const saved = persistedConfig({ model: 'm', theme: 'nord', autoApprove: true, projectMcpTrusted: true, effortOverride: 'high', maxIterations: 50 });
+    expect(saved).toEqual({ model: 'm', theme: 'nord', maxIterations: 50 });
+    expect('autoApprove' in saved).toBe(false);
+  });
+
+  it('does not change the config it was given (YOLO stays on for the running session)', () => {
+    const live = { model: 'm', autoApprove: true };
+    persistedConfig(live);
+    expect(live.autoApprove).toBe(true);
+  });
+
+  it('a value left in the file by an older version is dropped when the file is read', () => {
+    const read = withoutSessionOnlySettings({ model: 'm', autoApprove: true, theme: 'nord' });
+    expect(read).toEqual({ model: 'm', theme: 'nord' });
+    expect(!!read.autoApprove).toBe(false);
+  });
+
+  it('a project that was trusted can still ask for it in its own config', () => {
+    const target: Record<string, any> = withoutSessionOnlySettings({ model: 'm', autoApprove: true });
+    applyLocalConfig(target, { autoApprove: true }, true);
+    expect(target.autoApprove).toBe(true);
+    applyLocalConfig(withoutSessionOnlySettings({ model: 'm' }), { autoApprove: true }, false);
   });
 });

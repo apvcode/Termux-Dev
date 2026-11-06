@@ -31,7 +31,10 @@ export const SLASH_COMMANDS = [
   { cmd: '/agent', desc: 'Switch to AGENT mode (coder & executor)' },
   { cmd: '/image', desc: 'Paste the image from the clipboard (same as Ctrl+V or Alt+V)' },
   { cmd: '/serve', desc: 'Start local web server for web/game preview' },
+  { cmd: '/copy', desc: 'Copy the last answer of the AI to the clipboard' },
+  { cmd: '/rename', desc: 'Rename the chat (/rename <name>), or let the AI name it again' },
   { cmd: '/memory', desc: 'View, add, or clear project memory bank' },
+  { cmd: '/permissions', desc: 'What is allowed without asking; /permissions clear resets it' },
   { cmd: '/undo', desc: 'Revert last file changes made by AI' },
   { cmd: '/diff', desc: 'Show git diff of modified project files' },
   { cmd: '/commit', desc: 'AI-generated git commit message & commit' },
@@ -61,6 +64,8 @@ export interface AskPromptOptions {
   contextPercent?: number;
   cost?: number;
   costState?: CostState;
+  /** ctrl+p (thinking) and ctrl+o (tool output): the owner folds or unfolds the chat above; the frame is drawn again under it. */
+  onViewToggle?: (kind: 'thinking' | 'output') => void;
 }
 
 interface DropdownItem {
@@ -240,6 +245,15 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
         new RegExp(`(\\[Pasted text #\\d+ \\+\\d+ lines\\]|${IMAGE_TAG_SOURCE})`, 'g'),
         (match) => (cleanLayout ? pc.dim(match) : theme.badgeFn(` ${match.slice(1, -1)} `)) + '\x1b[0m'
       );
+    }
+
+    /** What the echo of the sent message shows: pasted text in full (images stay as their badges). */
+    function echoText(text: string): string {
+      let shown = text;
+      for (const block of pastedBlocks) shown = shown.split(block.tag).join(block.text);
+      const lines = shown.replace(/\t/g, '  ').split('\n');
+      const MAX = 300;   // a huge paste must not flood the screen: the model still gets all of it
+      return lines.length > MAX ? [...lines.slice(0, MAX), `… +${lines.length - MAX} lines`].join('\n') : shown;
     }
 
     function expandPastes(text: string): string {
@@ -599,7 +613,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
             GLOBAL_PROMPT_HISTORY.push(fullTextClean.trim());
           }
         }
-        process.stdout.write(renderUserEcho(finalInput, process.stdout.columns || 80).join('\n') + '\n');
+        process.stdout.write(renderUserEcho(echoText(finalInput), process.stdout.columns || 80).join('\n') + '\n');
         cleanup();
         resolve(fullTextClean);
         return;
@@ -658,6 +672,15 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
           bracketedBuffer += str;
           return;
         }
+      }
+
+      // Ctrl+P and Ctrl+O: fold or unfold the reasoning / the tool output of the whole chat.
+      const viewKey = str === '\x10' || str === '\x1b[112;5u' ? 'thinking' : str === '\x0f' || str === '\x1b[111;5u' ? 'output' : null;
+      if (viewKey && opts.onViewToggle && cleanLayout) {
+        eraseFrame();
+        opts.onViewToggle(viewKey);
+        render();
+        return;
       }
 
       // Ctrl+V and Alt+V (also as the sequences of terminals with an enhanced keyboard mode).
@@ -858,6 +881,30 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
           } else {
             input = input.slice(0, cursorPos) + input.slice(cursorPos + 1);
           }
+          selectedIndex = 0;
+          render();
+        }
+        return;
+      }
+
+      // Ctrl+Backspace (0x08 in most terminals), Alt+Backspace (ESC DEL) and Ctrl+W: erase a word.
+      // A pasted-text badge counts as one word.
+      if (str === '\x08' || str === '\x1b\x7f' || str === '\x17') {
+        if (cursorPos > 0) {
+          const spans = getTagSpans();
+          const endingSpan = spans.find((s) => s.end === cursorPos);
+          let start = cursorPos;
+          if (endingSpan) {
+            start = endingSpan.start;
+          } else {
+            const isWordChar = (c: string) => /[\p{L}\p{N}_]/u.test(c);
+            while (start > 0 && !isWordChar(input[start - 1])) start--;
+            while (start > 0 && isWordChar(input[start - 1])) start--;
+            const inside = spans.find((s) => start > s.start && start < s.end);
+            if (inside) start = inside.end;
+          }
+          input = input.slice(0, start) + input.slice(cursorPos);
+          cursorPos = start;
           selectedIndex = 0;
           render();
         }

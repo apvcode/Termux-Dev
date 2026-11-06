@@ -32,3 +32,27 @@ describe('CLIConsoleGuard', () => {
     expect(guard.check('write_file', { path: './local.txt' })).toBe(false);
   });
 });
+
+describe('shell commands that read secrets', () => {
+  it('are recognised, templates and ordinary files are not', async () => {
+    const { shellTouchesSecrets } = await import('../../src/permissions/guard.js');
+    for (const cmd of ['cat ~/.devxrc.json', 'cd ~ && cat .devxrc.json', 'head -c 200 ~/.devx/capabilities.json', 'grep key ~/.ssh/config', 'cat "$HOME/.aws/credentials"', 'cat project/.env', 'cat id_rsa', 'less server.pem', 'echo hi; cat ~/.devxrc.json | head']) {
+      expect(shellTouchesSecrets(cmd), cmd).toBe(true);
+    }
+    for (const cmd of ['ls -la', 'cat src/index.ts', 'cat .env.example', 'cat README.md', 'echo $HOME', 'node -v', 'ls ~/Downloads', '']) {
+      expect(shellTouchesSecrets(cmd), cmd).toBe(false);
+    }
+  });
+
+  it('are asked about even in YOLO mode, and the card says why', async () => {
+    const { CLIConsoleGuard, buildPermissionRequest } = await import('../../src/permissions/guard.js');
+    for (const yolo of [false, true]) {
+      const guard = new CLIConsoleGuard(yolo);
+      expect(guard.check('bash', { command: 'cat ~/.devxrc.json' })).toBe(true);
+      expect(guard.check('bash', { command: 'cat src/index.ts' })).toBe(yolo ? false : true);
+    }
+    const card = buildPermissionRequest('bash', { command: 'cat ~/.devxrc.json' });
+    expect(card.danger).toBe(true);
+    expect(card.notes?.join(' ')).toContain('secrets');
+  });
+});

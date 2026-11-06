@@ -2,6 +2,7 @@ import pc from 'picocolors';
 import os from 'os';
 import path from 'path';
 import { getCurrentTheme } from './theme.js';
+import { t } from '../core/i18n.js';
 import { CostState, formatMoney } from '../core/cost.js';
 import {
   codePointWidth,
@@ -9,6 +10,7 @@ import {
   padEndWidth,
   stripAnsi,
   truncateWidth,
+  wrapText,
   wrapWidth,
   wrapWords,
 } from './width.js';
@@ -346,6 +348,23 @@ function keyHints(cols: number, mode: UiMode): string {
   return '';
 }
 
+/**
+ * `deepseek-v4.1-flash-abliterated · think max` in `max` cells: a long model name is cut in the
+ * middle of the name, never the part after it (the reasoning level), which is what changes.
+ */
+export function fitModelLabel(label: string, max: number): string {
+  if (displayWidth(label) <= max) return label;
+  const sep = ' · ';
+  const at = label.lastIndexOf(sep);
+  if (at > 0) {
+    const name = label.slice(0, at);
+    const tail = label.slice(at);
+    const room = max - displayWidth(tail);
+    if (room >= 6) return truncateWidth(name, room) + tail;
+  }
+  return truncateWidth(label, max);
+}
+
 export function buildPromptFrame(input: FrameInput): Frame {
   // Control characters would move the cursor and tear the frame apart. They are shown as
   // spaces; one character stays one character, so cursor positions keep matching.
@@ -361,7 +380,7 @@ export function buildPromptFrame(input: FrameInput): Frame {
   const topFree = W - 4 - pillW;
   let topRight = '';
   if (f.model && topFree >= 18) {
-    topRight = ' ' + palette.muted(truncateWidth(f.model, Math.min(32, topFree - 4))) + ' ';
+    topRight = ' ' + palette.muted(fitModelLabel(f.model, Math.min(48, topFree - 4))) + ' ';
   }
   const top = rule('╭─') + pill + rule('─'.repeat(Math.max(0, topFree - displayWidth(topRight)))) + topRight + rule('─╮');
 
@@ -487,10 +506,23 @@ export function parseAction(actionDesc: string): { verb: string; target: string 
  * A long command is wrapped to two rows at most; a multi-line script shows its first line
  * and `(+N lines)`. The full text is always visible in the permission card.
  */
-export function renderToolLine(actionDesc: string, cols: number): string {
+export function renderToolLine(actionDesc: string, cols: number, expanded = false): string {
   const { verb, target } = parseAction(actionDesc);
   const head = `  ${palette.accent('◆')} ${palette.bold(verb)}`;
   if (!target.trim()) return head;
+
+  // Expanded (ctrl+o): the whole command, every line of a script, wrapped under its first line.
+  if (expanded) {
+    const pad = ' '.repeat(4 + displayWidth(verb) + 2);
+    const room = Math.max(10, cols - 1 - displayWidth(pad));
+    const lines = target.replace(/\t/g, '  ').split('\n').map((l) => l.replace(/\s+$/, '')).flatMap((l) => (l === '' ? [''] : wrapWidth(l, room)));
+    while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+    const MAX = 60;
+    const shown = lines.slice(0, MAX);
+    const out = shown.map((l, i) => (i === 0 ? head + '  ' : pad) + palette.text(l));
+    if (lines.length > MAX) out.push(pad + palette.faint(`… +${lines.length - MAX} lines`));
+    return out.join('\n');
+  }
 
   const rawLines = target.split('\n').map((l) => l.trim()).filter(Boolean);
   const first = (rawLines[0] ?? '').replace(/\s+/g, ' ');
@@ -499,8 +531,8 @@ export function renderToolLine(actionDesc: string, cols: number): string {
 
   const prefixWidth = 4 + displayWidth(verb) + 2;
   const room = Math.max(10, cols - 1 - prefixWidth);
-  // A phone gets one row (wrapping mid-word on 40 columns is unreadable); desktop gets two.
-  const maxRows = isCompact(cols) ? 1 : 2;
+  // One row: the command as a single line. ctrl+o shows all of it.
+  const maxRows = 1;
   const wrapped = wrapWidth(first, room);
   let rows = wrapped.slice(0, maxRows);
   const cut = wrapped.length > maxRows;
@@ -517,6 +549,59 @@ export function renderToolLine(actionDesc: string, cols: number): string {
 export function renderResultLine(text: string, kind: 'muted' | 'ok' | 'error' = 'muted', cols = 80): string {
   const color = kind === 'error' ? palette.err : kind === 'ok' ? palette.ok : palette.muted;
   return `    ${palette.faint('╰')} ${color(truncateWidth(text, Math.max(8, cols - 8)))}`;
+}
+
+export interface PlanTask {
+  text: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+/**
+ * The plan under an `◆ Update Plan & Tasks` line: a closed rounded box in the colours of the
+ * theme (same rule colour as the prompt frame), indented like the `╰` result lines.
+ *
+ *     ╭─ Plan & Tasks ──────────── 1/3 ─╮
+ *     │ [✓] read the project             │
+ *     │ [•] write the scene              │
+ *     │ [ ] check it in a browser        │
+ *     ╰──────────────────────────────────╯
+ *
+ * Long steps wrap under their own text. No blank rows around it: the space between blocks
+ * of the chat is made by whoever prints the next block.
+ */
+export function renderTaskCard(tasks: PlanTask[], cols: number): string[] {
+  if (!tasks || tasks.length === 0) return [];
+  const indent = '    ';
+  const W = Math.max(24, Math.min(cols - 1 - indent.length, 72));
+  const inner = W - 4;
+  const rule = palette.rule;
+
+  const done = tasks.filter((t) => t.status === 'completed').length;
+  const title = ` ${palette.bold(palette.accent('Plan & Tasks'))} `;
+  const count = ` ${palette.muted(`${done}/${tasks.length}`)} `;
+  const fill = Math.max(1, W - 4 - displayWidth(title) - displayWidth(count));
+  const top = rule('╭─') + title + rule('─'.repeat(fill)) + count + rule('─╮');
+
+  const row = (content: string) => rule('│') + ' ' + padEndWidth(content, inner) + ' ' + rule('│');
+  const rows: string[] = [];
+  for (const task of tasks) {
+    const marker =
+      task.status === 'completed'
+        ? palette.ok('[✓]')
+        : task.status === 'in_progress'
+          ? palette.accent(palette.bold('[•]'))
+          : palette.faint('[ ]');
+    const paint =
+      task.status === 'completed'
+        ? palette.faint
+        : task.status === 'in_progress'
+          ? (t: string) => palette.bold(palette.text(t))
+          : palette.text;
+    const lines = wrapWords(String(task.text ?? '').replace(/\s+/g, ' ').trim() || '…', Math.max(8, inner - 4));
+    lines.forEach((line, i) => rows.push(row((i === 0 ? marker : '   ') + ' ' + paint(line))));
+  }
+  const bottom = rule('╰' + '─'.repeat(W - 2) + '╯');
+  return [top, ...rows, bottom].map((l) => indent + l);
 }
 
 /** Command output as printable rows: no colour codes, tabs or carriage returns, no blank edges. */
@@ -546,7 +631,72 @@ function countLines(text: string): number {
  * Turns a tool result into the quiet one-liner shown in the transcript (the model still
  * gets the full result). Returns an empty array when there is nothing worth showing.
  */
-export function summarizeToolResult(name: string, result: string, cols = 80): string[] {
+/** `      … +12 lines (ctrl+o to expand)` under a folded result. */
+function moreHint(n: number): string {
+  return '      ' + palette.faint(`${t('view.moreLines', { n })} (${t('view.expandOutput')})`);
+}
+
+/**
+ * The plan the model finished, as a card under its `plan_ready` call:
+ *
+ *     ╭─ Plan ───────────────────────────────╮
+ *     │ Fix the score counter                 │
+ *     │                                       │
+ *     │ Files  src/score.ts, src/ui.ts        │
+ *     │ 1. read the counter                   │
+ *     ╰───────────────────────────────────────╯
+ *
+ * A small plan is a few rows; a big one grows with its steps (long ones wrap).
+ */
+export function renderPlanCard(plan: { summary: string; files?: string[]; steps?: string[] }, cols: number): string[] {
+  const indent = '    ';
+  const W = Math.max(24, Math.min(cols - 1 - indent.length, 84));
+  const inner = W - 4;
+  const rule = palette.rule;
+  const row = (content: string) => rule('│') + ' ' + padEndWidth(content, inner) + ' ' + rule('│');
+  const title = ` ${palette.bold(palette.accent(t('plan.cardTitle')))} `;
+  const top = rule('╭─') + title + rule('─'.repeat(Math.max(1, W - 4 - displayWidth(title)))) + rule('─╮');
+
+  const rows: string[] = [];
+  for (const line of wrapText(plan.summary.replace(/\s+/g, ' ').trim() || '…', inner)) rows.push(row(palette.bold(palette.text(line))));
+
+  const files = (plan.files ?? []).filter(Boolean);
+  if (files.length > 0) {
+    rows.push(row(''));
+    const shown = files.slice(0, 8);
+    const label = palette.faint(t('plan.files'));
+    wrapText(shown.join(', ') + (files.length > shown.length ? ` +${files.length - shown.length}` : ''), Math.max(10, inner - displayWidth(t('plan.files')) - 2)).forEach((line, i) => {
+      rows.push(row((i === 0 ? label + '  ' : ' '.repeat(displayWidth(t('plan.files')) + 2)) + palette.muted(line)));
+    });
+  }
+
+  const steps = (plan.steps ?? []).filter(Boolean);
+  if (steps.length > 0) {
+    rows.push(row(''));
+    const numW = String(steps.length).length + 2;
+    steps.forEach((step, i) => {
+      wrapText(step.replace(/\s+/g, ' ').trim(), Math.max(10, inner - numW)).forEach((line, j) => {
+        rows.push(row((j === 0 ? palette.accent(`${i + 1}.`.padEnd(numW)) : ' '.repeat(numW)) + palette.text(line)));
+      });
+    });
+  }
+  return [top, ...rows, rule('╰' + '─'.repeat(W - 2) + '╯')].map((l) => indent + l);
+}
+
+/** Rows of raw output for the expanded view (ctrl+o): all of it, up to a generous cap. */
+function fullRows(text: string, cols: number, cap = 300): string[] {
+  const room = Math.max(8, cols - 8);
+  const rows = outputRows(text).flatMap((l) => (l === '' ? [''] : wrapWidth(l, room)));
+  const shown = rows.slice(0, cap).map((l) => '      ' + palette.muted(l));
+  if (rows.length > cap) shown.push('      ' + palette.faint(`… +${rows.length - cap} lines`));
+  return shown;
+}
+
+/**
+ * The result of a tool under its `◆` line. Collapsed (the default) it is one quiet row: the first
+ * line of the output and how many more there are. Expanded (ctrl+o) it is all of the output.
+ */
+export function summarizeToolResult(name: string, result: string, cols = 80, expanded = false): string[] {
   const t = name.toLowerCase();
   const text = (result || '').trim();
   if (!text) return [];
@@ -562,34 +712,35 @@ export function summarizeToolResult(name: string, result: string, cols = 80): st
     const body = text.replace(/\n?\[(?:Exit code: [^\]]*|Operation cancelled[^\]]*|Process killed[^\]]*)\]\s*$/, '');
     const rows = outputRows(body);
     const room = Math.max(8, cols - 8);
-    const maxRows = isCompact(cols) ? 3 : 4;
-    const more = (n: number) => '      ' + palette.faint(`… +${n} line${n === 1 ? '' : 's'}`);
 
     if (stopped) return [renderResultLine(stopped[1].replace(/^\[|\]$/g, ''), 'error', cols)];
     const code = m ? m[1] : '?';
 
-    if (code === '0') {
-      // The first lines of the output, like a terminal would show them.
-      if (rows.length === 0) return [renderResultLine('(no output)', 'muted', cols)];
-      const shown = rows.slice(0, maxRows);
-      const out = shown.map((line, i) =>
-        i === 0
-          ? `    ${palette.faint('╰')} ${palette.muted(truncateWidth(line, room))}`
-          : '      ' + palette.muted(truncateWidth(line, room))
-      );
-      if (rows.length > shown.length) out.push(more(rows.length - shown.length));
-      return out;
+    if (!expanded) {
+      const nonEmpty = rows.filter((l) => l.trim());
+      if (code === '0') {
+        if (nonEmpty.length === 0) return [renderResultLine('(no output)', 'muted', cols)];
+        const rest = nonEmpty.length - 1;
+        const row = `    ${palette.faint('╰')} ${palette.muted(truncateWidth(nonEmpty[0].trim(), Math.max(8, cols - 8)))}`;
+        return rest > 0 ? [row, moreHint(rest)] : [row];
+      }
+      const interesting = nonEmpty.find((l) => /error|fail|cannot|can't|not found|no such|denied|exception|✗|×/i.test(l) && !/^\s+at /.test(l)) ?? nonEmpty[nonEmpty.length - 1];
+      const head = `    ${palette.faint('╰')} ${palette.err(`exit ${code}`)}`;
+      const row = interesting ? head + palette.faint(' · ') + palette.muted(truncateWidth(interesting.trim(), Math.max(6, cols - 8 - displayWidth(`exit ${code} · `)))) : head;
+      return nonEmpty.length > 1 ? [row, moreHint(nonEmpty.length - 1)] : [row];
     }
 
-    const out = [renderResultLine(`exit ${code}`, 'error', cols)];
-    // The useful line of a failure is the one that names the error, not the end of a stack trace.
-    const nonEmpty = rows.filter((l) => l.trim());
-    const interesting = nonEmpty.filter((l) => /error|fail|cannot|can't|not found|no such|denied|exception|✗|×/i.test(l) && !/^\s+at /.test(l));
-    const shown = (interesting.length > 0 ? interesting : nonEmpty.slice(-3)).slice(0, 3);
-    for (const line of shown) out.push('      ' + palette.faint(truncateWidth(line.trim(), room)));
-    const hidden = nonEmpty.length - shown.length;
-    if (hidden > 0) out.push(more(hidden));
-    return out;
+    if (expanded) {
+      const head = code === '0' ? (rows.length === 0 ? [renderResultLine('(no output)', 'muted', cols)] : []) : [renderResultLine(`exit ${code}`, 'error', cols)];
+      return [...head, ...(rows.length ? fullRows(body, cols) : [])];
+    }
+  }
+
+  if (expanded && t !== 'bash' && !(t === 'edit_file' || t === 'write_file')) {
+    // For these the first line is part of the output, not a summary of it.
+    const own = t.startsWith('mcp__') || t === 'web_search' || t === 'fetch_url';
+    const first = own ? [] : summarizeToolResult(name, result, cols, false);
+    return [...first, ...fullRows(text, cols)];
   }
 
   if (t === 'read_file' || t === 'view_file' || t === 'read') {
@@ -615,6 +766,22 @@ export function summarizeToolResult(name: string, result: string, cols = 80): st
     return [text.startsWith('Diagnostics passed') ? renderResultLine('no errors', 'ok', cols) : renderResultLine('errors found', 'error', cols)];
   }
 
+  if (t === 'mcp_manage') {
+    try {
+      const servers: Array<{ name: string; status: string; tools?: number }> = JSON.parse(text).servers ?? [];
+      if (servers.length > 0) return [renderResultLine(servers.map((s) => `${s.name} ${s.status}${s.status === 'connected' ? ` (${s.tools ?? 0} tools)` : ''}`).join(', '), servers.some((s) => s.status === 'failed') ? 'error' : 'ok', cols)];
+    } catch {}
+  }
+
+  // Output of an MCP tool or a web fetch: the first line and how many more there are.
+  if (t.startsWith('mcp__') || t === 'web_search' || t === 'fetch_url') {
+    const nonEmpty = outputRows(text).filter((l) => l.trim());
+    if (nonEmpty.length === 0) return [renderResultLine('(no output)', 'muted', cols)];
+    const rest = nonEmpty.length - 1;
+    const row = `    ${palette.faint('╰')} ${palette.muted(truncateWidth(nonEmpty[0].trim(), Math.max(8, cols - 8)))}`;
+    return rest > 0 ? [row, moreHint(rest)] : [row];
+  }
+
   return [];
 }
 
@@ -631,12 +798,12 @@ export interface TurnSummary {
 
 export function renderTurnSummary(s: TurnSummary): string {
   const parts = [formatDuration(s.ms)];
-  if (s.tools > 0) parts.push(`${s.tools} tool${s.tools === 1 ? '' : 's'}`);
-  if ((s.inputTokens ?? 0) > 0) parts.push(`${formatTokens(s.inputTokens!)} in`);
-  if (s.outputTokens > 0) parts.push(`${formatTokens(s.outputTokens)} out`);
+  if (s.tools > 0) parts.push(t(s.tools === 1 ? 'summary.toolOne' : 'summary.toolMany', { n: s.tools }));
+  if ((s.inputTokens ?? 0) > 0) parts.push(t('summary.in', { n: formatTokens(s.inputTokens!) }));
+  if (s.outputTokens > 0) parts.push(t('summary.out', { n: formatTokens(s.outputTokens) }));
   if (s.cost > 0 || (s.costState?.unpriced ?? 0) > 0) parts.push(formatCost(s.cost, s.costState));
   const glyph = s.stopped ? palette.warn('■') : palette.ok('✓');
-  return `  ${glyph} ${palette.faint((s.stopped ? 'stopped · ' : '') + parts.join(' · '))}`;
+  return `  ${glyph} ${palette.faint((s.stopped ? t('summary.stopped') + ' · ' : '') + parts.join(' · '))}`;
 }
 
 /**
@@ -801,10 +968,27 @@ export function renderPermissionCard(req: PermissionRequest, cols: number): stri
   return [top, ...rows, color('╰' + '─'.repeat(W - 2) + '╯'), ...notes];
 }
 
-export type PermissionAnswer = 'allow' | 'deny';
+export type PermissionAnswer = 'allow' | 'session' | 'always' | 'deny';
+
+/** Which extra answers the card offers besides Allow and Deny (only for requests that are safe to remember). */
+export interface PermissionOffer {
+  session?: boolean;
+  always?: boolean;
+}
 
 /** `❯ ● Allow   ○ Deny   y/n · ←→ · enter` */
-export function renderPermissionChoice(selected: PermissionAnswer, cols: number): string {
+export function renderPermissionChoice(selected: PermissionAnswer, cols: number, offer: PermissionOffer = {}): string {
+  if (offer.session || offer.always) {
+    const item = (id: PermissionAnswer, label: string, color: (s: string) => string) =>
+      selected === id ? `${color('●')} ${palette.bold(color(label))}` : palette.faint(`○ ${label}`);
+    const parts = [item('allow', 'Allow', palette.ok)];
+    if (offer.session) parts.push(item('session', 'Session', palette.accent));
+    if (offer.always) parts.push(item('always', 'Always', palette.accent));
+    parts.push(item('deny', 'Deny', palette.err));
+    const keys = ['y', offer.session ? 's' : '', offer.always ? 'a' : '', 'n'].filter(Boolean).join('/');
+    const hintText = isCompact(cols) ? '' : '   ' + palette.faint(`${keys} · ←→ · enter`);
+    return ` ${palette.accent('❯')} ${parts.join('   ')}${hintText}`;
+  }
   const allow = selected === 'allow' ? `${palette.ok('●')} ${palette.bold(palette.ok('Allow'))}` : palette.faint('○ Allow');
   const deny = selected === 'deny' ? `${palette.err('●')} ${palette.bold(palette.err('Deny'))}` : palette.faint('○ Deny');
   const hint = isCompact(cols) ? '' : '   ' + palette.faint('y/n · ←→ · enter');
@@ -851,19 +1035,27 @@ export interface StatusLineInput {
 export function renderStatusLine({ label: rawLabel, elapsedMs, meta = '', frame, columns }: StatusLineInput): string {
   const elapsed = formatDuration(Math.max(0, elapsedMs));
   const glyph = palette.accent(FRAMES[frame % FRAMES.length]);
-  const label = stripAnsi(rawLabel).replace(/^→\s*/, '');
+  // One row, always: a multi-line command (a heredoc) must not tear the frame under it apart.
+  const label = stripAnsi(rawLabel).replace(/^→\s*/, '').replace(/[\x00-\x1f\x7f\s]+/g, ' ').trim();
   // Longest detail text that still leaves the label some room; the label is cut first of all last.
   const options = [
-    [elapsed, meta, 'ctrl+c to stop'],
+    [elapsed, meta, t('status.stop')],
     [elapsed, meta],
-    [elapsed, 'ctrl+c to stop'],
+    [elapsed, t('status.stop')],
     [elapsed, '^C'],
     [elapsed],
-  ].map((parts) => '  ' + palette.faint(`(${parts.filter(Boolean).join(' · ')})`));
+  ].map((parts) => palette.faint(`(${parts.filter(Boolean).join(' · ')})`));
   const budget = columns - 1 - 4; // two leading spaces, glyph and a space
-  const suffix = options.find((o) => budget - displayWidth(o) >= Math.min(12, displayWidth(label))) ?? options[options.length - 1];
-  const room = Math.max(1, budget - displayWidth(suffix));
-  return `  ${glyph} ${palette.text(truncateWidth(label, room))}${suffix}`;
+  const GAP = 2;
+  // The label has a field of its own (a long command is cut at FIELD cells).
+  const FIELD = 28;
+  const suffix = options.find((o) => budget - GAP - displayWidth(o) >= Math.min(12, displayWidth(label))) ?? options[options.length - 1];
+  const room = Math.max(1, Math.min(FIELD, budget - GAP - displayWidth(suffix)));
+  const cut = truncateWidth(label, room);
+  // The details sit close to the label, a little further the longer it is: in steps of 8 cells, so they do not shake.
+  const field = Math.min(room, Math.max(12, Math.ceil((displayWidth(cut) + 1) / 8) * 8));
+  const text = padEndWidth(cut, field);
+  return `  ${glyph} ${palette.text(text)}${' '.repeat(GAP)}${suffix}`;
 }
 
 /**

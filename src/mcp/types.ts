@@ -1,7 +1,11 @@
 export interface MCPServerConfig {
-  command: string;
+  /** A local server: the program to start (with `args` and `env`). */
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  /** A remote server over HTTP (with `headers`); used instead of `command`. */
+  url?: string;
+  headers?: Record<string, string>;
   disabled?: boolean;
 }
 
@@ -33,9 +37,18 @@ export interface JSONRPCResponse {
   };
 }
 
+/** Hints a server may give about a tool (MCP `annotations`). */
+export interface MCPToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 export interface MCPToolDefinition {
   name: string;
   description?: string;
+  annotations?: MCPToolAnnotations;
   inputSchema: {
     type: 'object';
     properties?: Record<string, any>;
@@ -53,6 +66,16 @@ export interface MCPCallToolResult {
   isError?: boolean;
 }
 
+export interface MCPToolInfo {
+  name: string;
+  description: string;
+  readOnly: boolean;
+  destructive: boolean;
+  openWorld: boolean;
+  /** Parameter names with their type and whether they are required. */
+  params: Array<{ name: string; type: string; required: boolean; description: string }>;
+}
+
 export interface MCPServerStatus {
   name: string;
   command: string;
@@ -60,4 +83,11 @@ export interface MCPServerStatus {
   toolsCount: number;
   tools: string[];
   error?: string;
+  /** Where the server is declared: `~/.devxrc.json`, `.devx/mcp.json`, ... */
+  source?: string;
+  /** `user` servers are the user's own, `project` ones come from the repository. */
+  scope?: 'user' | 'project';
+  /** What the server says it can do: tools, resources, prompts, ... */
+  capabilities?: string[];
+  toolInfo?: MCPToolInfo[];
 }

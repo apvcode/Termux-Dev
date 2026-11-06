@@ -15,6 +15,7 @@ export class MCPClient {
   private buffer = '';
   private tools: MCPToolDefinition[] = [];
   private isConnected = false;
+  private capabilities: string[] = [];
 
   constructor(name: string, config: MCPServerConfig) {
     this.name = name;
@@ -25,6 +26,8 @@ export class MCPClient {
     if (this.config.disabled) {
       throw new Error(`MCP server "${this.name}" is disabled in configuration.`);
     }
+    const program = this.config.command;
+    if (!program) throw new Error(`MCP server "${this.name}" has no command.`);
 
     return new Promise(async (resolve, reject) => {
       let isSettled = false;
@@ -44,13 +47,13 @@ export class MCPClient {
 
         const isWindows = process.platform === 'win32';
         const useShell = isWindows && (
-          this.config.command.endsWith('.cmd') || 
-          this.config.command.endsWith('.bat') || 
-          this.config.command === 'npx' || 
-          this.config.command === 'npm'
+          program.endsWith('.cmd') || 
+          program.endsWith('.bat') || 
+          program === 'npx' || 
+          program === 'npm'
         );
 
-        this.process = spawn(this.config.command, this.config.args || [], {
+        this.process = spawn(program, this.config.args || [], {
           env,
           stdio: ['pipe', 'pipe', 'pipe'],
           shell: useShell
@@ -92,6 +95,7 @@ export class MCPClient {
         }
 
         // 2. Send initialized notification
+        this.capabilities = Object.keys(initResult.capabilities || {});
         this.sendNotification('notifications/initialized', {});
 
         // 3. Fetch Tools List
@@ -117,6 +121,11 @@ export class MCPClient {
 
   getTools(): MCPToolDefinition[] {
     return this.tools;
+  }
+
+  /** The capability groups the server announced in the handshake (tools, resources, prompts, ...). */
+  getCapabilities(): string[] {
+    return this.capabilities;
   }
 
   hasConnected(): boolean {

@@ -53,13 +53,13 @@ export const planReadyTool: Tool = {
       timestamp: Date.now()
     };
 
-    let output = `Plan finalized: ${args.summary}\n`;
-    if (args.files && args.files.length > 0) {
-      output += `Files: ${args.files.join(', ')}\n`;
-    }
-    if (args.steps && args.steps.length > 0) {
-      output += `Steps:\n${args.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
-    }
-    return output;
+    // JSON: devx draws it as the plan card; the model reads the same data.
+    return JSON.stringify({
+      type: 'plan_ready',
+      status: 'shown to the user, who approves it or asks for changes',
+      summary: args.summary,
+      ...(args.files && args.files.length > 0 ? { files: args.files } : {}),
+      ...(args.steps && args.steps.length > 0 ? { steps: args.steps } : {}),
+    });
   }
 };

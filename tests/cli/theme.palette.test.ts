@@ -7,7 +7,7 @@ vi.hoisted(() => {
 });
 
 import { setActiveTheme } from '../../src/cli/theme.js';
-import { buildPromptFrame, modeStyle, palette, renderUserEcho } from '../../src/cli/ui.js';
+import { buildPromptFrame, modeStyle, palette, renderTaskCard, renderUserEcho } from '../../src/cli/ui.js';
 
 describe('the interface follows the active theme', () => {
   beforeEach(() => {
@@ -46,5 +46,20 @@ describe('the interface follows the active theme', () => {
     process.env.DEVX_COLOR = '256';
     setActiveTheme('nord');
     expect(palette.accent('x')).toMatch(/^\x1b\[38;5;\d+mx\x1b\[39m$/);
+  });
+});
+
+describe('the plan card follows the active theme', () => {
+  it('uses the accent and rule colours of the theme and no fixed cyan or green', () => {
+    process.env.DEVX_COLOR = 'truecolor';
+    const tasks = [{ text: 'one', status: 'in_progress' as const }, { text: 'two', status: 'completed' as const }];
+    setActiveTheme('dracula');
+    const dracula = renderTaskCard(tasks, 80).join('\n');
+    setActiveTheme('nord');
+    const nord = renderTaskCard(tasks, 80).join('\n');
+    expect(dracula).not.toBe(nord);
+    expect(dracula).toContain('38;2;189;147;249');          // dracula accent: the title
+    expect(nord).toContain('38;2;136;192;208');             // nord accent
+    expect(dracula).not.toContain('\x1b[36m');              // picocolors cyan
   });
 });

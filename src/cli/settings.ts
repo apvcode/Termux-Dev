@@ -3,7 +3,8 @@ import { splitKeys } from './keys.js';
 import { PermissionInput, PermissionOutput } from './permission.js';
 import { THEME_IDS, getTheme, renderSwatch, renderThemePreview } from './theme.js';
 import { palette } from './ui.js';
-import { displayWidth, padEndWidth, stripAnsi, truncateWidth, wrapWords } from './width.js';
+import { displayWidth, padEndWidth, stripAnsi, truncateWidth, wrapText, wrapWords } from './width.js';
+import { LANGUAGE_IDS, languageName, t } from '../core/i18n.js';
 
 export { wrapWords };
 
@@ -16,6 +17,8 @@ export { wrapWords };
  */
 
 export const ITERATION_STEPS = [10, 20, 30, 50, 100, 200, 500, 9999];
+/** Limits for the cost of a session, in USD; 0 is no limit. */
+export const COST_LIMIT_STEPS = [0, 0.5, 1, 2, 5, 10, 20, 50];
 
 export interface SettingsState {
   themeId: string;
@@ -25,39 +28,51 @@ export interface SettingsState {
   maxIterations: number;
   memory: boolean;
   updates: boolean;
+  /** The most a session may cost, USD; 0 for no limit. */
+  costLimit: number;
+  /** Interface language id (see core/i18n.ts). */
+  language: string;
 }
 
-export type SettingKey = 'theme' | 'layout' | 'pureBlack' | 'autoApprove' | 'maxIterations' | 'memory' | 'updates' | 'about';
+export type SettingKey = 'theme' | 'layout' | 'pureBlack' | 'autoApprove' | 'maxIterations' | 'memory' | 'updates' | 'costLimit' | 'language' | 'about';
+
+type SectionKey = 'appearance' | 'agent' | 'general' | 'about';
 
 interface RowDef {
   key: SettingKey;
-  section: string;
-  label: string;
-  short: string;
+  sectionKey: SectionKey;
+  /** The texts follow the interface language, so they are read when drawn, not when loaded. */
+  readonly section: string;
+  readonly label: string;
+  readonly short: string;
   kind: 'choice' | 'toggle' | 'info';
 }
 
+function row(key: SettingKey, sectionKey: SectionKey, kind: RowDef['kind']): RowDef {
+  return {
+    key,
+    sectionKey,
+    kind,
+    get section() { return t(`settings.section.${sectionKey}` as const); },
+    get label() { return t(`settings.row.${key}` as const); },
+    get short() { return t(`settings.short.${key}` as const); },
+  };
+}
+
 export const ROWS: RowDef[] = [
-  { key: 'theme', section: 'Appearance', label: 'Theme', short: 'Theme', kind: 'choice' },
-  { key: 'layout', section: 'Appearance', label: 'Interface', short: 'Interface', kind: 'choice' },
-  { key: 'pureBlack', section: 'Appearance', label: 'Black background', short: 'Black bg', kind: 'toggle' },
-  { key: 'autoApprove', section: 'Agent', label: 'Auto-approve (YOLO)', short: 'YOLO mode', kind: 'toggle' },
-  { key: 'maxIterations', section: 'Agent', label: 'Max iterations', short: 'Iterations', kind: 'choice' },
-  { key: 'memory', section: 'Agent', label: 'Project memory', short: 'Memory', kind: 'toggle' },
-  { key: 'updates', section: 'Agent', label: 'Update check', short: 'Updates', kind: 'toggle' },
-  { key: 'about', section: 'About', label: 'About devx', short: 'About', kind: 'info' },
+  row('theme', 'appearance', 'choice'),
+  row('layout', 'appearance', 'choice'),
+  row('pureBlack', 'appearance', 'toggle'),
+  row('autoApprove', 'agent', 'toggle'),
+  row('maxIterations', 'agent', 'choice'),
+  row('memory', 'agent', 'toggle'),
+  row('updates', 'agent', 'toggle'),
+  row('costLimit', 'agent', 'choice'),
+  row('language', 'general', 'choice'),
+  row('about', 'about', 'info'),
 ];
 
-const HINTS: Record<SettingKey, string> = {
-  theme: 'Colours of the whole interface. Left and right browse the themes, the panel recolours as you go.',
-  layout: 'Clean: framed prompt, cards and quiet tool lines. Classic: the original ASCII layout.',
-  pureBlack: 'Sets the terminal background to deep OLED black (#0a0a0c). Off keeps your own background.',
-  autoApprove: 'Skips routine permission prompts. Dangerous commands and credential files still ask first.',
-  maxIterations: 'How many tool steps (file edits, commands) the agent may take for one request.',
-  memory: 'Loads the rules from .devx/memory.md into every session.',
-  updates: 'Looks for a new devx version on GitHub at startup. /update works either way.',
-  about: 'Terminal-native AI coding agent by ApvCode. MIT license. github.com/apvcode/Termux-Dev',
-};
+const hintFor = (key: SettingKey): string => t(`settings.hint.${key}` as const);
 
 // ───────────────────────── state changes (pure) ─────────────────────────
 
@@ -96,6 +111,12 @@ export function changeSetting(state: SettingsState, key: SettingKey, direction: 
       return { ...state, memory: !state.memory };
     case 'updates':
       return { ...state, updates: !state.updates };
+    case 'costLimit': {
+      const current = COST_LIMIT_STEPS.reduce((best, step) => (Math.abs(step - state.costLimit) < Math.abs(best - state.costLimit) ? step : best), COST_LIMIT_STEPS[0]);
+      return { ...state, costLimit: cycle(COST_LIMIT_STEPS, current, direction) };
+    }
+    case 'language':
+      return { ...state, language: cycle(LANGUAGE_IDS, LANGUAGE_IDS.includes(state.language) ? state.language : LANGUAGE_IDS[0], direction) };
     default:
       return state;
   }
@@ -111,12 +132,17 @@ export function moveFocus(focus: number, delta: number): number {
 const LABEL_WIDTH = 21;
 const SHORT_LABEL_WIDTH = 11;
 
+/** A column wide enough for the longest label of the current language (never narrower than the English one). */
+const labelColumn = (pick: (r: RowDef) => string, least: number, most: number): number =>
+  Math.min(most, Math.max(least, ...ROWS.map((r) => displayWidth(pick(r)))));
+
+
 function formatIterations(n: number): string {
-  return n >= 9999 ? 'unlimited' : `${n} steps`;
+  return n >= 9999 ? t('settings.value.unlimited') : t('settings.value.steps', { n });
 }
 
 function onOff(on: boolean, onColor = palette.ok, glyph = '●'): string {
-  return on ? onColor(`${glyph} on`) : palette.faint('○ off');
+  return on ? onColor(`${glyph} ${t('settings.value.on')}`) : palette.faint(`○ ${t('settings.value.off')}`);
 }
 
 /** The current value of a row, styled; `room` is the number of cells available. */
@@ -129,7 +155,7 @@ function valueText(key: SettingKey, state: SettingsState, version: string, room:
       return swatch + palette.text(truncateWidth(theme.name, Math.max(4, room - used)));
     }
     case 'layout':
-      return palette.text(state.layout === 'clean' ? 'Clean' : 'Classic');
+      return palette.text(state.layout === 'clean' ? t('settings.value.clean') : t('settings.value.classic'));
     case 'pureBlack':
       return onOff(state.pureBlack);
     case 'autoApprove':
@@ -140,6 +166,10 @@ function valueText(key: SettingKey, state: SettingsState, version: string, room:
       return onOff(state.memory);
     case 'updates':
       return onOff(state.updates);
+    case 'costLimit':
+      return state.costLimit > 0 ? palette.text(`$${state.costLimit}`) : palette.faint(`○ ${t('settings.value.off')}`);
+    case 'language':
+      return palette.text(truncateWidth(languageName(state.language), Math.max(4, room)));
     case 'about':
       return palette.muted(`v${version}`);
   }
@@ -156,12 +186,12 @@ function detailLines(state: SettingsState, key: SettingKey, width: number, maxLi
     return [palette.muted(truncateWidth(`${theme.name}: ${theme.desc}`, width)), ...preview].slice(0, maxLines);
   }
 
-  const hint = key === 'about' ? `devx v${version}. ${HINTS.about}` : HINTS[key];
+  const hint = key === 'about' ? `devx v${version}. ${hintFor('about')}` : hintFor(key);
   // A warning is never the line that gets cut off: it keeps its row, the explanation gives way.
-  const warning = key === 'autoApprove' && state.autoApprove ? 'On: the agent runs commands and edits files without asking.' : '';
+  const warning = key === 'autoApprove' && state.autoApprove ? t('settings.warnYolo') : '';
   const hintRows = Math.max(1, maxLines - (warning ? 1 : 0));
 
-  let wrapped = wrapWords(hint, width);
+  let wrapped = wrapText(hint, width);
   if (wrapped.length > hintRows) {
     wrapped = wrapped.slice(0, hintRows);
     wrapped[hintRows - 1] = truncateWidth(wrapped[hintRows - 1], width - 1).replace(/…$/, '') + '…';
@@ -174,8 +204,8 @@ function detailLines(state: SettingsState, key: SettingKey, width: number, maxLi
 /** The key hints, shortened step by step until they fit `width` cells. */
 function keyHints(width: number): string {
   const variants: Array<Array<[string, string]>> = [
-    [['↑↓', 'move'], ['←→', 'change'], ['enter', 'toggle'], ['esc', 'close']],
-    [['↑↓', 'move'], ['←→', 'change'], ['esc', 'close']],
+    [['↑↓', t('settings.keys.move')], ['←→', t('settings.keys.change')], ['enter', t('settings.keys.toggle')], ['esc', t('settings.keys.close')]],
+    [['↑↓', t('settings.keys.move')], ['←→', t('settings.keys.change')], ['esc', t('settings.keys.close')]],
     [['↑↓', ''], ['←→', ''], ['esc', '']],
     [['esc', '']],
   ];
@@ -198,24 +228,25 @@ function renderCard(state: SettingsState, focus: number, cols: number, density: 
   const box = (content: string, shaded = false) =>
     rule('│') + (shaded ? palette.shade(' ' + padEndWidth(content, iw) + ' ') : ' ' + padEndWidth(content, iw) + ' ') + rule('│');
 
-  const title = ' ' + palette.bold(palette.accent('settings')) + ' ';
+  const title = ' ' + palette.bold(palette.accent(t('settings.title'))) + ' ';
   const tag = ' ' + palette.faint(`devx v${version}`) + ' ';
   const fill = Math.max(0, W - 4 - displayWidth(title) - displayWidth(tag));
   lines.push(rule('╭─') + title + rule('─'.repeat(fill)) + tag + rule('─╮'));
   if (density === 'roomy') lines.push(box(''));
 
+  const labelWidth = labelColumn((r) => r.label, LABEL_WIDTH, Math.floor(iw / 2));
   let section = '';
   ROWS.forEach((row, index) => {
-    if (row.section !== section) {
+    if (row.sectionKey !== section) {
       if (section !== '' && density === 'roomy') lines.push(box(''));
-      section = row.section;
+      section = row.sectionKey;
       lines.push(box('  ' + palette.faint(row.section.toUpperCase())));
     }
     const focused = index === focus;
     const mark = focused ? palette.accent('❯') : ' ';
     const label = focused ? palette.bold(palette.text(row.label)) : palette.muted(row.label);
     const control = row.kind === 'choice' ? (focused ? palette.accent('‹ ›') : palette.faint('‹ ›')) : '';
-    const prefix = ` ${mark} ${padEndWidth(label, LABEL_WIDTH)}`;
+    const prefix = ` ${mark} ${padEndWidth(label, labelWidth)}`;
     const room = iw - displayWidth(prefix) - 4;
     const left = prefix + valueText(row.key, state, version, room, true);
     const gap = Math.max(1, iw - displayWidth(left) - displayWidth(control) - 1);
@@ -235,19 +266,21 @@ function renderCard(state: SettingsState, focus: number, cols: number, density: 
 function renderCompact(state: SettingsState, focus: number, cols: number, rows: number, version: string): string[] {
   const width = Math.max(20, cols - 1);
   const lines: string[] = [];
-  lines.push(' ' + palette.bold(palette.accent('settings')) + palette.faint(` · v${version}`));
+  const shortWidth = labelColumn((r) => r.short, SHORT_LABEL_WIDTH, Math.floor(width / 2));
+  lines.push(' ' + palette.bold(palette.accent(t('settings.title'))) + palette.faint(` · v${version}`));
 
   ROWS.forEach((row, index) => {
     const focused = index === focus;
     const mark = focused ? palette.accent('❯') : ' ';
     const label = focused ? palette.bold(palette.text(row.short)) : palette.muted(row.short);
-    const prefix = ` ${mark} ${padEndWidth(label, SHORT_LABEL_WIDTH)}`;
+    const prefix = ` ${mark} ${padEndWidth(label, shortWidth)}`;
     const room = Math.max(4, width - displayWidth(prefix) - 1);
     const content = prefix + valueText(row.key, state, version, room, false);
     lines.push(focused ? palette.shade(padEndWidth(content, width)) : content);
   });
 
-  const detailCount = rows >= 16 ? 2 : 1;
+  // The title, the rows and the key hints come first; the help text takes what is left of the screen.
+  const detailCount = Math.max(0, Math.min(rows >= 16 ? 2 : 1, rows - 1 - (ROWS.length + 2)));
   const detail = detailLines(state, ROWS[focus].key, width - 2, detailCount, version);
   for (let i = 0; i < detailCount; i++) lines.push(detail[i] ? ' ' + detail[i] : '');
   lines.push(' ' + keyHints(width - 1));
@@ -259,8 +292,8 @@ function renderCompact(state: SettingsState, focus: number, cols: number, rows: 
  * depending on the height), narrow ones a plain list.
  */
 export function renderSettings(state: SettingsState, focus: number, cols: number, rows: number, version: string): string[] {
-  if (cols < 60 || rows < 21) return renderCompact(state, focus, cols, rows, version);
-  return renderCard(state, focus, cols, rows >= 27 ? 'roomy' : 'tight', version);
+  if (cols < 60 || rows < 23) return renderCompact(state, focus, cols, rows, version);
+  return renderCard(state, focus, cols, rows >= 29 ? 'roomy' : 'tight', version);
 }
 
 // ───────────────────────── keyboard ─────────────────────────

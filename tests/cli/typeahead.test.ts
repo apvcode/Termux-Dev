@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DraftState, FrameBase, TurnComposer, applyKey, renderComposer } from '../../src/cli/typeahead.js';
 import { setActiveTheme } from '../../src/cli/theme.js';
 import { displayWidth, stripAnsi } from '../../src/cli/width.js';
+import { CTRL_ENTER, normalizeKey, splitKeys } from '../../src/cli/keys.js';
 
 const type = (text: string, from: DraftState = { text: '', cursor: 0 }): DraftState => {
   let state = from;
@@ -31,6 +32,24 @@ describe('editing the line', () => {
     expect(applyKey({ text: 'abc def', cursor: 3 }, '\x0b').state).toEqual({ text: 'abc', cursor: 3 });
   });
 
+  it('Ctrl+Backspace and Alt+Backspace erase the text word by word', () => {
+    // Ctrl+Backspace is 0x08 in most terminals, Alt+Backspace is ESC DEL, the extended modes use CSI u.
+    for (const key of ['\b', normalizeKey('\x1b\x7f'), normalizeKey('\x1b[127;5u'), normalizeKey('\x1b[127;3u'), normalizeKey('\x1b[27;5;127~')]) {
+      let s = type('привет большой мир');
+      s = applyKey(s, key).state;
+      expect(s.text).toBe('привет большой ');
+      s = applyKey(s, key).state;
+      expect(s.text).toBe('привет ');
+      s = applyKey(s, key).state;
+      expect(s.text).toBe('');
+      expect(applyKey(s, key).state).toEqual({ text: '', cursor: 0 });
+    }
+    // Only the part before the cursor is touched.
+    expect(applyKey({ text: 'one two three', cursor: 7 }, '\b').state).toEqual({ text: 'one  three', cursor: 4 });
+    // A plain Backspace still removes one character.
+    expect(applyKey(type('abc'), '\x7f').state.text).toBe('ab');
+  });
+
   it('works with Cyrillic and with characters outside the BMP', () => {
     let s = type('привет \u{20BB7}');  // the last character is outside the BMP (a CJK ideograph)
     expect(s.cursor).toBe(8);
@@ -45,6 +64,16 @@ describe('editing the line', () => {
     expect(r.submit).toBe('do it');
     expect(r.state).toEqual({ text: '', cursor: 0 });
     expect(applyKey(type('   '), '\r').submit).toBeUndefined();
+  });
+
+  it('Ctrl+Enter submits the line and asks to send it now; with an empty line it only asks', () => {
+    const r = applyKey(type('  stop and do this  '), CTRL_ENTER);
+    expect(r.submit).toBe('stop and do this');
+    expect(r.sendNow).toBe(true);
+    expect(r.state).toEqual({ text: '', cursor: 0 });
+    const empty = applyKey(type('   '), CTRL_ENTER);
+    expect(empty.submit).toBeUndefined();
+    expect(empty.sendNow).toBe(true);
   });
 
   it('Esc throws the line away; other escape sequences and control keys are not text', () => {
@@ -75,7 +104,9 @@ describe('the composer frame', () => {
     expect(lines[1]).toContain('Ask or describe a task');
     expect(lines[2]).toContain('~/Downloads/test');
     expect(lines[2]).toContain('12% · $0.0123');
-    expect(lines[3]).toContain('enter queues it for the agent');
+    expect(lines[3]).toContain('enter queues');
+    expect(lines[3]).toContain('ctrl+c stop');
+    expect(lines[3]).not.toContain('ctrl+enter');
   });
 
   it('shows the text and a cursor cell at the right place', () => {
@@ -183,6 +214,92 @@ describe('TurnComposer', () => {
     out.write('plain');
     expect(written).toEqual(['plain']);
     expect(composer.enabled).toBe(false);
+  });
+
+  it('the "queued" note is gone from the screen once the message was handed over', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.start();
+    composer.handleData('also add a river\r');
+    expect(stripAnsi(all())).toContain('↳ queued: also add a river');
+    written.length = 0;
+    composer.takeQueued();
+    const after = stripAnsi(all());
+    expect(after).not.toContain('queued: also add a river');
+    expect(after).toContain('enter queues');
+    composer.stop();
+  });
+
+  it('hides the real cursor on every draw, also after a card brought it back', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.start();
+    composer.suspend();
+    written.length = 0;
+    composer.resume();
+    expect(all()).toContain('\x1b[?25l');
+    written.length = 0;
+    out.write('text under the cursor\n');
+    expect(all()).toContain('\x1b[?25l');
+    composer.stop();
+  });
+
+  it('asks the terminal for Ctrl+Enter while it runs and gives plain keys back for cards and on stop', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.start();
+    expect(all()).toContain('\x1b[>1u');
+    written.length = 0;
+    composer.suspend();
+    expect(all()).toContain('\x1b[<u');
+    written.length = 0;
+    composer.resume();
+    expect(all()).toContain('\x1b[>1u');
+    written.length = 0;
+    composer.stop();
+    expect(all()).toContain('\x1b[<u');
+  });
+
+  it('Ctrl+Enter queues the line and tells the owner to send now (kitty, modifyOtherKeys and Alt+Enter)', () => {
+    for (const key of ['\x1b[13;5u', '\x1b[27;5;13~', '\x1b\r']) {
+      const sendNow = vi.fn();
+      const composer = new TurnComposer(out, () => BASE, undefined, undefined, sendNow);
+      composer.start();
+      composer.handleData('do this instead' + key);
+      expect(sendNow).toHaveBeenCalledTimes(1);
+      expect(composer.takeQueued()).toEqual(['do this instead']);
+      composer.stop();
+    }
+  });
+
+  it('Ctrl+Enter with nothing to send does nothing; a plain Enter never interrupts', () => {
+    const sendNow = vi.fn();
+    const composer = new TurnComposer(out, () => BASE, undefined, undefined, sendNow);
+    composer.start();
+    composer.handleData(CTRL_ENTER);
+    composer.handleData('later\r');
+    expect(sendNow).not.toHaveBeenCalled();
+    composer.handleData(CTRL_ENTER);     // the queue is not empty now: send it
+    expect(sendNow).toHaveBeenCalledTimes(1);
+    composer.stop();
+  });
+
+  it('typing keeps working when the terminal reports keys as CSI u', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.start();
+    composer.handleData('abc\x1b[97;5u');    // Ctrl+A: Home
+    composer.handleData('x');
+    expect(composer.draft).toBe('xabc');
+    composer.handleData('\x1b[27u');         // Esc: throws the line away
+    expect(composer.draft).toBe('');
+    composer.stop();
+  });
+
+  it('keeps the frame whole when the working line has a line break in it', () => {
+    const composer = new TurnComposer(out, () => BASE, undefined, () => 'Run: python3 - <<PY\np=1\r\nfor x in y');
+    composer.start();
+    composer.handleData('a');
+    const drawn = all().split('\x1b7').slice(-1)[0];
+    // The three lines of the command are one row of the frame.
+    expect(stripAnsi(drawn)).toContain('Run: python3 - <<PY p=1 for x in y');
+    composer.stop();
   });
 
   it('queues a message on Enter, shows it, and hands it over once', () => {
@@ -320,5 +437,132 @@ describe('TurnComposer', () => {
     expect(written[written.length - 1]).toContain('\x1b8');   // the cursor goes back to the text
     expect(stripAnsi(written[written.length - 1])).toContain('Ask or describe a task');
     composer.stop();
+  });
+});
+
+describe('extended keys', () => {
+  it('splitKeys keeps CSI u sequences and Alt+Enter in one piece', () => {
+    expect(splitKeys('a\x1b[13;5ub')).toEqual(['a', '\x1b[13;5u', 'b']);
+    expect(splitKeys('\x1b[27;5;13~')).toEqual(['\x1b[27;5;13~']);
+    expect(splitKeys('\x1b\r')).toEqual(['\x1b\r']);
+    expect(splitKeys('ab\x1b\x7fc')).toEqual(['a', 'b', '\x1b\x7f', 'c']);   // Alt+Backspace
+    expect(splitKeys('\x1b[99;5:1u')).toEqual(['\x1b[99;5:1u']);
+  });
+
+  it('normalizeKey maps the extended encodings back to the plain keys', () => {
+    expect(normalizeKey('\x1b[99;5u')).toBe('\x03');        // Ctrl+C
+    expect(normalizeKey('\x1b[27;5;99~')).toBe('\x03');
+    expect(normalizeKey('\x1b[27u')).toBe('\x1b');          // Esc
+    expect(normalizeKey('\x1b[13u')).toBe('\r');
+    expect(normalizeKey('\x1b[13;5u')).toBe(CTRL_ENTER);
+    expect(normalizeKey('\x1b[13;3u')).toBe(CTRL_ENTER);     // Alt+Enter
+    expect(normalizeKey('\x1b[27;5;13~')).toBe(CTRL_ENTER);
+    expect(normalizeKey('\x1b\r')).toBe(CTRL_ENTER);
+    expect(normalizeKey('\x1b[13;2u')).toBe('\x1b[13;2u');   // Shift+Enter is left alone
+    expect(normalizeKey('\x1b[A')).toBe('\x1b[A');
+    expect(normalizeKey('a')).toBe('a');
+  });
+});
+
+describe('view switches while the agent works', () => {
+  let written: string[];
+  let out: any;
+  beforeEach(() => {
+    setActiveTheme('cyan');
+    written = [];
+    out = { write: (c: any) => { written.push(String(c)); return true; }, columns: 120, rows: 30, isTTY: true };
+  });
+
+  it('ctrl+p and ctrl+o call the toggle handler and never reach the typed line', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    const calls: string[] = [];
+    composer.onToggle = (k) => calls.push(k);
+    composer.start();
+    composer.handleData('ab\x10\x0fc');
+    expect(calls).toEqual(['thinking', 'output']);
+    expect(composer.draft).toBe('abc');
+    composer.handleData('\x1b[112;5u');        // ctrl+p as the extended keyboard modes send it
+    expect(calls).toEqual(['thinking', 'output', 'thinking']);
+    composer.suspend();
+    composer.handleData('\x10');                // a card has the keyboard
+    expect(calls).toHaveLength(3);
+    composer.stop();
+  });
+
+  it('shows the live reasoning line above the working line, with a blank row before the frame', () => {
+    const composer = new TurnComposer(out, () => BASE, undefined, () => 'working');
+    composer.live = () => '  ∴ the newest words of the thought';
+    composer.start();
+    const text = stripAnsi(written.join(''));
+    expect(text).toContain('∴ the newest words of the thought');
+    expect(text).not.toContain('ctrl+p thinking');
+    expect(text).not.toContain('ctrl+o output');
+    composer.stop();
+  });
+});
+
+describe('a message that waits for the agent', () => {
+  let written: string[];
+  let out: any;
+  beforeEach(() => {
+    setActiveTheme('cyan');
+    written = [];
+    out = { write: (c: any) => { written.push(String(c)); return true; }, columns: 120, rows: 30, isTTY: true };
+  });
+  const lastFrame = () => stripAnsi(written.join(''));
+
+  it('says next to it that ctrl+enter sends it now and that the down arrow takes it back', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.start();
+    composer.handleData('bro you are the best\r');
+    expect(lastFrame()).toContain('↳ queued: bro you are the best · ctrl+enter sends now · ↓ edit');
+    composer.stop();
+  });
+
+  it('the hint gives way to the message on a narrow screen', () => {
+    const rows = renderComposer({ state: { text: '', cursor: 0 }, queued: ['a fairly long message that waits'], cols: 50, base: BASE }).map(stripAnsi);
+    const note = rows[rows.length - 1];
+    expect(note).toContain('↳ queued: a fairly long message');
+    expect(displayWidth(note)).toBeLessThanOrEqual(49);
+  });
+
+  it('the down arrow brings the last waiting message back into the line to edit it', () => {
+    const queued: string[] = [];
+    const composer = new TurnComposer(out, () => BASE, (t) => queued.push(t));
+    composer.start();
+    composer.handleData('first\r');
+    composer.handleData('second\r');
+    expect(composer.queued).toEqual(['first', 'second']);
+    composer.handleData('\x1b[B');
+    expect(composer.draft).toBe('second');
+    expect(composer.queued).toEqual(['first']);
+    composer.handleData('!\r');                      // edited and sent again
+    expect(composer.queued).toEqual(['first', 'second!']);
+    expect(composer.takeQueued()).toEqual(['first', 'second!']);
+    composer.stop();
+  });
+
+  it('the down arrow does nothing while something is typed or nothing waits', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.start();
+    composer.handleData('\x1b[B');
+    expect(composer.draft).toBe('');
+    composer.handleData('queued\r');
+    composer.handleData('typing');
+    composer.handleData('\x1b[B');
+    expect(composer.draft).toBe('typing');
+    expect(composer.queued).toEqual(['queued']);
+    composer.stop();
+  });
+
+  it('works with every form of the down arrow a terminal may send', () => {
+    for (const key of ['\x1bOB', '\x1b[B', '\x1b[1;1B', '\x1b[1;1:1B']) {
+      const composer = new TurnComposer(out, () => BASE);
+      composer.start();
+      composer.handleData('msg\r');
+      composer.handleData(key);
+      expect(composer.draft, JSON.stringify(key)).toBe('msg');
+      composer.stop();
+    }
   });
 });

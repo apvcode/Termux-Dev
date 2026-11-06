@@ -1,7 +1,8 @@
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
-import { MemoryManager } from '../core/memory.js';
+import { MemoryManager, memoryForPrompt } from '../core/memory.js';
+import { loadPlanForPrompt } from '../core/planfile.js';
 
 export async function buildSystemPrompt(planMode: boolean): Promise<string> {
   const isTermux = process.env.PREFIX?.includes('com.termux') || false;
@@ -22,28 +23,46 @@ export async function buildSystemPrompt(planMode: boolean): Promise<string> {
   prompt += `- Never explore the project on your own initiative. Read or search files only when the task needs it.\n`;
   prompt += `- Ask the user (with the 'ask_questions' tool, never as a plain text list) only when you cannot continue without the answer. If a sensible default exists, take it and say which.\n\n`;
 
+  prompt += `RULES\n`;
+  prompt += `- Never read, print or copy secrets: ~/.devxrc.json, ~/.devx/, .env files, private keys, tokens, API keys. If a task seems to need one, ask the user. If a secret shows up in an output anyway, do not repeat it.\n`;
+  prompt += `- If the user denies an action ("Action denied by user"), do not retry it or get around it with another command. Say what you wanted to do and offer another way, or ask.\n`;
+  prompt += `- If a tool or an MCP server fails, say what failed with the error in one line. Try one different approach at most, then report instead of repeating.\n\n`;
+
   if (planMode) {
     prompt += `MODE: PLAN. You only research and plan. You cannot write or edit files or run commands.\n`;
-    prompt += `- Inspect the project with the read, list and search tools, and the web search tool, as far as the plan needs.\n`;
-    prompt += `- Do not write out full code files. Describe what to change and why.\n`;
-    prompt += `- For a task with several steps, keep the checklist with 'todo_list'.\n`;
-    prompt += `- The final plan has these parts: **Цель и архитектурный обзор**; **Пошаговый список изменений по файлам** (which files, what logic, no full code); **План тестирования и проверки**. Keep each part short.\n`;
-    prompt += `- When the plan is ready, call 'plan_ready'. Do not ask the user to type anything: devx shows the confirmation itself and switches to AGENT mode after the user agrees.\n`;
+    prompt += `- Inspect the project with the read, list and search tools, and the web search tool, only as far as the plan needs. For a small task look at the one or two files involved and stop.\n`;
+    prompt += `- Size the plan to the task. SMALL task (one file or a few lines, a clear fix): no headings, call 'plan_ready' with a one-line summary, the files and 2 to 4 short steps. LARGER task (several files, a new feature, design choices): write the plan with three parts, with headings in the language the user writes in: **Goal and architecture** (in Russian: **Цель и архитектурный обзор**); **Step-by-step changes by file** (**Пошаговый список изменений по файлам**: which files, what logic); **Testing and verification** (**План тестирования и проверки**). Keep each part short.\n`;
+    prompt += `- Never write out full code files. Describe what to change and why. Do not use 'todo_list' in PLAN mode: the plan itself is the result.\n`;
+    prompt += `- When the plan is ready, call 'plan_ready' with the summary, the files and the steps. devx shows the plan and asks the user to approve it (Go) or change it: do not ask for approval yourself. If the user asks for changes, update the plan and call 'plan_ready' again.\n`;
   } else {
     prompt += `MODE: AGENT. You can run commands, create and edit files, install packages and search.\n`;
     prompt += `- Before using tools on a task, say in one short line what you are about to do. Do not narrate every step.\n`;
     prompt += `- Do the whole task step by step. For a task with several steps, keep the checklist with 'todo_list'.\n`;
+    prompt += `- Read a file before you edit it. Change only what the task needs, with 'edit_file' for small changes. Do not rewrite a whole file or touch unrelated code.\n`;
+    prompt += `- 'bash' stops after 120 s and cuts long output: give long jobs a timeout or run them in the background, and print only what you need (head, tail, grep).\n`;
     prompt += `- After you change code, run 'diagnose_code' and fix what it reports. Install missing dependencies with 'install_package'.\n`;
     prompt += `- After you create or change a web page or frontend app, start the local preview with 'serve_preview' (action 'start').\n`;
-    prompt += `- Save lasting decisions and user preferences with 'save_memory'.\n`;
+    if (MemoryManager.enabled) prompt += `- Save lasting decisions and user preferences with 'save_memory'.\n`;
     prompt += `- At the end say what was done and what the user should know or check, in a few lines.\n`;
   }
 
+  prompt += `\nMCP (external tools)\n`;
+  prompt += `- Servers live in ~/.devx/mcp.json (the user's, started at once) and .devx/mcp.json (this project, only after the user approved it). Their tools are named mcp__<server>__<tool>. Local programs only (command + args); a server that has just an address is reached with command 'npx', args ['-y','mcp-remote','<url>'].\n`;
+  if (!planMode) prompt += `- If the user asks to connect a service over MCP, use 'mcp_manage': 'list' first, then 'add' with the real command (find it in the service's docs or with the web search tool, do not guess; ask with 'ask_questions' if you need a path or a choice). Secrets go into env, not args. Check the result: if the server did not connect, tell the user the error. 'import_claude' takes the servers from Claude Code if the user has it. The new tools work from the user's next message.\n`;
+
   // Load Project Memory Bank
   try {
-    const memory = await MemoryManager.loadMemory();
+    const memory = MemoryManager.enabled ? memoryForPrompt(await MemoryManager.loadMemory()).text : '';
     if (memory.trim()) {
       prompt += `\n--- Project Knowledge & Memory Bank (.devx/memory.md) ---\n${memory}\n-------------------------------------------------------\n`;
+    }
+  } catch {}
+
+  // The plan the user approved (kept in the project, recent only): the work follows it.
+  try {
+    const plan = planMode ? '' : loadPlanForPrompt(process.cwd());
+    if (plan) {
+      prompt += `\n--- Approved plan (.devx/plan.md) ---\nFollow it for the task it was made for; if the user now asks for something else, ignore it.\n${plan}\n-------------------------------------\n`;
     }
   } catch {}
 
