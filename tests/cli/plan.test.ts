@@ -104,3 +104,20 @@ describe('asking what to do with the plan', () => {
     expect(await done).toBe('edit');
   });
 });
+
+describe('plan_ready with arguments in the wrong shape', () => {
+  it('steps and files sent as text still give a plan card', async () => {
+    const args = { summary: 'Patch the check', files: 'a.smali', steps: '1. read it\n2. patch it' };
+    planReadyTool.validateArgs(args);
+    const rows = toolResultRows('plan_ready', await planReadyTool.execute(args, {} as any, {} as any), { cols: 80, expanded: false }).map(stripAnsi).join('\n');
+    expect(rows).toContain('Patch the check');
+    expect(rows).toContain('1. read it');
+    expect(rows).toContain('2. patch it');
+    expect(rows).toMatch(/Files\s+a\.smali/);
+  });
+
+  it('a call without a summary is refused, so the model calls it again', () => {
+    expect(() => planReadyTool.validateArgs({ plan: 'text' })).toThrow(/summary/);
+    expect(() => planReadyTool.validateArgs({ summary: '  ' })).toThrow(/summary/);
+  });
+});

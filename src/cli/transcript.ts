@@ -5,6 +5,7 @@ import { renderMarkdown } from './markdown.js';
 import { palette, renderPlanCard, renderResultLine, renderTaskCard, renderToolLine, renderUserEcho, summarizeToolResult } from './ui.js';
 import { displayWidth, truncateWidth, wrapText } from './width.js';
 import { t } from '../core/i18n.js';
+import { toStringList } from '../tools/plan.js';
 
 /**
  * The conversation as it is on screen, kept as items so it can be drawn again: ctrl+p and ctrl+o
@@ -38,7 +39,7 @@ export function toolResultRows(name: string, result: string, opts: { cols: numbe
     const parsed = JSON.parse(result);
     if (parsed && typeof parsed === 'object') {
       if (parsed.type === 'todo_list' && Array.isArray(parsed.tasks) && parsed.tasks.length > 0) return renderTaskCard(parsed.tasks, cols);
-      if (parsed.type === 'plan_ready' && typeof parsed.summary === 'string') return renderPlanCard({ summary: parsed.summary, files: parsed.files, steps: parsed.steps }, cols);
+      if (parsed.type === 'plan_ready' && typeof parsed.summary === 'string') return renderPlanCard({ summary: parsed.summary, files: toStringList(parsed.files), steps: toStringList(parsed.steps) }, cols);
       if (parsed.action === 'edit' && parsed.diffLines) {
         const box = formatDiffBox(parsed.path, parsed.diffLines, Math.min(cols - 4, 80), undefined, !!opts.diffColors);
         const rows = box.split('\n').map((l: string) => '    ' + l);
