@@ -15,6 +15,8 @@ import { getBackgroundManager } from '../core/background.js';
 export interface HeadlessOptions {
   planMode?: boolean;
   yolo?: boolean;
+  /** Extra: nothing is asked, dangerous commands and credential files included (implies yolo). */
+  extra?: boolean;
   quiet?: boolean;
   json?: boolean;
   signal?: AbortSignal;
@@ -26,7 +28,8 @@ export async function runHeadlessMode(
   options: HeadlessOptions = {}
 ): Promise<number> {
   const planMode = !!options.planMode;
-  const isYolo = !!options.yolo || !!config.autoApprove;
+  const isExtra = !!options.extra || !!config.autoApproveAll;
+  const isYolo = !!options.yolo || !!config.autoApprove || isExtra;
   const isQuiet = !!options.quiet;
   const isJson = !!options.json;
 
@@ -58,7 +61,7 @@ export async function runHeadlessMode(
     await refreshFormats(config).catch(() => null);
     const provider = createProvider(config);
     const tools = getTools(planMode);
-    const guard = new CLIConsoleGuard(isYolo);
+    const guard = new CLIConsoleGuard(isYolo, [], { extra: isExtra });
     const agent = new Agent(config, provider, tools, history, guard);
 
     if (!isQuiet && !isJson) {

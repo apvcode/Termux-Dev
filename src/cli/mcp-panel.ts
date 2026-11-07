@@ -353,11 +353,13 @@ export function runMcpPanel(controller: McpController, options: McpPanelOptions 
     const wasRaw = !!input.isRaw;
     input.setRawMode?.(true);
     input.resume();
+    const stopWatching = block.watchResize(draw);
 
     const close = () => {
       if (closed) return;
       closed = true;
       input.off('data', onData);
+      stopWatching();
       block.erase();
       if (!wasRaw) input.setRawMode?.(false);
       resolve();

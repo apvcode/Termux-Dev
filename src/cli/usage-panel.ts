@@ -162,9 +162,23 @@ function buildRows(d: UsagePanelData, iw: number, detail: 'full' | 'brief' | 'mi
   pair('Cost', palette.bold(formatMoney(s.totalCost, s.costState)));
   const note = costNote(s);
   if (note && detail === 'full') line('  ' + palette.faint(truncateWidth(note, iw - 2)));
+  if (s.restoredCost && detail === 'full') {
+    line('  ' + palette.faint(truncateWidth(`Includes ${formatMoney(s.restoredCost, { estimated: s.costState.estimated })} from before this chat was resumed; the lines below count only since devx started.`, iw - 2)));
+  }
   const tokens = iw >= 40 ? `${fmtTokens(s.promptTokens)} in · ${fmtTokens(s.completionTokens)} out` : `${fmtTokens(s.promptTokens)}/${fmtTokens(s.completionTokens)}`;
   pair('Tokens', palette.text(tokens));
-  if (s.cacheReadTokens > 0 && detail !== 'min') pair('Cached input', palette.text(fmtTokens(s.cacheReadTokens)));
+  if (detail !== 'min') {
+    // What the money was paid for. Every request resends the whole conversation, so the input
+    // is usually the biggest part, and the cache is what makes it cheaper.
+    const money = (v: number | undefined) =>
+      s.costParts && v !== undefined && iw >= 40 ? palette.faint('  ' + formatMoney(v, { estimated: s.costState.estimated })) : '';
+    const paid = (label: string, tokens: number, v: number | undefined) =>
+      pair(label, palette.text(fmtTokens(tokens)) + money(v));
+    paid('  Input', s.uncachedTokens, s.costParts?.input);
+    if (s.cacheReadTokens > 0) paid('  Cached input', s.cacheReadTokens, s.costParts?.cacheRead);
+    if (s.cacheWriteTokens > 0) paid('  Cache writes', s.cacheWriteTokens, s.costParts?.cacheWrite);
+    paid('  Output', s.completionTokens, s.costParts?.output);
+  }
   pair('Requests', palette.text(String(s.requestsCount)));
 
   // ── traffic
@@ -262,7 +276,7 @@ export function runUsagePanel(data: UsagePanelData, options: UsagePanelOptions =
       if (closed) return;
       closed = true;
       input.off('data', onData);
-      output.off?.('resize', draw);
+      stopWatching();
       block.erase();
       if (!wasRaw) input.setRawMode?.(false);
       resolve();
@@ -276,7 +290,7 @@ export function runUsagePanel(data: UsagePanelData, options: UsagePanelOptions =
     };
 
     input.on('data', onData);
-    output.on?.('resize', draw);
+    const stopWatching = block.watchResize(draw);
     draw();
   });
 }

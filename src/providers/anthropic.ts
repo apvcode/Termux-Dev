@@ -2,7 +2,7 @@ import { LLMProvider, LLMRequest, LLMResponse, Message, ThinkingBlock, TokenUsag
 import { UsageTracker } from '../core/usage.js';
 import { PriceContext, priceUsage } from '../core/prices.js';
 import { ToolGuard } from './toolguard.js';
-import { NOT_ABOUT_REASONING, PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, parseToolArguments, readSseData, toolTargetHint } from './shared.js';
+import { DEFAULT_REQUEST_TIMEOUT_MS, NOT_ABOUT_REASONING, RequestWatchdog, PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, imagesToSend, parseToolArguments, readSseData, toolTargetHint } from './shared.js';
 
 /**
  * Speaks the native Anthropic Messages API: `POST {origin}/v1/messages`.
@@ -44,10 +44,11 @@ export function toAnthropicMessages(
   const systemParts: string[] = [];
   const out: Array<{ role: 'user' | 'assistant'; content: Block[] }> = [];
 
-  let lastImageIdx = -1;
-  messages.forEach((m, i) => {
-    if (m.images && m.images.length > 0) lastImageIdx = i;
-  });
+  const send = imagesToSend(messages);
+  const imageBlock = (img: { dataUrl: string }): Block | null => {
+    const parts = splitDataUrl(img.dataUrl);
+    return parts ? { type: 'image', source: { type: 'base64', media_type: parts.mediaType, data: parts.data } } : null;
+  };
 
   const push = (role: 'user' | 'assistant', blocks: Block[]) => {
     if (blocks.length === 0) return;
@@ -64,7 +65,19 @@ export function toAnthropicMessages(
     }
 
     if (m.role === 'tool') {
-      push('user', [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content || '(empty)' }]);
+      const text = m.content || '(empty)';
+      let content: string | Block[] = text;
+      if (m.images && m.images.length > 0) {
+        if (options.images === false) {
+          content = `${text}\n${imageNotSentText(m.images.map((img) => img.path))}`;
+        } else if (send.has(idx)) {
+          // This API takes pictures inside a tool result.
+          content = [{ type: 'text', text }, ...m.images.map(imageBlock).filter((b): b is Block => !!b)];
+        } else {
+          content = `${text}\n${m.images.map((img) => `[Attached Image: ${img.path}]`).join(' ')}`;
+        }
+      }
+      push('user', [{ type: 'tool_result', tool_use_id: m.tool_call_id, content }]);
       return;
     }
 
@@ -87,10 +100,10 @@ export function toAnthropicMessages(
       if (options.images === false) {
         const note = imageNotSentText(m.images.map((img) => img.path));
         text = text ? `${text}\n${note}` : note;
-      } else if (idx === lastImageIdx) {
+      } else if (send.has(idx)) {
         for (const img of m.images) {
-          const parts = splitDataUrl(img.dataUrl);
-          if (parts) blocks.push({ type: 'image', source: { type: 'base64', media_type: parts.mediaType, data: parts.data } });
+          const block = imageBlock(img);
+          if (block) blocks.push(block);
         }
       } else {
         const refs = m.images.map((img) => `[Attached Image: ${img.path}]`).join(' ');
@@ -293,6 +306,11 @@ export class AnthropicProvider implements LLMProvider {
     throw err;
   }
 
+  lostRequestUsage(promptTokens: number, completionTokens: number): TokenUsage {
+    // usageOf records the usage itself.
+    return this.usageOf(null, { prompt: promptTokens, completion: completionTokens });
+  }
+
   private usageOf(raw: { input: number; output: number; cacheRead: number; cacheWrite: number } | null, fallback?: { prompt: number; completion: number }): TokenUsage {
     const guessed = !raw || (raw.input + raw.cacheRead + raw.cacheWrite + raw.output === 0);
     const base = raw ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -308,12 +326,42 @@ export class AnthropicProvider implements LLMProvider {
     if (priced.cost !== undefined) {
       usage.cost = priced.cost;
       usage.costSource = guessed && fallback && priced.costSource !== 'free' ? 'estimated' : priced.costSource;
+      if (priced.parts) usage.costParts = priced.parts;
     }
     UsageTracker.getInstance().recordUsage(usage);
     return usage;
   }
 
+  private get timeoutMs(): number {
+    return this.options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
   async chat(request: LLMRequest): Promise<LLMResponse> {
+    const watch = new RequestWatchdog(this.timeoutMs, request.signal);
+    try {
+      return await this.chatOnce({ ...request, signal: watch.signal });
+    } catch (err) {
+      throw watch.timedOut ? watch.error() : err;
+    } finally {
+      watch.stop();
+    }
+  }
+
+  async *chatStream(request: LLMRequest): AsyncGenerator<any, LLMResponse, unknown> {
+    const watch = new RequestWatchdog(this.timeoutMs, request.signal);
+    try {
+      const response = yield* this.streamOnce({ ...request, signal: watch.signal }, watch);
+      // The time ran out and the stream was cut: what came so far is not an answer.
+      if (watch.timedOut) throw watch.error();
+      return response;
+    } catch (err) {
+      throw watch.timedOut ? watch.error() : err;
+    } finally {
+      watch.stop();
+    }
+  }
+
+  private async chatOnce(request: LLMRequest): Promise<LLMResponse> {
     const res = await this.send(request, false);
     if (!res.ok) await this.failure(res);
 
@@ -367,7 +415,7 @@ export class AnthropicProvider implements LLMProvider {
     };
   }
 
-  async *chatStream(request: LLMRequest): AsyncGenerator<any, LLMResponse, unknown> {
+  private async *streamOnce(request: LLMRequest, watch: RequestWatchdog): AsyncGenerator<any, LLMResponse, unknown> {
     const res = await this.send(request, true);
     if (!res.ok) await this.failure(res);
 
@@ -403,7 +451,7 @@ export class AnthropicProvider implements LLMProvider {
     };
 
     try {
-      for await (const payload of readSseData(reader, request.signal, (n) => UsageTracker.getInstance().recordResponseChunk(n))) {
+      for await (const payload of readSseData(reader, request.signal, (n) => { watch.touch(); UsageTracker.getInstance().recordResponseChunk(n); })) {
         if (payload === '[DONE]') continue;
         let event: any;
         try {
@@ -470,6 +518,8 @@ export class AnthropicProvider implements LLMProvider {
         reader.releaseLock();
       } catch {}
     }
+    // Cut off because it went silent: nothing here is an answer, and it must not be counted as one.
+    if (watch.timedOut) throw watch.error();
 
     const toolCalls: ToolCall[] = [];
     const thinkingBlocks: ThinkingBlock[] = [];

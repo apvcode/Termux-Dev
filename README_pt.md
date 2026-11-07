@@ -75,6 +75,8 @@ A interface do terminal gira em torno de um prompt com moldura que carrega o sta
   English (padrão), Русский, Українська, Deutsch, Español, Français, Português, 中文 e 日本語. Escolha em `/settings` → `Language`; vale na hora e fica salvo. Mensagens, dicas e a tela de configurações são traduzidas; código, nomes de ferramentas e as respostas do próprio modelo não.
 - **Suporte universal a provedores de IA:**  
   **OpenRouter**, **Google Gemini**, **DeepSeek**, **Groq**, **Mistral**, **OpenAI**, **Anthropic**, **Alibaba** e modelos locais (**Ollama**, **LM Studio**).
+- **Seus próprios provedores:**  
+  `/provider` → **Adicionar provedor**: dê um nome, um endereço (qualquer API compatível com OpenAI ou Anthropic) e uma chave. Ele é salvo em `~/.devxrc.json` e aparece na lista ao lado dos conhecidos; escolha-o de novo para usar, mudar nome, endereço ou chave, ou excluir. Um servidor da sua própria máquina (LM Studio, um gateway local) pode ser adicionado sem chave.
 
 ---
 
@@ -197,8 +199,9 @@ Digite `/` no prompt para abrir a paleta de comandos com autocompletar:
 - **`@filename`** — autocompletar aproximado e rápido de arquivos e incorporação completa do arquivo.
 - **`Backspace`** — apaga de uma vez selos inteiros como `[Pasted text #1]` e `[1.png 203kb]`.
 - **`Ctrl+Backspace`** / **`Alt+Backspace`** — apaga o texto palavra por palavra (também enquanto o agente trabalha).
-- **`Ctrl+Enter`** — enquanto o agente trabalha: interrompe a tarefa atual dele e envia sua mensagem na hora (`Alt+Enter` faz o mesmo em terminais que não distinguem `Ctrl+Enter` de `Enter`).
+- **`Ctrl+Enter`** — Ao digitar: quebra de linha (novo parágrafo) em vez de enviar. `Alt+Enter` e `Shift+Enter` fazem o mesmo se o terminal os informar; em um terminal que não os distingue de `Enter` (um teclado de celular, por exemplo), digite `\` antes de `Enter`.
 - **`Ctrl+P`** / **`Ctrl+O`** — expande ou recolhe o raciocínio do modelo (`Ctrl+P`) e os comandos com sua saída (`Ctrl+O`) em todo o chat, inclusive o que já está acima. Tudo vem recolhido por padrão; funciona enquanto o agente trabalha e no prompt.
+- **`Esc`** — para a resposta atual e o que ela iniciou (um comando em execução); o que você digitou espera no próximo prompt. Esc também fecha qualquer lista ou cartão.
 - **`Ctrl+C`** — para a geração atual imediatamente ou sai.
 
 ---
@@ -265,7 +268,7 @@ Um modelo que nenhuma fonte descreve fica sem níveis em vez de receber um palpi
 
 ## Digitar enquanto o agente trabalha
 
-A moldura do prompt fica no rodapé do terminal durante uma tarefa (com contexto e custo ao vivo), e o trabalho do agente rola acima dela. Digite nela enquanto o agente lê arquivos, executa comandos ou pensa, e pressione Enter: a mensagem entra na fila e o agente a recebe **no próximo passo**, entre duas chamadas de ferramentas, então ele segue o trabalho mas leva em conta a sua observação. Uma mensagem digitada enquanto o modelo escreve a resposta final recebe uma resposta própria, em vez de ser descartada. O `Ctrl+Enter` não espera o próximo passo: interrompe a tarefa em que o agente está e envia sua mensagem na hora (seu terminal precisa reportar a tecla; `Alt+Enter` é a alternativa). `Ctrl+Backspace` apaga uma palavra. `Esc` limpa a linha, `Ctrl+C` continua parando o agente e devolve o que você digitou ao próximo prompt. Menções `@file` também funcionam nessas mensagens. Enquanto um cartão de aprovação ou uma pergunta está na tela, a linha sai do caminho, e seu `y` / `n` nunca vai parar na mensagem. Desligue com `"ui": { "typeAhead": false }` em `~/.devxrc.json`.
+A moldura do prompt fica no rodapé do terminal durante uma tarefa (com contexto e custo ao vivo), e o trabalho do agente rola acima dela. Digite nela enquanto o agente lê arquivos, executa comandos ou pensa, e pressione Enter: a mensagem entra na fila e o agente a recebe **no próximo passo**, entre duas chamadas de ferramentas, então ele segue o trabalho mas leva em conta a sua observação. Uma mensagem digitada enquanto o modelo escreve a resposta final recebe uma resposta própria, em vez de ser descartada. O `Ctrl+Enter` faz uma quebra de linha na sua mensagem em vez de enviá-la (`Alt+Enter` e `Shift+Enter` também; um `\` antes de `Enter` funciona em terminais que não os distinguem). `Ctrl+Backspace` apaga uma palavra. `Esc` (ou `Ctrl+C`) para o agente e devolve o que você digitou ao próximo prompt. Menções `@file` também funcionam nessas mensagens. Enquanto um cartão de aprovação ou uma pergunta está na tela, a linha sai do caminho, e seu `y` / `n` nunca vai parar na mensagem. Desligue com `"ui": { "typeAhead": false }` em `~/.devxrc.json`.
 
 ---
 
@@ -352,6 +355,7 @@ O `devx` executa comandos e edita arquivos na sua máquina em nome de um modelo 
 - **Servidores MCP do projeto precisam de aprovação.** Servidores MCP declarados por um projeto (`.mcp.json`, `.devx/mcp.json`, `.claude/mcp.json`, `.devx.json`) são programas que rodariam na sua máquina. Você revisa os comandos exatos uma vez; se mudarem, é perguntado de novo. No modo headless (`-p`), servidores de projeto não aprovados são ignorados. Servidores de `~/.devxrc.json` e `~/.devx/mcp.json` sempre iniciam.
 - **Confirmações.** No modo seguro, `bash`, `install_package`, ferramentas MCP, o servidor de pré-visualização e toda leitura ou escrita **fora da pasta do projeto** exigem confirmação.
 - **YOLO (`--yolo`) não é um sandbox.** Ele pula as confirmações de rotina, mas ainda pergunta antes de comandos de shell perigosos (exclusões recursivas fora do projeto, `find -delete` em caminhos amplos, `curl … | sh`, `sudo`, `git push --force`, …) e antes de tocar em credenciais (`~/.ssh`, `~/.aws`, `~/.devxrc.json`, `.env`, chaves privadas). A verificação do shell analisa os comandos token a token, mas um comando deliberadamente ofuscado ainda pode passar; use o YOLO só em pastas e ambientes que você pode se dar ao luxo de perder. No modo headless essas confirmações não podem ser exibidas, então a ação é negada.
+- **Extra (`--extra`, ou `/settings` com o YOLO ligado) não pergunta absolutamente nada.** Nem os comandos perigosos, nem os arquivos de credenciais, nem um novo servidor MCP: o agente pode executar qualquer comando. Ao ligar, um aviso é mostrado, a moldura do prompt diz `extra` e, como o YOLO, ele volta a ficar desligado na próxima inicialização. Use só em um ambiente que você possa perder.
 - **`fetch_url`** recusa localhost, redes privadas e endereços de metadados de nuvem (também após redirecionamentos). Defina `DEVX_ALLOW_PRIVATE_NETWORK=1` para permitir servidores de documentação locais.
 - **`/serve`** escuta na sua rede local (é assim que o QR code do celular funciona). Ele nunca serve dotfiles, chaves, `node_modules` ou links simbólicos que saem do projeto, não envia cabeçalhos CORS permissivos e rejeita requisições endereçadas a um nome de host público.
 - **Segredos em repouso.** `~/.devxrc.json`, `~/.devx/` e as sessões salvas são criados legíveis só por você (`0600` / `0700`). Os arquivos de sessão contêm a conversa inteira, inclusive o conteúdo dos arquivos que o agente leu.

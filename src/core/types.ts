@@ -1,6 +1,6 @@
-import type { CostSource } from './cost.js';
+import type { CostParts, CostSource } from './cost.js';
 
-export const DEVX_VERSION = '1.8.2';
+export const DEVX_VERSION = '1.9.0';
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -19,7 +19,11 @@ export interface ToolCall {
 export interface Message {
   role: Role;
   content: string;
-  images?: Array<{ path: string; dataUrl: string }>;
+  /**
+   * Pictures that go with this message: attached by the user, or (on a tool message) returned by
+   * a tool such as read_file, so the model can look at a file from the disk.
+   */
+  images?: Array<{ path: string; dataUrl: string; /** Set on saved chats: the picture is in this file, not in the chat file (see session-media.ts). */ file?: string }>;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
@@ -56,6 +60,8 @@ export interface ToolDefinition {
 
 export interface ToolExecutionContext {
   signal?: AbortSignal;
+  /** Shows a picture to the model together with the result of this tool call. */
+  attachImage?: (image: { path: string; dataUrl: string }) => void;
 }
 
 export interface Tool {
@@ -85,6 +91,8 @@ export interface TokenUsage {
   tokensEstimated?: boolean;
   /** Cost in USD; undefined when the price of the model is not known. */
   cost?: number;
+  /** What the cost is made of, in USD: ordinary input, cached input, cache writes, output. Sums to `cost`. */
+  costParts?: CostParts;
   /** reported: the provider said it; listed: the endpoint's own price list; estimated: catalogue price. */
   costSource?: CostSource;
 }
@@ -106,6 +114,12 @@ export interface LLMProvider {
   id: string;
   chat(request: LLMRequest): Promise<LLMResponse>;
   chatStream?(request: LLMRequest): AsyncGenerator<LLMStreamChunk, LLMResponse, unknown>;
+  /**
+   * A request was sent but no answer came back (cancelled, connection lost). The provider usually
+   * bills it anyway: this prices an estimate of it (tokens guessed, so the cost is an estimate too)
+   * and records it with the session usage.
+   */
+  lostRequestUsage?(promptTokens: number, completionTokens: number): TokenUsage;
   /** Messages for the user collected while talking to the endpoint (returned once). */
   drainNotices?(): string[];
 }
@@ -134,6 +148,11 @@ export interface AgentConfig {
   baseUrl?: string;
   planMode?: boolean;
   autoApprove?: boolean;
+  /**
+   * YOLO without the safety net: nothing is asked, dangerous commands and credential files included.
+   * Needs autoApprove; lasts for one run only (never saved).
+   */
+  autoApproveAll?: boolean;
   bashAllowlist?: string[];
   /** MCP tools the user allowed with "Always" on an approval card. */
   allowedTools?: string[];
@@ -147,6 +166,8 @@ export interface AgentConfig {
   apiKeys?: Record<string, string>;
   baseUrls?: Record<string, string>;
   maxCostUSD?: number;
+  /** Seconds a request may stay silent before devx gives up on it and sends it again (default 300, 0: never). */
+  requestTimeoutSeconds?: number;
   /** Context window per model id, in tokens; it wins over every other source. */
   contextLimits?: Record<string, number>;
   /** Forces one wire format for every model; by default devx picks per model. */

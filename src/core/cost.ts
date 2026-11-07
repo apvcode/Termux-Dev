@@ -45,8 +45,18 @@ const PER_MILLION = 1_000_000;
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 
-/** The cost of the tokens at the given rates. */
-export function computeCost(rates: Rates, usage: UsageCounts): number {
+/** What a request cost, by what was paid for, in USD. */
+export interface CostParts {
+  /** Input that was neither read from nor written to the cache. */
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Output, reasoning included. */
+  output: number;
+}
+
+/** The cost of the tokens at the given rates, split by what was paid for. */
+export function costParts(rates: Rates, usage: UsageCounts): CostParts {
   const prompt = Math.max(0, usage.promptTokens || 0);
   const tier = rates.tier && prompt > rates.tier.over ? rates.tier : null;
   const input = tier?.input ?? rates.input;
@@ -58,17 +68,34 @@ export function computeCost(rates: Rates, usage: UsageCounts): number {
   const written = Math.min(prompt - read, Math.max(0, usage.cacheWriteTokens || 0));
   const plain = prompt - read - written;
 
-  // Without a cache price the cached tokens cost as much as ordinary input.
-  let cost = plain * input + read * (cacheRead ?? input) + written * (cacheWrite ?? input);
-
   const completion = Math.max(0, usage.completionTokens || 0);
   const reasoning = Math.min(completion, Math.max(0, usage.reasoningTokens || 0));
-  if (rates.reasoning !== undefined && reasoning > 0) {
-    cost += (completion - reasoning) * output + reasoning * rates.reasoning;
-  } else {
-    cost += completion * output;
-  }
-  return cost / PER_MILLION;
+  const out =
+    rates.reasoning !== undefined && reasoning > 0
+      ? (completion - reasoning) * output + reasoning * rates.reasoning
+      : completion * output;
+
+  // Without a cache price the cached tokens cost as much as ordinary input.
+  return {
+    input: (plain * input) / PER_MILLION,
+    cacheRead: (read * (cacheRead ?? input)) / PER_MILLION,
+    cacheWrite: (written * (cacheWrite ?? input)) / PER_MILLION,
+    output: out / PER_MILLION,
+  };
+}
+
+/** The cost of the tokens at the given rates. */
+export function computeCost(rates: Rates, usage: UsageCounts): number {
+  const p = costParts(rates, usage);
+  return p.input + p.cacheRead + p.cacheWrite + p.output;
+}
+
+/** The same parts scaled so that they add up to `total` (the cost the provider reported). */
+export function scaleParts(parts: CostParts, total: number): CostParts | undefined {
+  const sum = parts.input + parts.cacheRead + parts.cacheWrite + parts.output;
+  if (!(sum > 0) || !Number.isFinite(total)) return undefined;
+  const k = total / sum;
+  return { input: parts.input * k, cacheRead: parts.cacheRead * k, cacheWrite: parts.cacheWrite * k, output: parts.output * k };
 }
 
 /** A price as the OpenRouter list writes it: USD per token, often a string. */

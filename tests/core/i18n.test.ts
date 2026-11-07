@@ -10,7 +10,7 @@ import { pt } from '../../src/core/locales/pt.js';
 import { zh } from '../../src/core/locales/zh.js';
 import { ja } from '../../src/core/locales/ja.js';
 import { getHumanReadableNetworkError } from '../../src/core/network.js';
-import { renderSettings, ROWS, changeSetting, SettingsState } from '../../src/cli/settings.js';
+import { renderSettings, ROWS, changeSetting, SettingsState, visibleRows } from '../../src/cli/settings.js';
 import { displayWidth, stripAnsi } from '../../src/cli/width.js';
 import { renderComposer } from '../../src/cli/typeahead.js';
 import { renderStatusLine, renderTurnSummary } from '../../src/cli/ui.js';
@@ -77,7 +77,7 @@ describe('what the interface says follows the language', () => {
     const frame = renderComposer({ state: { text: '', cursor: 0 }, queued: ['a'], cols: 100, base }).map(stripAnsi).join('\n');
     expect(frame).toContain('Décrivez une tâche');
     expect(frame).toContain('en file');
-    expect(stripAnsi(renderStatusLine({ label: 'x', elapsedMs: 1000, frame: 0, columns: 100 }))).toContain('ctrl+c pour arrêter');
+    expect(stripAnsi(renderStatusLine({ label: 'x', elapsedMs: 1000, frame: 0, columns: 100 }))).toContain('esc pour arrêter');
     expect(stripAnsi(renderTurnSummary({ ms: 1000, tools: 2, outputTokens: 10, cost: 0 }))).toContain('2 outils');
   });
 });
@@ -100,8 +100,8 @@ describe('the settings in every language', () => {
   });
 
   it('shows the language by its own name', () => {
-    const index = ROWS.findIndex((r) => r.key === 'language');
-    const text = renderSettings({ ...base, language: 'ja' }, index, 100, 40, '1.8.2').map(stripAnsi).join('\n');
+    const index = visibleRows(base).findIndex((r) => r.key === 'language');
+    const text = renderSettings({ ...base, language: 'ja' }, index, 100, 40, '1.9.0').map(stripAnsi).join('\n');
     expect(text).toMatch(/Language\s+Japanese/);
   });
 
@@ -109,8 +109,8 @@ describe('the settings in every language', () => {
     for (const id of LANGUAGE_IDS) {
       setLanguage(id);
       for (const [cols, rows] of [[100, 40], [100, 24], [76, 30], [60, 22], [50, 30], [40, 30], [40, 14]]) {
-        for (let focus = 0; focus < ROWS.length; focus++) {
-          const lines = renderSettings({ ...base, language: id }, focus, cols, rows, '1.8.2').map(stripAnsi);
+        for (let focus = 0; focus < visibleRows({ ...base, autoApprove: true }).length; focus++) {
+          const lines = renderSettings({ ...base, autoApprove: true, extra: true, language: id }, focus, cols, rows, '1.9.0').map(stripAnsi);
           expect(lines.length, `${id} ${cols}x${rows}`).toBeLessThanOrEqual(rows - 1);
           for (const line of lines) expect(displayWidth(line), `${id} ${cols}x${rows}: ${line}`).toBeLessThanOrEqual(cols - 1);
           // In the framed card every row of the box is exactly as wide as the top border.
@@ -123,8 +123,8 @@ describe('the settings in every language', () => {
 
   it('a Chinese hint without spaces is wrapped, not cut to one word', () => {
     setLanguage('zh');
-    const index = ROWS.findIndex((r) => r.key === 'pureBlack');
-    const text = renderSettings({ ...base, language: 'zh' }, index, 100, 40, '1.8.2').map(stripAnsi).join('\n');
+    const index = visibleRows(base).findIndex((r) => r.key === 'pureBlack');
+    const text = renderSettings({ ...base, language: 'zh' }, index, 100, 40, '1.9.0').map(stripAnsi).join('\n');
     expect(text).toContain('关闭则保留你自己的背景');
   });
 });

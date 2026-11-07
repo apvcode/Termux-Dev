@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
+import { IMAGE_EXTS, IMAGE_MAX_BYTES, IMAGE_WARN_BYTES } from '../core/images.js';
 
 const IGNORED_NAMES = new Set([
   'node_modules',
@@ -53,19 +54,7 @@ export async function scanProjectFiles(force = false): Promise<string[]> {
   return results;
 }
 
-// Formats the image APIs accept (SVG is text, not an image for a model).
-const IMAGE_EXTS: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif'
-};
-
-/** Above this an API usually refuses the image (Anthropic: 5 MB). */
-export const IMAGE_WARN_BYTES = 5 * 1024 * 1024;
-/** Above this the image is not sent at all. */
-export const IMAGE_MAX_BYTES = 20 * 1024 * 1024;
+export { IMAGE_WARN_BYTES, IMAGE_MAX_BYTES };
 
 export interface ResolvedMentions {
   text: string;

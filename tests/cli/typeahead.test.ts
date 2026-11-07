@@ -68,14 +68,32 @@ describe('editing the line', () => {
     expect(applyKey(type('   '), '\r').submit).toBeUndefined();
   });
 
-  it('Ctrl+Enter submits the line and asks to send it now; with an empty line it only asks', () => {
-    const r = applyKey(type('  stop and do this  '), CTRL_ENTER);
-    expect(r.submit).toBe('stop and do this');
-    expect(r.sendNow).toBe(true);
-    expect(r.state).toEqual({ text: '', cursor: 0 });
-    const empty = applyKey(type('   '), CTRL_ENTER);
-    expect(empty.submit).toBeUndefined();
-    expect(empty.sendNow).toBe(true);
+  it('Ctrl+Enter, Alt+Enter and Shift+Enter break the line at the cursor and send nothing', () => {
+    for (const key of [CTRL_ENTER, '\x1b[13;5u', '\x1b[27;5;13~', '\x1b[13;3u', '\x1b\r', '\x1b[13;2u', '\x1b[27;2;13~']) {
+      const r = applyKey({ text: 'first second', cursor: 5 }, key);
+      expect(r.submit, JSON.stringify(key)).toBeUndefined();
+      expect(r.state, JSON.stringify(key)).toEqual({ text: 'first\n second', cursor: 6 });
+    }
+  });
+
+  it('a break can be made in an empty line and at its end, and Enter then sends everything with the breaks in', () => {
+    let s = applyKey(type(''), CTRL_ENTER).state;
+    expect(s).toEqual({ text: '\n', cursor: 1 });
+    s = applyKey(type('one'), CTRL_ENTER).state;
+    s = 'two'.split('').reduce((st, c) => applyKey(st, c).state, s);
+    expect(s.text).toBe('one\ntwo');
+    const sent = applyKey(s, '\r');
+    expect(sent.submit).toBe('one\ntwo');
+    expect(sent.state).toEqual({ text: '', cursor: 0 });
+  });
+
+  it('a backslash before the cursor turns Enter into a break (for terminals that cannot tell Ctrl+Enter)', () => {
+    const r = applyKey(type('one\\'), '\r');
+    expect(r.submit).toBeUndefined();
+    expect(r.state).toEqual({ text: 'one\n', cursor: 4 });
+    // in the middle of the text too, and only right before the cursor
+    expect(applyKey({ text: 'a\\b', cursor: 2 }, '\r').state).toEqual({ text: 'a\nb', cursor: 2 });
+    expect(applyKey({ text: 'a\\b', cursor: 3 }, '\r').submit).toBe('a\\b');
   });
 
   it('Esc throws the line away; other escape sequences and control keys are not text', () => {
@@ -107,7 +125,7 @@ describe('the composer frame', () => {
     expect(lines[2]).toContain('~/Downloads/test');
     expect(lines[2]).toContain('12% · $0.0123');
     expect(lines[3]).toContain('enter queues');
-    expect(lines[3]).toContain('ctrl+c stop');
+    expect(lines[3]).toContain('esc stop');
     expect(lines[3]).not.toContain('ctrl+enter');
   });
 
@@ -263,27 +281,25 @@ describe('TurnComposer', () => {
     expect(all()).toContain('\x1b[<u');
   });
 
-  it('Ctrl+Enter queues the line and tells the owner to send now (kitty, modifyOtherKeys and Alt+Enter)', () => {
-    for (const key of ['\x1b[13;5u', '\x1b[27;5;13~', '\x1b\r']) {
-      const sendNow = vi.fn();
-      const composer = new TurnComposer(out, () => BASE, undefined, undefined, sendNow);
+  it('Ctrl+Enter writes a line break into the line that is being typed and queues nothing (kitty, modifyOtherKeys, Alt+Enter)', () => {
+    for (const key of ['\x1b[13;5u', '\x1b[27;5;13~', '\x1b\r', '\x1b[13;2u']) {
+      const composer = new TurnComposer(out, () => BASE);
       composer.start();
-      composer.handleData('do this instead' + key);
-      expect(sendNow).toHaveBeenCalledTimes(1);
-      expect(composer.takeQueued()).toEqual(['do this instead']);
+      composer.handleData('first' + key + 'second');
+      expect(composer.takeQueued()).toEqual([]);
+      composer.handleData('\r');
+      expect(composer.takeQueued()).toEqual(['first\nsecond']);
       composer.stop();
     }
   });
 
-  it('Ctrl+Enter with nothing to send does nothing; a plain Enter never interrupts', () => {
-    const sendNow = vi.fn();
-    const composer = new TurnComposer(out, () => BASE, undefined, undefined, sendNow);
+  it('the line with a break in it is drawn on two rows of the frame', () => {
+    const composer = new TurnComposer(out, () => BASE);
     composer.start();
-    composer.handleData(CTRL_ENTER);
-    composer.handleData('later\r');
-    expect(sendNow).not.toHaveBeenCalled();
-    composer.handleData(CTRL_ENTER);     // the queue is not empty now: send it
-    expect(sendNow).toHaveBeenCalledTimes(1);
+    written.length = 0;
+    composer.handleData('first' + CTRL_ENTER + 'second');
+    const frame = all().replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b[78D]/g, '');
+    expect(frame).toMatch(/first\s*\n?[^\n]*second/);
     composer.stop();
   });
 
@@ -517,11 +533,11 @@ describe('a message that waits for the agent', () => {
   });
   const lastFrame = () => stripAnsi(written.join(''));
 
-  it('says next to it that ctrl+enter sends it now and that the down arrow takes it back', () => {
+  it('says next to it that the down arrow takes it back', () => {
     const composer = new TurnComposer(out, () => BASE);
     composer.start();
     composer.handleData('bro you are the best\r');
-    expect(lastFrame()).toContain('↳ queued: bro you are the best · ctrl+enter sends now · ↓ edit');
+    expect(lastFrame()).toContain('↳ queued: bro you are the best · ↓ edit');
     composer.stop();
   });
 

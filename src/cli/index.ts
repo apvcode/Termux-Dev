@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import { execSync, execFileSync } from 'child_process';
-import { AgentConfig, DEVX_VERSION, Message } from '../core/types.js';
+import { AgentConfig, DEVX_VERSION, LLMProvider, Message } from '../core/types.js';
 import { History } from '../core/history.js';
 import { Agent } from '../core/loop.js';
 import { buildSystemPrompt } from '../prompts/builder.js';
@@ -27,6 +27,8 @@ import { BASE_TITLE, RESTORE_TERMINAL_TITLE, SAVE_TERMINAL_TITLE, cleanTitle, ge
 import { runDoctor } from './doctor.js';
 
 import { ALL_PROVIDERS } from './providers.js';
+import { addProviderFlow, manageProviderFlow } from './provider-manager.js';
+import { NO_KEY, hostOfUrl, isCustomProvider, keyHint, listCustomProviders, migrateLegacyCustom, providerDisplayName } from '../core/custom-providers.js';
 import { getModelContextInfo, getModelContextLimit, LimitSource } from '../core/models.js';
 import { SessionManager } from '../core/session.js';
 import { MarkdownStreamer, renderMarkdown } from './markdown.js';
@@ -182,7 +184,7 @@ async function fetchModels(baseUrl: string, apiKey: string): Promise<FetchModels
       // Anthropic's own API wants x-api-key and a version, not a Bearer token.
       headers['anthropic-version'] = '2023-06-01';
       if (apiKey) headers['x-api-key'] = apiKey;
-    } else if (apiKey && apiKey !== 'ollama') {
+    } else if (apiKey && apiKey !== 'ollama' && apiKey !== NO_KEY) {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
     const res = await fetch(url, { headers });
@@ -295,12 +297,21 @@ async function selectModel(baseUrl: string, apiKey: string, currentModel: string
 const hostOf = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
 async function selectProvider(currentConfig: any, allowCancel = true): Promise<any | null> {
-  const apiKeys: Record<string, string> = currentConfig.apiKeys || {};
-  const baseUrls: Record<string, string> = currentConfig.baseUrls || {};
+  // The maps are shared with the config, so what the provider screens change is seen by both.
+  const apiKeys: Record<string, string> = (currentConfig.apiKeys = currentConfig.apiKeys || {});
+  const baseUrls: Record<string, string> = (currentConfig.baseUrls = currentConfig.baseUrls || {});
   if (currentConfig.provider && currentConfig.apiKey) {
     apiKeys[currentConfig.provider] = currentConfig.apiKey;
   }
+  // The single "Custom" of older versions becomes a saved provider with a name of its own.
+  migrateLegacyCustom(currentConfig);
   const firstRun = !allowCancel;
+  const providerFlow = {
+    // The first-run setup saves everything once, at its end.
+    save: firstRun ? undefined : saveConfig,
+    listedIds: ALL_PROVIDERS.map((pr) => pr.value),
+  };
+  const ADD = '__add__';
   const stepOf = (n: number) => (firstRun ? `${n}/5` : undefined);
 
   let providerId = '';
@@ -317,19 +328,42 @@ async function selectProvider(currentConfig: any, allowCancel = true): Promise<a
         placeholder: t('onboard.provider.placeholder'),
         current: currentConfig.provider,
         notes: firstRun ? [t('onboard.provider.note')] : undefined,
-        items: ALL_PROVIDERS.map((pr) => ({
-          value: pr.value,
-          label: pr.label,
-          detail: `${apiKeys[pr.value] ? maskApiKey(apiKeys[pr.value]) + '  ' : ''}${hostOf(pr.baseUrl || '')}`.trim(),
-          keywords: `${pr.value} ${hostOf(pr.baseUrl || '')}`,
-          pinned: pr.value === 'custom',
-        })),
+        items: [
+          { value: ADD, label: t('provider.add'), detail: t('provider.addDetail'), pinned: true },
+          // The providers the user saved come first, then the long list of known ones.
+          ...listCustomProviders(currentConfig).map((c) => ({
+            value: c.id,
+            label: c.name,
+            detail: `${t('provider.customTag')} · ${[keyHint(c.apiKey), hostOfUrl(c.baseUrl)].filter(Boolean).join('  ')}`,
+            keywords: `${c.id} ${hostOfUrl(c.baseUrl)} ${t('provider.customTag')}`,
+          })),
+          ...ALL_PROVIDERS.map((pr) => ({
+            value: pr.value,
+            label: pr.label,
+            detail: `${apiKeys[pr.value] ? maskApiKey(apiKeys[pr.value]) + '  ' : ''}${hostOf(pr.baseUrl || '')}`.trim(),
+            keywords: `${pr.value} ${hostOf(pr.baseUrl || '')}`,
+          })),
+        ],
       });
       if (choice === undefined) return null;       // Esc on the first step leaves the whole setup
+
+      if (choice === ADD || isCustomProvider(currentConfig, choice)) {
+        // A provider of the user's own: add one, or use / change / delete a saved one.
+        let id: string | null = choice;
+        if (choice === ADD) id = await addProviderFlow(currentConfig, providerFlow);
+        else if ((await manageProviderFlow(currentConfig, choice, providerFlow)) !== 'use') id = null;
+        if (!id) continue;                          // back to the list (it shows the changes)
+        providerId = id;
+        baseUrl = currentConfig.customProviders[id].baseUrl;
+        apiKey = apiKeys[id] ?? '';
+        stage = apiKey ? 'model' : 'key';
+        continue;
+      }
+
       providerId = choice;
       const known = ALL_PROVIDERS.find(pr => pr.value === providerId);
       baseUrl = baseUrls[providerId] || known?.baseUrl || '';
-      stage = providerId === 'custom' || !baseUrl ? 'url' : 'key';
+      stage = !baseUrl ? 'url' : 'key';
     } else if (stage === 'url') {
       const url = await runTextInput({
         title: t('onboard.baseUrl.title'),
@@ -343,8 +377,8 @@ async function selectProvider(currentConfig: any, allowCancel = true): Promise<a
       baseUrls[providerId] = baseUrl;
       stage = 'key';
     } else if (stage === 'key') {
-      const label = ALL_PROVIDERS.find(pr => pr.value === providerId)?.label || providerId;
-      const back = providerId === 'custom' || !(ALL_PROVIDERS.find(pr => pr.value === providerId)?.baseUrl) ? 'url' : 'provider';
+      const label = providerDisplayName(currentConfig, providerId, ALL_PROVIDERS);
+      const back = isCustomProvider(currentConfig, providerId) ? 'provider' : !(ALL_PROVIDERS.find(pr => pr.value === providerId)?.baseUrl) ? 'url' : 'provider';
       if (providerId === 'ollama') {
         apiKey = 'ollama';
         stage = 'model';
@@ -382,7 +416,7 @@ async function selectProvider(currentConfig: any, allowCancel = true): Promise<a
       stage = 'model';
     } else {
       modelRes = await selectModel(baseUrl, apiKey, currentConfig.model || '', providerId, allowCancel, stepOf(5));
-      if (!modelRes) stage = apiKey === 'ollama' ? 'provider' : 'key';
+      if (!modelRes) stage = apiKey === 'ollama' || isCustomProvider(currentConfig, providerId) ? 'provider' : 'key';
     }
   }
 
@@ -757,6 +791,7 @@ async function handleSettings(config: any): Promise<any> {
     layout: config.ui?.layout === 'classic' ? 'classic' : 'clean',
     pureBlack: config.pureBlackTheme !== false,
     autoApprove: !!config.autoApprove,
+    extra: !!config.autoApprove && !!config.autoApproveAll,
     maxIterations: config.maxIterations || 100,
     memory: config.enableMemory !== false,
     updates: config.checkUpdates !== false,
@@ -784,12 +819,20 @@ async function handleSettings(config: any): Promise<any> {
   config.banner = final.layout === 'clean' ? (config.banner === 'off' ? 'off' : 'clean') : 'full';
   config.pureBlackTheme = final.pureBlack;
   config.autoApprove = final.autoApprove;
+  // Extra goes with YOLO and, like YOLO, is never saved: it is off again at the next start.
+  const extraWasOn = !!initial.extra;
+  config.autoApproveAll = final.autoApprove && !!final.extra;
   config.maxIterations = final.maxIterations;
   config.enableMemory = final.memory;
   config.checkUpdates = final.updates;
   config.language = final.language;
   config.maxCostPerSession = final.costLimit;
   await saveConfig(config);
+  // Said once more where it cannot be missed, when the panel is closed with Extra newly switched on.
+  if (config.autoApproveAll && !extraWasOn) {
+    console.log(renderNotice('warn', t('settings.extraEnabled')));
+    console.log();
+  }
 
   process.stdin.resume();
   return config;
@@ -833,6 +876,7 @@ export async function main() {
     .version(DEVX_VERSION)
     .option('-p, --prompt <task>', 'Run one-shot task non-interactively (headless mode)')
     .option('-y, --yolo', 'Automatically approve all tool executions without confirmation')
+    .option('--extra', 'Like --yolo, but nothing is asked at all: dangerous commands and credential files too (use only where you can afford to lose everything)')
     .option('-m, --model <model>', 'Specify AI model to use for this execution')
     .option('-q, --quiet', 'Quiet output in headless mode (suppress banners and tool logs)')
     .option('--json', 'Output structured JSON in headless mode')
@@ -859,8 +903,11 @@ export async function main() {
   }
   // -m and the project config are for this run: only what changes from here on is saved.
   markConfigBaseline(config);
-  if (options.yolo) {
+  if (options.yolo || options.extra) {
     config.autoApprove = true;
+  }
+  if (options.extra) {
+    config.autoApproveAll = true;
   }
   if (options.effort !== undefined) {
     // One run only (never saved). Anything the model does not offer is ignored with a warning.
@@ -888,6 +935,7 @@ export async function main() {
     const exitCode = await runHeadlessMode(options.prompt, config, {
       planMode: planModeInitial,
       yolo: !!options.yolo,
+      extra: !!options.extra,
       quiet: !!options.quiet,
       json: !!options.json,
       signal: abortController.signal
@@ -902,11 +950,12 @@ export async function main() {
     return {
       version: DEVX_VERSION,
       model: modelLabel(config),
-      provider: config.provider,
+      provider: providerDisplayName(config, config.provider, ALL_PROVIDERS),
       cwd: process.cwd(),
       branch: git?.branch,
       dirty: git?.isDirty,
       yolo: !!config.autoApprove,
+      extra: !!config.autoApprove && !!config.autoApproveAll,
       tip: pickTip(),
     };
   };
@@ -940,6 +989,28 @@ export async function main() {
   void refreshEndpoint(config).catch(() => null);
 
   const sessionCost = new CostLedger();
+  // For the small side jobs (chat title, commit message, summary): the lightest reasoning the model
+  // offers, and what they cost goes into the session total like everything else.
+  const sideProvider = (): LLMProvider => {
+    const inner = createProvider(config, { light: true });
+    return {
+      id: inner.id,
+      chat: async (request) => {
+        try {
+          const res = await inner.chat(request);
+          if (res.usage) sessionCost.add(res.usage);
+          return res;
+        } catch (err: any) {
+          // Timed out or cut off after the request went out: still billed, so it counts as an estimate.
+          if (err?.status === undefined || err.status === 504 || err.status === 524) {
+            const lost = inner.lostRequestUsage?.(new History().estimateTokens(request.messages), 0);
+            if (lost) sessionCost.add(lost);
+          }
+          throw err;
+        }
+      },
+    };
+  };
   const currentContext = () =>
     contextBreakdown(history.getMessages(), getTools(planMode).map(t => t.definition), config.maxContextTokens || getModelContextLimit(config.model));
   let currentDraft = '';
@@ -955,8 +1026,7 @@ export async function main() {
   const permissionMemory = newPermissionMemory();
   // Commands the agent keeps running in the background (servers, watchers): shown in the prompt frame, listed by /tasks.
   const bg = getBackgroundManager();
-  const seenBgFailures = new Set<string>();
-  const bgSummary = () => backgroundSummary(bg, seenBgFailures);
+  const bgSummary = () => backgroundSummary(bg);
   // The most a session may cost (USD, 0 = no limit); "continue" at the limit raises it for this session only.
   let costLimitRaised: number | null = null;
   let costWarned = false;
@@ -986,7 +1056,6 @@ export async function main() {
     await bg.stopAll().catch(() => 0);
     bg.clearFinished();
     bg.takeNotes();
-    seenBgFailures.clear();
     transcript.length = 0;
     checkpoints.length = 0;
     windowTitle = '';
@@ -1011,10 +1080,10 @@ export async function main() {
   while (true) {
     const maxTokens = config.maxContextTokens || getModelContextLimit(config.model);
     config.maxContextTokens = maxTokens;
-    // The conversation only: the system prompt and tool schemas are fixed overhead that every
-    // chat has, so an empty chat shows 0%. /usage shows the full picture.
+    // An empty chat shows 0; from the first message on, everything the next request carries
+    // is counted: the system prompt and the tool schemas too.
     const ctxNow = currentContext();
-    const currentTokens = ctxNow.total - ctxNow.system - ctxNow.tools;
+    const currentTokens = ctxNow.inUse;
     const usagePercent = Math.min(100, Math.round((currentTokens / maxTokens) * 100));
     
     const formatTokens = (n: number) => {
@@ -1091,6 +1160,7 @@ export async function main() {
         },
         planMode,
         isYolo: !!config.autoApprove,
+        isExtra: !!config.autoApprove && !!config.autoApproveAll,
         ui: config.ui,
         model: modelLabel(config),
         cwd: process.cwd(),
@@ -1337,6 +1407,8 @@ export async function main() {
             planMode = loaded.planMode;
           }
           sessionCost.restore(loaded.totalCost || 0, loaded.costEstimated === true);
+          // /usage starts from the same total as the frame, and not from the chat that was open before.
+          UsageTracker.getInstance().restoreCost(loaded.totalCost || 0, loaded.costEstimated === true);
           drawLogo(config.banner || 'full');
 
           const nonSysMessages = loaded.messages.filter(m => m.role !== 'system');
@@ -1480,7 +1552,7 @@ export async function main() {
             const s = new UiSpinner();
             s.start('Generating conventional commit message with AI...');
             await refreshFormats(config).catch(() => null);
-            const provider = createProvider(config);
+            const provider = sideProvider();
             const promptReq = {
               messages: [
                 {
@@ -1523,7 +1595,7 @@ export async function main() {
         s.start('Compacting conversation context with AI...');
         try {
           await refreshFormats(config).catch(() => null);
-          const provider = createProvider(config);
+          const provider = sideProvider();
           // The request itself must fit the window: shorten a copy of the history first.
           const forSummary = new History();
           for (const m of msgs) forSummary.addMessage({ ...m, images: undefined });
@@ -1590,7 +1662,7 @@ export async function main() {
         continue;
       }
       if (cmd === '/tasks' || cmd === '/bg' || cmd === '/jobs') {
-        const rows = await runTasksCommand(parts.slice(1).filter(Boolean), bg, process.stdout.columns || 80, (ids) => ids.forEach((id) => seenBgFailures.add(id)));
+        const rows = await runTasksCommand(parts.slice(1).filter(Boolean), bg, process.stdout.columns || 80);
         console.log(rows.join('\n'));
         console.log();
         continue;
@@ -1703,7 +1775,7 @@ export async function main() {
           if (!firstUser.trim() || !reply.trim()) {
             log.warn(t('rename.usage'));
           } else {
-            const generated = await generateChatTitle(createProvider(config), firstUser.split('\n\n--- Attached Files ---')[0], reply);
+            const generated = await generateChatTitle(sideProvider(), firstUser.split('\n\n--- Attached Files ---')[0], reply);
             if (!generated) log.error(t('rename.failed'));
             else {
               sessionManager.setTitle(generated);
@@ -1932,7 +2004,7 @@ export async function main() {
         if (newConfig) {
           config = newConfig;
           await refreshEndpoint(config).catch(() => null);
-          announce(`provider ${config.provider || 'custom'} · ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
+          announce(`provider ${providerDisplayName(config, config.provider, ALL_PROVIDERS) || config.provider || 'custom'} · ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
         } else {
           log.info('Provider selection cancelled.');
         }
@@ -2050,6 +2122,7 @@ export async function main() {
     const provider = createProvider(config);
     const tools = getTools(planMode);
     const guard = new CLIConsoleGuard(config.autoApprove, [...(config.bashAllowlist || [])], {
+      extra: !!config.autoApproveAll,
       memory: permissionMemory,
       // "Always": kept in the config for the next sessions (`/permissions` lists and clears them).
       onAlways: (r) => {
@@ -2271,9 +2344,7 @@ export async function main() {
       }
     };
 
-    // Ctrl+Enter: what the user typed goes to the agent right now, replacing the task it was on.
-    let interruptPrompt = '';
-    const stopGeneration = (quiet = false, reason?: string) => {
+    const stopGeneration = (reason?: string) => {
       if (aborted) return;
       aborted = true;
       abortController.abort();
@@ -2289,11 +2360,6 @@ export async function main() {
       if (reason) {
         console.log(renderNotice('warn', reason));
         console.log();
-      } else if (quiet) {
-        // The message that caused the stop is echoed by the next turn: only a quiet separator here.
-        if (cleanUi) console.log(renderNotice('info', t('stop.interrupted')));
-        else console.log(pc.yellow('\n' + t('stop.classicInterrupted')));
-        console.log();
       } else if (cleanUi) {
         console.log(renderNotice('warn', isConnecting ? t('stop.connection') : t('stop.stopped')));
         console.log();
@@ -2306,12 +2372,6 @@ export async function main() {
 
     const onSigInt = () => {
       stopGeneration();
-    };
-
-    const sendQueuedNow = () => {
-      if (aborted) return;
-      interruptPrompt = composer.takeQueued().join('\n');
-      if (interruptPrompt) stopGeneration(true);
     };
 
     // The input line at the bottom while the agent works: what is typed there is queued and
@@ -2329,10 +2389,10 @@ export async function main() {
     });
     const composer = new TurnComposer(process.stdout, () => {
       const ctx = currentContext();
-      const used = ctx.total - ctx.system - ctx.tools;
+      const used = ctx.inUse;
       const git = GitStatusCache.getStatus();
       return {
-        mode: resolveMode(planMode, !!config.autoApprove),
+        mode: resolveMode(planMode, !!config.autoApprove, !!config.autoApproveAll),
         model: modelLabel(config),
         cwd: process.cwd(),
         branch: git?.branch,
@@ -2342,7 +2402,7 @@ export async function main() {
         costState: sessionCost.state(),
         background: bgSummary(),
       };
-    }, undefined, statusLine, sendQueuedNow);
+    }, undefined, statusLine);
     // A task started or ended during the turn: the frame shows the new count.
     const onBgChange = () => composer.refresh();
     bg.on('change', onBgChange);
@@ -2365,6 +2425,16 @@ export async function main() {
       if (text.includes('\x03') || splitKeys(text).some((k) => normalizeKey(k) === '\x03')) {
         stopGeneration();
         return;
+      }
+      // Esc stops the answer and whatever it started (a command that runs), like Ctrl+C. Not while a
+      // card has the keyboard: there Esc answers the card. A lone Esc comes in a chunk of its own;
+      // Esc followed by a character in one chunk is Alt+that character.
+      if (!composer.isSuspended) {
+        const keys = splitKeys(text);
+        if (keys.length === 1 && normalizeKey(keys[0]) === '\x1b') {
+          stopGeneration();
+          return;
+        }
       }
       composer.handleData(text);
     };
@@ -2409,7 +2479,14 @@ export async function main() {
         takeNotes: () => bg.takeNotes(),
         hasNotes: () => bg.hasNotes(),
       })) {
-        if (aborted) break;
+        if (aborted) {
+          // The request that was cancelled is still billed by the provider: its estimate counts.
+          if (event.type === 'usage') {
+            sessionCost.add(event.usage);
+            turnInputTokens += event.usage.promptTokens || 0;
+          }
+          break;
+        }
         if (event.type === 'reasoning_delta') {
           isConnecting = false;
           telemetry.setPhase('thinking');
@@ -2588,7 +2665,7 @@ export async function main() {
           const limit = costLimit();
           if (limit > 0 && !aborted) {
             if (sessionCost.total >= limit) {
-              stopGeneration(false, t('cost.stopped', { limit: formatCost(limit) }));
+              stopGeneration(t('cost.stopped', { limit: formatCost(limit) }));
             } else if (!costWarned && sessionCost.total >= limit * 0.8) {
               costWarned = true;
               console.log(renderNotice('warn', t('cost.warn', { spent: formatCost(sessionCost.total), limit: formatCost(limit) })));
@@ -2678,10 +2755,7 @@ export async function main() {
       // a message that arrived too late for the agent starts the next turn by itself.
       bg.off('change', onBgChange);
       const leftover = composer.stop();
-      if (interruptPrompt) {
-        autoTriggerPrompt = interruptPrompt;
-        if (leftover.draft) currentDraft = leftover.draft;
-      } else if (leftover.queued.length > 0) {
+      if (leftover.queued.length > 0) {
         if (aborted) currentDraft = [...leftover.queued, leftover.draft].filter(Boolean).join(' ');
         else autoTriggerPrompt = leftover.queued.join('\n');
       } else if (leftover.draft) {
@@ -2732,7 +2806,7 @@ export async function main() {
           const forSession = sessionManager.getSession().id;
           void (async () => {
             try {
-              const title = await generateChatTitle(createProvider(config), firstUser.split('\n\n--- Attached Files ---')[0], reply);
+              const title = await generateChatTitle(sideProvider(), firstUser.split('\n\n--- Attached Files ---')[0], reply);
               // The user may have started another chat meanwhile.
               if (!title || sessionManager.getSession().id !== forSession) return;
               sessionManager.setTitle(title);
@@ -2796,7 +2870,6 @@ export async function main() {
       bg.off('change', onBgChange);
       const unsent = composer.stop();
       if (process.stdout.isTTY) process.stdout.write('\x1b[?1004l');
-      if (interruptPrompt && !autoTriggerPrompt) autoTriggerPrompt = interruptPrompt;
       releasePauseHook();
       process.stdout.removeListener('resize', onResize);
       if (!currentDraft && (unsent.draft || unsent.queued.length > 0)) {

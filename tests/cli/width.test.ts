@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  rowsToTop,
   displayWidth,
   padEndWidth,
   padStartWidth,
@@ -61,5 +62,38 @@ describe('sliceByWidth / wrapWidth', () => {
     for (const line of wrapWidth('привет \u{1F600} мир, это длинная строка', 8)) {
       expect(displayWidth(line)).toBeLessThanOrEqual(8);
     }
+  });
+});
+
+describe('rowsToTop', () => {
+  // A frame of 3 lines drawn at 100 columns, the cursor on the middle line at column 4.
+  const widths = [100, 100, 100];
+
+  it('is the number of lines above the cursor while the width is the same', () => {
+    expect(rowsToTop(widths, 1, 4, 100)).toBe(1);
+    expect(rowsToTop(widths, 2, 4, 100)).toBe(2);
+    expect(rowsToTop(widths, 0, 4, 100)).toBe(0);
+  });
+
+  it('counts the rows the terminal made of lines it had to re-wrap in a narrower window', () => {
+    // 100 columns -> 40: every line takes 3 rows
+    expect(rowsToTop(widths, 1, 4, 40)).toBe(3);
+    expect(rowsToTop(widths, 2, 4, 40)).toBe(6);
+    // 100 -> 60: two rows each
+    expect(rowsToTop(widths, 2, 4, 60)).toBe(4);
+  });
+
+  it('adds the rows of a cursor that now sits on a wrapped part of its own line', () => {
+    expect(rowsToTop(widths, 1, 90, 40)).toBe(3 + 2);
+  });
+
+  it('does not change when the window gets wider (lines stay one row)', () => {
+    expect(rowsToTop(widths, 2, 4, 200)).toBe(2);
+    expect(rowsToTop([10, 0, 5], 2, 0, 80)).toBe(2); // an empty line is still a row
+  });
+
+  it('is safe with nothing drawn or a zero width', () => {
+    expect(rowsToTop([], 0, 0, 80)).toBe(0);
+    expect(rowsToTop(widths, 1, 0, 0)).toBeGreaterThanOrEqual(0);
   });
 });

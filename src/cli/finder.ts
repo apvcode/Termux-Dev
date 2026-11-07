@@ -163,10 +163,12 @@ export function runFinder<T>(options: FinderOptions<T>, io: PickerIO = { input: 
     const rows = () => (output as any).rows || 40;
     const draw = () => block.draw(renderFinder(options, query, shown, focus, output.columns || 80, rows()));
     const restore = openIO(io);
+    const stopWatching = block.watchResize(draw);
 
     const finish = (value: T | undefined) => {
       done = true;
       input.off('data', onData);
+      stopWatching();
       block.erase();
       restore();
       resolve(value);
@@ -250,10 +252,12 @@ export function runTextInput(options: TextInputOptions, io: PickerIO = { input: 
     let done = false;
     const draw = () => block.draw(renderTextInput(options, value, output.columns || 80));
     const restore = openIO(io);
+    const stopWatching = block.watchResize(draw);
 
     const finish = (result: string | undefined) => {
       done = true;
       input.off('data', onData);
+      stopWatching();
       block.erase();
       restore();
       resolve(result);

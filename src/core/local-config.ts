@@ -47,9 +47,10 @@ export function applyLocalConfig(target: Record<string, any>, local: any, truste
  * Settings that last for one run only and are never written to ~/.devxrc.json.
  *  - `autoApprove` (YOLO): switched on in the settings or with `--yolo`, it is off again the
  *    next time devx starts. A mode that skips confirmations should not stay on by accident.
+ *  - `autoApproveAll` (Extra): YOLO without the safety net, the same.
  *  - `projectMcpTrusted`, `effortOverride`: runtime flags.
  */
-export const SESSION_ONLY_SETTINGS = ['autoApprove', 'projectMcpTrusted', 'effortOverride'] as const;
+export const SESSION_ONLY_SETTINGS = ['autoApprove', 'autoApproveAll', 'projectMcpTrusted', 'effortOverride'] as const;
 
 /** The config as it goes to disk: without the settings that last for one run only. */
 export function persistedConfig<T extends Record<string, any>>(config: T): Partial<T> {
@@ -62,5 +63,6 @@ export function persistedConfig<T extends Record<string, any>>(config: T): Parti
 export function withoutSessionOnlySettings<T extends Record<string, any>>(config: T): T {
   const out: Record<string, any> = { ...config };
   delete out.autoApprove;
+  delete out.autoApproveAll;
   return out as T;
 }

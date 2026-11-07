@@ -1,7 +1,7 @@
-import { LLMProvider, LLMRequest, LLMResponse } from '../core/types.js';
+import { LLMProvider, LLMRequest, LLMResponse, TokenUsage } from '../core/types.js';
 import { UsageTracker } from '../core/usage.js';
 import { ToolGuard } from './toolguard.js';
-import { NOT_ABOUT_REASONING, PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, openAiUsage, parseToolArguments, toolTargetHint } from './shared.js';
+import { DEFAULT_REQUEST_TIMEOUT_MS, NOT_ABOUT_REASONING, RequestWatchdog, PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, imagesToSend, openAiUsage, parseToolArguments, toolTargetHint } from './shared.js';
 
 export { parseToolArguments };
 
@@ -102,29 +102,39 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   private buildPayload(request: LLMRequest, stream: boolean, probe = false) {
-    const totalMsgs = request.messages.length;
-    let lastImageMsgIdx = -1;
-    for (let i = totalMsgs - 1; i >= 0; i--) {
-      if (request.messages[i].images && request.messages[i].images!.length > 0) {
-        lastImageMsgIdx = i;
-        break;
-      }
-    }
+    const send = imagesToSend(request.messages);
 
-    const payload: any = {
-      model: this.model,
-      stream,
-      messages: request.messages.map((m, idx) => {
-        let content: any = m.content || "";
-        if (m.images && m.images.length > 0) {
-          if (this.options.images === false) {
-            const note = imageNotSentText(m.images.map(img => img.path));
-            content = m.content ? `${m.content}\n${note}` : note;
-            if (!this.imageNoticeShown) {
-              this.imageNoticeShown = true;
-              this.notices.push(`${this.model} cannot read images, so the image was not sent. Switch to a model with vision (/model).`);
-            }
-          } else if (idx === lastImageMsgIdx) {
+    const messages: any[] = [];
+    // Pictures that tool results carry: this format only takes text in a tool message, so they
+    // follow the run of tool messages as one message of the user.
+    let toolPictures: Array<{ path: string; dataUrl: string }> = [];
+    const flushToolPictures = () => {
+      if (toolPictures.length === 0) return;
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: `Pictures returned by the tool call(s) above: ${toolPictures.map((img) => img.path).join(', ')}` },
+          ...toolPictures.map((img) => ({ type: 'image_url', image_url: { url: img.dataUrl } })),
+        ],
+      });
+      toolPictures = [];
+    };
+
+    request.messages.forEach((m, idx) => {
+      if (m.role !== 'tool') flushToolPictures();
+      let content: any = m.content || "";
+      if (m.images && m.images.length > 0) {
+        if (this.options.images === false) {
+          const note = imageNotSentText(m.images.map(img => img.path));
+          content = m.content ? `${m.content}\n${note}` : note;
+          if (!this.imageNoticeShown) {
+            this.imageNoticeShown = true;
+            this.notices.push(`${this.model} cannot read images, so the image was not sent. Switch to a model with vision (/model).`);
+          }
+        } else if (send.has(idx)) {
+          if (m.role === 'tool') {
+            toolPictures.push(...m.images);
+          } else {
             content = [
               { type: 'text', text: m.content || "" },
               ...m.images.map(img => ({
@@ -132,21 +142,28 @@ export class OpenAIProvider implements LLMProvider {
                 image_url: { url: img.dataUrl }
               }))
             ];
-          } else {
-            const imgRef = m.images.map(img => `[Attached Image: ${img.path}]`).join(' ');
-            content = m.content ? `${m.content}\n${imgRef}` : imgRef;
           }
+        } else {
+          const imgRef = m.images.map(img => `[Attached Image: ${img.path}]`).join(' ');
+          content = m.content ? `${m.content}\n${imgRef}` : imgRef;
         }
-        const msg: any = { role: m.role, content };
-        if (m.name) msg.name = m.name;
-        if (m.tool_calls) msg.tool_calls = m.tool_calls.map(tc => ({
-          id: tc.id,
-          type: 'function',
-          function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
-        }));
-        if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
-        return msg;
-      }),
+      }
+      const msg: any = { role: m.role, content };
+      if (m.name) msg.name = m.name;
+      if (m.tool_calls) msg.tool_calls = m.tool_calls.map(tc => ({
+        id: tc.id,
+        type: 'function',
+        function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
+      }));
+      if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
+      messages.push(msg);
+    });
+    flushToolPictures();
+
+    const payload: any = {
+      model: this.model,
+      stream,
+      messages,
     };
 
     // Tools the gateway refused are left out; a probe is a request that costs next to nothing.
@@ -172,7 +189,42 @@ export class OpenAIProvider implements LLMProvider {
     return payload;
   }
 
+  lostRequestUsage(promptTokens: number, completionTokens: number): TokenUsage {
+    const usage = openAiUsage({}, this.priceContext(), { prompt: promptTokens, completion: completionTokens });
+    UsageTracker.getInstance().recordUsage(usage);
+    return usage;
+  }
+
+  private get timeoutMs(): number {
+    return this.options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
   async chat(request: LLMRequest): Promise<LLMResponse> {
+    const watch = new RequestWatchdog(this.timeoutMs, request.signal);
+    try {
+      return await this.chatOnce({ ...request, signal: watch.signal });
+    } catch (err) {
+      throw watch.timedOut ? watch.error() : err;
+    } finally {
+      watch.stop();
+    }
+  }
+
+  async *chatStream(request: LLMRequest): AsyncGenerator<any, LLMResponse, unknown> {
+    const watch = new RequestWatchdog(this.timeoutMs, request.signal);
+    try {
+      const response = yield* this.streamOnce({ ...request, signal: watch.signal }, watch);
+      // The time ran out and the stream was cut: what came so far is not an answer.
+      if (watch.timedOut) throw watch.error();
+      return response;
+    } catch (err) {
+      throw watch.timedOut ? watch.error() : err;
+    } finally {
+      watch.stop();
+    }
+  }
+
+  private async chatOnce(request: LLMRequest): Promise<LLMResponse> {
     const res = await this.send(request, false);
 
     if (!res.ok) {
@@ -226,7 +278,7 @@ export class OpenAIProvider implements LLMProvider {
     };
   }
 
-  async *chatStream(request: LLMRequest): AsyncGenerator<any, LLMResponse, unknown> {
+  private async *streamOnce(request: LLMRequest, watch: RequestWatchdog): AsyncGenerator<any, LLMResponse, unknown> {
     const res = await this.send(request, true);
 
     if (!res.ok) {
@@ -268,6 +320,7 @@ export class OpenAIProvider implements LLMProvider {
       while (true) {
         if (request.signal?.aborted) break;
         const { done, value } = await reader.read();
+        watch.touch();
         if (done || request.signal?.aborted) break;
         if (value) {
           UsageTracker.getInstance().recordResponseChunk(value.byteLength);
@@ -396,7 +449,9 @@ export class OpenAIProvider implements LLMProvider {
     } finally {
       reader.releaseLock();
     }
-    
+    // Cut off because it went silent: nothing here is an answer, and it must not be counted as one.
+    if (watch.timedOut) throw watch.error();
+
     if (thinkBuffer.length > 0) {
       if (inThinkTag) {
         accumulatedReasoning += thinkBuffer;

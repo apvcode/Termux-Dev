@@ -9,6 +9,7 @@ import {
   moveFocus,
   renderSettings,
   runSettings,
+  visibleRows,
   wrapWords,
 } from '../../src/cli/settings.js';
 import { THEME_IDS, setActiveTheme } from '../../src/cli/theme.js';
@@ -25,6 +26,8 @@ const base: SettingsState = {
   costLimit: 0,
   language: 'en',
 };
+/** Everything on: YOLO and Extra, so that every row (and the longest warning) is on screen. */
+const all: SettingsState = { ...base, autoApprove: true, extra: true };
 const plain = (lines: string[]) => lines.map(stripAnsi);
 
 describe('LiveBlock', () => {
@@ -115,8 +118,8 @@ describe('renderSettings', () => {
   it('never overflows the terminal, whatever its size and whichever row has the focus', () => {
     for (const cols of COLS) {
       for (const rows of ROWS_AVAILABLE) {
-        for (let focus = 0; focus < ROWS.length; focus++) {
-          for (const line of renderSettings(base, focus, cols, rows, '1.7.0')) {
+        for (let focus = 0; focus < visibleRows(all).length; focus++) {
+          for (const line of renderSettings(all, focus, cols, rows, '1.7.0')) {
             expect(displayWidth(line), `cols=${cols} rows=${rows} focus=${focus}`).toBeLessThanOrEqual(cols - 1);
           }
         }
@@ -127,7 +130,7 @@ describe('renderSettings', () => {
   it('keeps its height while you move, so the panel does not jump', () => {
     for (const cols of [40, 80]) {
       for (const rows of ROWS_AVAILABLE) {
-        const heights = new Set(ROWS.map((_, focus) => renderSettings(base, focus, cols, rows, '1.7.0').length));
+        const heights = new Set(visibleRows(all).map((_, focus) => renderSettings(all, focus, cols, rows, '1.7.0').length));
         expect(heights.size, `cols=${cols} rows=${rows}`).toBe(1);
       }
     }
@@ -180,16 +183,19 @@ describe('renderSettings', () => {
   });
 
   it('marks exactly the focused row and explains it', () => {
-    ROWS.forEach((row, focus) => {
-      const lines = plain(renderSettings(base, focus, 100, 40, '1.7.0'));
-      // the theme preview also contains a prompt arrow, so look for the arrow in front of a row label
-      const marked = lines.filter((l) => ROWS.some((r) => l.includes('❯ ' + r.label)));
-      expect(marked, row.key).toHaveLength(1);
-      expect(marked[0]).toContain('❯ ' + row.label);
-    });
-    const detail = plain(renderSettings(base, 3, 100, 40, '1.7.0')).join('\n');
+    for (const state of [base, all]) {
+      visibleRows(state).forEach((row, focus) => {
+        const lines = plain(renderSettings(state, focus, 100, 40, '1.7.0'));
+        // the theme preview also contains a prompt arrow, so look for the arrow in front of a row label
+        const marked = lines.filter((l) => ROWS.some((r) => l.includes('❯ ' + r.label)));
+        expect(marked, row.key).toHaveLength(1);
+        expect(marked[0]).toContain('❯ ' + row.label);
+      });
+    }
+    const yoloRow = visibleRows(base).findIndex((r) => r.key === 'autoApprove');
+    const detail = plain(renderSettings(base, yoloRow, 100, 40, '1.7.0')).join('\n');
     expect(detail).toContain('Skips routine permission prompts');
-    const warned = plain(renderSettings({ ...base, autoApprove: true }, 3, 100, 40, '1.7.0')).join('\n');
+    const warned = plain(renderSettings({ ...base, autoApprove: true }, yoloRow, 100, 40, '1.7.0')).join('\n');
     expect(warned).toContain('On: the agent runs commands and edits files without asking');
   });
 
@@ -213,12 +219,12 @@ describe('help text under the list', () => {
   });
 
   it('never breaks a word in the middle or doubles the ellipsis on a phone', () => {
-    for (let focus = 0; focus < ROWS.length; focus++) {
-      const text = plain(renderSettings(base, focus, 40, 28, '1.7.0')).join('\n');
-      expect(text, ROWS[focus].key).not.toContain('……');
-      expect(text, ROWS[focus].key).not.toMatch(/\b(Dan|gerous|permis|sion)\b/);
+    for (let focus = 0; focus < visibleRows(all).length; focus++) {
+      const text = plain(renderSettings(all, focus, 40, 28, '1.7.0')).join('\n');
+      expect(text, visibleRows(all)[focus].key).not.toContain('……');
+      expect(text, visibleRows(all)[focus].key).not.toMatch(/\b(Dan|gerous|permis|sion)\b/);
     }
-    const yolo = plain(renderSettings(base, 3, 40, 28, '1.7.0'));
+    const yolo = plain(renderSettings(base, visibleRows(base).findIndex((r) => r.key === 'autoApprove'), 40, 28, '1.7.0'));
     expect(yolo.join('\n')).toMatch(/Skips routine permission prompts\./);
   });
 
@@ -274,11 +280,12 @@ describe('runSettings', () => {
     const result = open();
     press(DOWN, RIGHT);                 // Interface -> Classic
     press(DOWN, RIGHT);                 // Black background -> off
-    press(DOWN, RIGHT);                 // Auto-approve -> on
-    press(DOWN, LEFT);                  // Max iterations 30 -> 20
+    press(DOWN, RIGHT);                 // Auto-approve -> on (the Extra row appears under it)
+    press(DOWN, DOWN, LEFT);            // Extra stays off; Max iterations 30 -> 20
     press('\x1b');
     const final = await result;
     expect(final).toMatchObject({ layout: 'classic', pureBlack: false, autoApprove: true, maxIterations: 20 });
+    expect(final.extra).toBeFalsy();
     expect(changes.map(([key]) => key)).toEqual(['layout', 'pureBlack', 'autoApprove', 'maxIterations']);
     expect(changes[3][1].maxIterations).toBe(20);
     expect(base.layout).toBe('clean'); // the initial state is not touched
@@ -402,5 +409,62 @@ describe('runSettings', () => {
     expect(chunks.length).toBe(draws);
     press('\x1b');
     await result;
+  });
+});
+
+describe('Extra: YOLO without the safety net', () => {
+  it('is a row only while YOLO is on', () => {
+    expect(visibleRows(base).map((r) => r.key)).not.toContain('extra');
+    const rows = visibleRows({ ...base, autoApprove: true }).map((r) => r.key);
+    expect(rows[rows.indexOf('autoApprove') + 1]).toBe('extra');          // right under YOLO
+    const hidden = plain(renderSettings(base, 0, 100, 40, '1.9.0')).join('\n');
+    expect(hidden).not.toContain('Extra');
+    const shown = plain(renderSettings({ ...base, autoApprove: true }, 0, 100, 40, '1.9.0')).join('\n');
+    expect(shown).toMatch(/Extra \(ask nothing\)\s+○ off/);
+  });
+
+  it('can be switched on only with YOLO, and goes off with it', () => {
+    expect(changeSetting(base, 'extra', 1)).toBe(base);                   // no YOLO: nothing to do
+    const yolo = changeSetting(base, 'autoApprove', 1);
+    expect(yolo).toMatchObject({ autoApprove: true });
+    expect(yolo.extra).toBeFalsy();
+    const extra = changeSetting(yolo, 'extra', 1);
+    expect(extra.extra).toBe(true);
+    expect(changeSetting(extra, 'extra', -1).extra).toBe(false);          // a toggle: either way
+    const off = changeSetting(extra, 'autoApprove', 1);
+    expect(off).toMatchObject({ autoApprove: false, extra: false });
+  });
+
+  it('warns in red where it is switched on, and in the line that is never cut', () => {
+    const row = visibleRows(all).findIndex((r) => r.key === 'extra');
+    const text = plain(renderSettings(all, row, 100, 40, '1.9.0')).join('\n');
+    expect(text).toMatch(/Extra \(ask nothing\)\s+▲ on/);
+    expect(text).toContain('Runs ANY command without asking');
+    expect(text).toContain('Warning: nothing is asked');
+    // off: the explanation is there, the warning is not
+    const quiet = plain(renderSettings({ ...all, extra: false }, row, 100, 40, '1.9.0')).join('\n');
+    expect(quiet).toContain('Runs ANY command without asking');
+    expect(quiet).not.toContain('Warning: nothing is asked');
+    // also on a phone, where the explanation gives way
+    expect(plain(renderSettings(all, row, 40, 24, '1.9.0')).join('\n')).toContain('Warning');
+  });
+
+  it('can be switched on in the panel; switching YOLO off takes the row away and keeps the focus on the list', async () => {
+    const FakeIn = EventEmitter as any;
+    const input: any = new FakeIn();
+    input.setRawMode = () => {}; input.resume = () => {};
+    const output = { columns: 100, rows: 40, write: () => true };
+    const changes: string[] = [];
+    const result = runSettings({ ...base, autoApprove: true }, { version: '1.9.0', io: { input, output }, onChange: (k) => changes.push(k) });
+    const press = (...keys: string[]) => keys.forEach((k) => input.emit('data', Buffer.from(k)));
+    const DOWN = '\x1b[B', UP = '\x1b[A', RIGHT = '\x1b[C';
+    press(DOWN, DOWN, DOWN, DOWN, RIGHT);        // theme, layout, black, YOLO, Extra: on
+    press(UP, RIGHT);                              // YOLO off: Extra goes too
+    press(DOWN);                                   // the row under YOLO is now Max iterations
+    press(RIGHT);
+    press('\x1b');
+    const final = await result;
+    expect(changes).toEqual(['extra', 'autoApprove', 'maxIterations']);
+    expect(final).toMatchObject({ autoApprove: false, extra: false });
   });
 });

@@ -329,6 +329,11 @@ export function rememberKeyFor(toolName: string, args: any): RememberKey | null 
 }
 
 export interface GuardOptions {
+  /**
+   * Extra: nothing is asked at all. Not the dangerous commands, not the credential files, not a
+   * new MCP server. Only for a user who has switched it on knowing what it means.
+   */
+  extra?: boolean;
   memory?: PermissionMemory;
   /** Called when the user answered "Always": store the key for the next sessions. */
   onAlways?: (remember: RememberKey) => void;
@@ -351,6 +356,9 @@ export class CLIConsoleGuard implements PermissionGuard {
     const t = (toolName || '').toLowerCase();
     const cmd = (args?.command || args?.cmd || '').trim();
     const target = pathArg(args);
+
+    // Extra: the agent does anything it likes, nothing is asked.
+    if (this.options.extra && this.autoApprove) return false;
 
     // Critical safety net. These ask for confirmation even in YOLO mode.
     if (SHELL_TOOLS.has(t) && (isDangerousBashCommand(cmd) || shellTouchesSecrets(cmd))) return true;

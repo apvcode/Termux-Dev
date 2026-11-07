@@ -55,10 +55,12 @@ The terminal interface is built around a framed prompt that carries the status i
   When an architectural plan is finalized, review and confirm with `Go` to immediately unleash the coder agent.
 - **Multimodal Vision Attachments:**  
   Paste screenshots straight from the clipboard with `Ctrl+V` or `Alt+V` (also `/image`, or a pasted file path). They appear as badges like `[Image #1 203kb]` and are sent to the model as real images, unless the model is known to read text only. Needs `wl-clipboard` on Wayland, `xclip` on X11, `pngpaste` on macOS.
+- **The agent can look at images on disk:**  
+  Ask it about `screenshot.png` or a mockup in any folder and it opens the file with `read_file`, the same way it sees a picture you attach. PNG, JPEG, WebP and GIF up to 5 MB; the file contents must really be an image. Only the newest pictures are sent in full, older ones stay as a note in the chat (the model can open the file again). A model without vision gets a clear message instead.
 - **Built-in Live Web Server (`/serve`):**  
   Instantly preview web apps and HTML5 games on port 3000. Seamlessly opens on Android via `termux-open-url`.
 - **Background tasks (`/tasks`):**  
-  The agent can start a dev server, a watcher or a long test run in the background and keep working. It can wait for a line (`ready|error`), read the output later, and is told when a task ends or prints something it asked about; if you are at the prompt then, it picks the news up by itself. A `◈ 2 bg` badge in the prompt frame shows what runs; `/tasks` lists tasks, `/tasks <id>` shows output, `/tasks stop <id|all>` ends them. Starting a task asks for approval like `bash`; everything is stopped when devx exits. Set `"backgroundAutoWake": false` to stop the agent from reacting by itself.
+  The agent can start a dev server, a watcher or a long test run in the background and keep working. It can wait for a line (`ready|error`), read the output later, and is told when a task ends or prints something it asked about; if you are at the prompt then, it picks the news up by itself. A `◈ 2 bg` badge in the prompt frame shows what runs, and `· 1 failed` is added when a task ended badly until devx has told the agent about it; `/tasks` lists tasks, `/tasks <id>` shows output, `/tasks stop <id|all>` ends them. Starting a task asks for approval like `bash`; everything is stopped when devx exits. Set `"backgroundAutoWake": false` to stop the agent from reacting by itself.
 - **Instant Snapshot Rollback (`/undo`):**  
   Every edit made with the file tools (`write_file`, `edit_file`) is recorded and can be rolled back with a single command. Changes made by shell commands (`bash`) are **not** tracked, and snapshots live in memory for the current session only.
 - **Self-Healing Diagnostics & Auto-Installer:**  
@@ -77,6 +79,8 @@ The terminal interface is built around a framed prompt that carries the status i
   English (default), Русский, Українська, Deutsch, Español, Français, Português, 中文 and 日本語. Pick one in `/settings` → `Language`; it applies at once and is remembered. Messages, hints and the settings screen are translated; code, tool names and the model's own answers are not.
 - **Universal AI Provider Support:**  
   **OpenRouter**, **Google Gemini**, **DeepSeek**, **Groq**, **Mistral**, **OpenAI**, **Anthropic**, **Alibaba**, and local models (**Ollama**, **LM Studio**).
+- **Your own providers:**  
+  `/provider` → **Add a provider**: give it a name, an address (any OpenAI- or Anthropic-compatible API) and a key. It is saved in `~/.devxrc.json` and shows up in the list next to the known ones; choose it again to use it, change its name, address or key, or delete it. A server on your own machine (LM Studio, a local gateway) can be added without a key.
 
 ---
 
@@ -161,7 +165,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 | **`/plan`** | Switch to **PLAN** mode (architect & requirements planner) |
 | **`/agent`** | Switch to **AGENT** mode (coder & autonomous executor) |
 | **`/mcp`** | Manage Model Context Protocol (MCP) servers & external tools (`/mcp reload`) |
-| **`/usage`** | A panel (close with `Esc`): what fills the context window (system prompt, tool schemas, messages, tool results, images), the session cost and how sure it is, tokens, cached input, traffic |
+| **`/usage`** | A panel (close with `Esc`): what fills the context window (system prompt, tool schemas, messages, tool results, images), the session cost and how sure it is, what was paid for (input, cached input, cache writes, output: tokens and money), traffic |
 | **`/export`** | Export session conversation to a clean GitHub-Flavored Markdown transcript |
 | **`/theme [name]`** | Switch the UI theme: searchable list of 18 palettes with a live preview (see [Themes](#themes)) |
 | **`/doctor`** | Run environment health diagnostics (Node, Termux, Compilers, API keys) |
@@ -200,8 +204,9 @@ Type `/` in the prompt to open the autocomplete command palette:
 - **`@filename`** — Fast fuzzy file autocomplete and full file embedding.
 - **`Backspace`** — Atomically deletes entire badges `[Pasted text #1]` and `[1.png 203kb]` in one press.
 - **`Ctrl+Backspace`** / **`Alt+Backspace`** — Erase the text word by word (also while the agent works).
-- **`Ctrl+Enter`** — While the agent works: stop its current task and send your message right now (`Alt+Enter` does the same on terminals that cannot tell `Ctrl+Enter` from `Enter`).
+- **`Ctrl+Enter`** — While typing: start a new line (a new paragraph) instead of sending. `Alt+Enter` and `Shift+Enter` do the same where the terminal reports them; on a terminal that cannot tell them from `Enter` (a phone keyboard, for one) type `\` before `Enter`.
 - **`Ctrl+P`** / **`Ctrl+O`** — Unfold or fold the reasoning of the model (`Ctrl+P`) and the commands with their output (`Ctrl+O`) in the whole chat, also what is already above. Both are folded by default; works while the agent works and at the prompt.
+- **`Esc`** — Stop the current answer and whatever it started (a running command); what you typed waits in the next prompt. Esc also closes every list and card.
 - **`Ctrl+C`** — Stop current generation immediately or exit.
 
 ---
@@ -268,7 +273,7 @@ A model that none of the sources describes gets no levels instead of a guess. If
 
 ## Typing while the agent works
 
-The prompt frame stays at the bottom of the terminal during a task (with the live context and cost), and the agent's work scrolls above it. Type into it while the agent reads files, runs commands or thinks, and press Enter: the message is queued and the agent receives it **at its next step**, between two tool calls, so it carries on with its work but takes your remark into account. A message typed while the model writes its final answer gets an answer of its own instead of being dropped. `Ctrl+Enter` does not wait for the next step: it stops the task the agent is on and sends your message at once (your terminal must report the key; `Alt+Enter` is the fallback). `Ctrl+Backspace` erases a word. `Esc` clears the line, `Ctrl+C` still stops the agent and puts what you typed back into the next prompt. `@file` mentions work in these messages too. While an approval card or a question is on screen the line steps aside, so your `y` / `n` never ends up in the message. Turn it off with `"ui": { "typeAhead": false }` in `~/.devxrc.json`.
+The prompt frame stays at the bottom of the terminal during a task (with the live context and cost), and the agent's work scrolls above it. Type into it while the agent reads files, runs commands or thinks, and press Enter: the message is queued and the agent receives it **at its next step**, between two tool calls, so it carries on with its work but takes your remark into account. A message typed while the model writes its final answer gets an answer of its own instead of being dropped. `Ctrl+Enter` starts a new line in your message instead of sending it (`Alt+Enter` and `Shift+Enter` too; a `\` before `Enter` does it on terminals that cannot tell them apart). `Ctrl+Backspace` erases a word. `Esc` (or `Ctrl+C`) stops the agent and puts what you typed back into the next prompt. `@file` mentions work in these messages too. While an approval card or a question is on screen the line steps aside, so your `y` / `n` never ends up in the message. Turn it off with `"ui": { "typeAhead": false }` in `~/.devxrc.json`.
 
 ---
 
@@ -293,6 +298,8 @@ Two wire formats exist: **OpenAI** (`/v1/chat/completions`) and **Anthropic** (`
 
 ## Cost
 
+Every request resends the whole conversation, and the number next to the context meter adds up what each of those requests cost (cached input is cheaper, and priced as such). The context meter itself shows 0 for an empty chat and, from the first message on, everything the next request carries: system prompt and tool schemas included.
+
 The number next to the context meter is the money spent in this session. It says how sure devx is:
 
 | Shown | Meaning |
@@ -302,7 +309,7 @@ The number next to the context meter is the money spent in this session. It says
 | `$0.0123+` | at least this much: some requests have no known price and are not counted |
 | `n/a` | no price is known for the model |
 
-Prices are looked up in this order, the first that knows the model wins: the cost the provider put into its response (OpenRouter `usage.cost`, LiteLLM) - your own `prices` in `~/.devxrc.json` - the endpoint's own price list (OpenRouter, LiteLLM) - the models.dev catalogue (about 8500 models; a snapshot ships with devx, `/effort refresh` downloads the current one). Cached input tokens, cache writes and long-context tiers are priced separately, as the vendors do. A model that is not found is never shown as free: only `:free` models and local servers cost nothing. `/usage` also lists the cached input and how many requests could not be priced.
+Prices are looked up in this order, the first that knows the model wins: the cost the provider put into its response (OpenRouter `usage.cost`, LiteLLM) - your own `prices` in `~/.devxrc.json` - the endpoint's own price list (OpenRouter, LiteLLM) - the models.dev catalogue (about 8500 models; a snapshot ships with devx, `/effort refresh` downloads the current one). Cached input tokens, cache writes and long-context tiers are priced separately, as the vendors do. A request that went out but got no answer (cancelled with Ctrl+C, connection lost, a gateway timeout of a slow model) is usually billed by the provider all the same, and a retry sends the whole conversation again: such requests are counted too, as an estimate (`~`). The small side jobs (chat title, `/commit` message, `/compact` summary) run with the lightest reasoning level the model offers and their cost is part of the total. A model that is not found is never shown as free: only `:free` models and local servers cost nothing. `/usage` also lists the cached input and how many requests could not be priced.
 
 ```json
 {
@@ -376,9 +383,12 @@ Colours are exact on terminals with truecolor support (`COLORTERM=truecolor`); o
 - **Project MCP servers need approval.** MCP servers declared by a project (`.mcp.json`, `.devx/mcp.json`, `.claude/mcp.json`, `.devx.json`) are programs that would run on your machine. You review the exact commands once; if they change, you are asked again. In headless mode (`-p`) unapproved project servers are skipped. Servers from `~/.devxrc.json` and `~/.devx/mcp.json` always start.
 - **Confirmations.** In safe mode `bash`, `install_package`, MCP tools, the preview server and every read or write **outside the project folder** require confirmation.
 - **YOLO (`--yolo`) is not a sandbox.** It skips routine confirmations, but still asks before dangerous shell commands (recursive deletes outside the project, `find -delete` on broad paths, `curl … | sh`, `sudo`, `git push --force`, …) and before touching credentials (`~/.ssh`, `~/.aws`, `~/.devxrc.json`, `.env`, private keys). The shell check analyses commands token by token, but a deliberately obfuscated command can still slip through, so use YOLO only in folders and environments you can afford to lose. In headless mode those confirmations cannot be shown, so the action is denied.
+- **Extra (`--extra`, or `/settings` while YOLO is on) asks nothing at all.** Not the dangerous commands, not the credential files, not a new MCP server: the agent may run any command. A warning is shown when you switch it on, the prompt frame says `extra`, and like YOLO it is off again at the next start. Use it only in an environment you can afford to lose.
 - **`fetch_url`** refuses localhost, private networks and cloud metadata addresses (also after redirects). Set `DEVX_ALLOW_PRIVATE_NETWORK=1` to allow local documentation servers.
 - **`/serve`** listens on your local network (that is how the phone QR code works). It never serves dotfiles, keys, `node_modules`, or symlinks leaving the project, does not send permissive CORS headers and rejects requests addressed to a public host name.
 - **Secrets at rest.** `~/.devxrc.json`, `~/.devx/` and saved sessions are created readable by you only (`0600` / `0700`). Session files contain the full conversation, including file contents the agent read.
+- **Silent connections.** A request that gets no answer and no new data for 300 s is given up on and sent again (a phone can lose the connection without the app noticing). `"requestTimeoutSeconds": 600` in `~/.devxrc.json` changes the time, `0` turns it off. A model that thinks for minutes without sending a byte needs a larger value.
+- **Pictures in saved chats** are kept in files next to the chat (`~/.devx/sessions/<id>.images/`), not inside its JSON, so saving a chat stays fast and `/resume` opens quickly. They are removed with the chat.
 - **Limits.** `bash` stops commands after 120 s by default (the model can pass `timeout_seconds`, max 1800) and closes stdin. Long output keeps its beginning and its end. `read_file` returns at most ~60 000 characters per call and supports `startLine` / `endLine`.
 
 ---

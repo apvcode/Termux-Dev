@@ -25,6 +25,8 @@ export interface SettingsState {
   layout: 'clean' | 'classic';
   pureBlack: boolean;
   autoApprove: boolean;
+  /** Extra: with YOLO on, nothing is asked at all (dangerous commands and credential files too). */
+  extra?: boolean;
   maxIterations: number;
   memory: boolean;
   updates: boolean;
@@ -34,7 +36,7 @@ export interface SettingsState {
   language: string;
 }
 
-export type SettingKey = 'theme' | 'layout' | 'pureBlack' | 'autoApprove' | 'maxIterations' | 'memory' | 'updates' | 'costLimit' | 'language' | 'about';
+export type SettingKey = 'theme' | 'layout' | 'pureBlack' | 'autoApprove' | 'extra' | 'maxIterations' | 'memory' | 'updates' | 'costLimit' | 'language' | 'about';
 
 type SectionKey = 'appearance' | 'agent' | 'general' | 'about';
 
@@ -64,6 +66,7 @@ export const ROWS: RowDef[] = [
   row('layout', 'appearance', 'choice'),
   row('pureBlack', 'appearance', 'toggle'),
   row('autoApprove', 'agent', 'toggle'),
+  row('extra', 'agent', 'toggle'),
   row('maxIterations', 'agent', 'choice'),
   row('memory', 'agent', 'toggle'),
   row('updates', 'agent', 'toggle'),
@@ -71,6 +74,11 @@ export const ROWS: RowDef[] = [
   row('language', 'general', 'choice'),
   row('about', 'about', 'info'),
 ];
+
+/** The rows on screen: Extra is there only while YOLO is on. */
+export function visibleRows(state: SettingsState): RowDef[] {
+  return ROWS.filter((r) => r.key !== 'extra' || state.autoApprove);
+}
 
 const hintFor = (key: SettingKey): string => t(`settings.hint.${key}` as const);
 
@@ -106,7 +114,10 @@ export function changeSetting(state: SettingsState, key: SettingKey, direction: 
     case 'pureBlack':
       return { ...state, pureBlack: !state.pureBlack };
     case 'autoApprove':
-      return { ...state, autoApprove: !state.autoApprove };
+      // Extra goes with YOLO: without it there is nothing to take the questions away from.
+      return { ...state, autoApprove: !state.autoApprove, extra: state.autoApprove ? false : !!state.extra };
+    case 'extra':
+      return state.autoApprove ? { ...state, extra: !state.extra } : state;
     case 'memory':
       return { ...state, memory: !state.memory };
     case 'updates':
@@ -123,8 +134,8 @@ export function changeSetting(state: SettingsState, key: SettingKey, direction: 
 }
 
 /** Moves the focus one row. It stops at the first and the last row instead of wrapping. */
-export function moveFocus(focus: number, delta: number): number {
-  return Math.max(0, Math.min(ROWS.length - 1, focus + delta));
+export function moveFocus(focus: number, delta: number, count: number = ROWS.length): number {
+  return Math.max(0, Math.min(count - 1, focus + delta));
 }
 
 // ───────────────────────── rendering ─────────────────────────
@@ -160,6 +171,8 @@ function valueText(key: SettingKey, state: SettingsState, version: string, room:
       return onOff(state.pureBlack);
     case 'autoApprove':
       return onOff(state.autoApprove, palette.yolo, '▲');
+    case 'extra':
+      return onOff(!!state.extra, palette.err, '▲');
     case 'maxIterations':
       return palette.text(formatIterations(state.maxIterations));
     case 'memory':
@@ -188,7 +201,8 @@ function detailLines(state: SettingsState, key: SettingKey, width: number, maxLi
 
   const hint = key === 'about' ? `devx v${version}. ${hintFor('about')}` : hintFor(key);
   // A warning is never the line that gets cut off: it keeps its row, the explanation gives way.
-  const warning = key === 'autoApprove' && state.autoApprove ? t('settings.warnYolo') : '';
+  const warning = key === 'autoApprove' && state.autoApprove ? t('settings.warnYolo')
+    : key === 'extra' && state.extra ? t('settings.warnExtra') : '';
   const hintRows = Math.max(1, maxLines - (warning ? 1 : 0));
 
   let wrapped = wrapText(hint, width);
@@ -197,7 +211,7 @@ function detailLines(state: SettingsState, key: SettingKey, width: number, maxLi
     wrapped[hintRows - 1] = truncateWidth(wrapped[hintRows - 1], width - 1).replace(/…$/, '') + '…';
   }
   const out = wrapped.map((line) => palette.muted(line));
-  if (warning && out.length < maxLines) out.push(palette.yolo(truncateWidth(warning, width)));
+  if (warning && out.length < maxLines) out.push((key === 'extra' ? palette.err : palette.yolo)(truncateWidth(warning, width)));
   return out;
 }
 
@@ -235,8 +249,9 @@ function renderCard(state: SettingsState, focus: number, cols: number, density: 
   if (density === 'roomy') lines.push(box(''));
 
   const labelWidth = labelColumn((r) => r.label, LABEL_WIDTH, Math.floor(iw / 2));
+  const shown = visibleRows(state);
   let section = '';
-  ROWS.forEach((row, index) => {
+  shown.forEach((row, index) => {
     if (row.sectionKey !== section) {
       if (section !== '' && density === 'roomy') lines.push(box(''));
       section = row.sectionKey;
@@ -256,7 +271,7 @@ function renderCard(state: SettingsState, focus: number, cols: number, density: 
   if (density === 'roomy') lines.push(box(''));
   lines.push(rule('├' + '─'.repeat(W - 2) + '┤'));
   // The detail area always has the same height, so the panel does not jump while you move.
-  const detail = detailLines(state, ROWS[focus].key, iw - 2, maxDetail, version);
+  const detail = detailLines(state, shown[Math.min(focus, shown.length - 1)].key, iw - 2, maxDetail, version);
   for (let i = 0; i < maxDetail; i++) lines.push(box(detail[i] ? '  ' + detail[i] : ''));
   lines.push(rule('╰' + '─'.repeat(W - 2) + '╯'));
   lines.push(' ' + keyHints(cols - 2));
@@ -269,7 +284,8 @@ function renderCompact(state: SettingsState, focus: number, cols: number, rows: 
   const shortWidth = labelColumn((r) => r.short, SHORT_LABEL_WIDTH, Math.floor(width / 2));
   lines.push(' ' + palette.bold(palette.accent(t('settings.title'))) + palette.faint(` · v${version}`));
 
-  ROWS.forEach((row, index) => {
+  const shown = visibleRows(state);
+  shown.forEach((row, index) => {
     const focused = index === focus;
     const mark = focused ? palette.accent('❯') : ' ';
     const label = focused ? palette.bold(palette.text(row.short)) : palette.muted(row.short);
@@ -280,8 +296,8 @@ function renderCompact(state: SettingsState, focus: number, cols: number, rows: 
   });
 
   // The title, the rows and the key hints come first; the help text takes what is left of the screen.
-  const detailCount = Math.max(0, Math.min(rows >= 16 ? 2 : 1, rows - 1 - (ROWS.length + 2)));
-  const detail = detailLines(state, ROWS[focus].key, width - 2, detailCount, version);
+  const detailCount = Math.max(0, Math.min(rows >= 16 ? 2 : 1, rows - 1 - (shown.length + 2)));
+  const detail = detailLines(state, shown[Math.min(focus, shown.length - 1)].key, width - 2, detailCount, version);
   for (let i = 0; i < detailCount; i++) lines.push(detail[i] ? ' ' + detail[i] : '');
   lines.push(' ' + keyHints(width - 1));
   return lines;
@@ -292,8 +308,10 @@ function renderCompact(state: SettingsState, focus: number, cols: number, rows: 
  * depending on the height), narrow ones a plain list.
  */
 export function renderSettings(state: SettingsState, focus: number, cols: number, rows: number, version: string): string[] {
-  if (cols < 60 || rows < 23) return renderCompact(state, focus, cols, rows, version);
-  return renderCard(state, focus, cols, rows >= 29 ? 'roomy' : 'tight', version);
+  // The card needs a line for each row of the list: it is lower when Extra is there.
+  const count = visibleRows(state).length;
+  if (cols < 60 || rows < count + 13) return renderCompact(state, focus, cols, rows, version);
+  return renderCard(state, focus, cols, rows >= count + 19 ? 'roomy' : 'tight', version);
 }
 
 // ───────────────────────── keyboard ─────────────────────────
@@ -321,17 +339,23 @@ export function runSettings(initial: SettingsState, options: SettingsOptions): P
     const wasRaw = !!input.isRaw;
     input.setRawMode?.(true);
     input.resume();
+    const stopWatching = block.watchResize(draw);
 
+    const rowsNow = () => visibleRows(state);
     const change = (direction: Direction) => {
-      const next = changeSetting(state, ROWS[focus].key, direction);
+      const key = rowsNow()[Math.min(focus, rowsNow().length - 1)].key;
+      const next = changeSetting(state, key, direction);
       if (next === state) return;
       state = next;
-      options.onChange?.(ROWS[focus].key, state);
+      // The Extra row goes away with YOLO: the focus must not be left behind the end of the list.
+      focus = Math.min(focus, rowsNow().length - 1);
+      options.onChange?.(key, state);
       draw();
     };
 
     const close = () => {
       input.off('data', onData);
+      stopWatching();
       block.erase();
       if (!wasRaw) input.setRawMode?.(false);
       resolve(state);
@@ -340,7 +364,7 @@ export function runSettings(initial: SettingsState, options: SettingsOptions): P
     let closed = false;
     const handleKey = (key: string) => {
       const move = (delta: number) => {
-        const next = moveFocus(focus, delta);
+        const next = moveFocus(focus, delta, rowsNow().length);
         if (next !== focus) {
           focus = next;
           draw();
@@ -350,8 +374,8 @@ export function runSettings(initial: SettingsState, options: SettingsOptions): P
       if (key === '\x1b[A' || key === '\x1bOA' || key === 'k') return move(-1);
       if (key === '\x1b[B' || key === '\x1bOB' || key === 'j') return move(1);
       // Home / End are sent differently by different terminals.
-      if (key === '\x1b[H' || key === '\x1b[1~' || key === '\x1b[7~' || key === '\x1bOH' || key === 'g') return move(-ROWS.length);
-      if (key === '\x1b[F' || key === '\x1b[4~' || key === '\x1b[8~' || key === '\x1bOF' || key === 'G') return move(ROWS.length);
+      if (key === '\x1b[H' || key === '\x1b[1~' || key === '\x1b[7~' || key === '\x1bOH' || key === 'g') return move(-rowsNow().length);
+      if (key === '\x1b[F' || key === '\x1b[4~' || key === '\x1b[8~' || key === '\x1bOF' || key === 'G') return move(rowsNow().length);
       if (key === '\x1b[C' || key === '\x1bOC' || key === 'l' || key === ' ' || key === '\r' || key === '\n') return change(1);
       if (key === '\x1b[D' || key === '\x1bOD' || key === 'h') return change(-1);
       if (key === '\x1b' || key === 'q' || key === '\x03') {

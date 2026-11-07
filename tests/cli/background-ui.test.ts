@@ -58,7 +58,7 @@ describe('prompt frame with background tasks', () => {
 
 describe('/tasks', () => {
   it('says so when there are none', async () => {
-    const rows = plain(await runTasksCommand([], make(), 80, () => {}));
+    const rows = plain(await runTasksCommand([], make(), 80));
     expect(rows.join('\n')).toContain('No background tasks');
   });
 
@@ -74,14 +74,30 @@ describe('/tasks', () => {
     expect(text).toMatch(/bg2\s+✗ failed 2/);
   });
 
-  it('marks tasks as seen when listed, which clears the failed count', async () => {
+  it('shows a failure in the frame until the model has been told, then drops it', async () => {
     const m = make();
-    const seen = new Set<string>();
     m.start(node('process.exit(1)'));
     await until(() => m.get('bg1')!.status === 'failed');
-    expect(backgroundSummary(m, seen)).toEqual({ running: 0, failed: 1 });
-    await runTasksCommand([], m, 80, (ids) => ids.forEach((id) => seen.add(id)));
-    expect(backgroundSummary(m, seen)).toEqual({ running: 0, failed: 0 });
+    // Looking at the list does not count as telling the model.
+    await runTasksCommand([], m, 80);
+    expect(backgroundSummary(m)).toEqual({ running: 0, failed: 1 });
+    const changes: number[] = [];
+    m.on('change', () => changes.push(backgroundSummary(m).failed));
+    expect(m.takeNotes()).toContain('bg1');
+    expect(backgroundSummary(m)).toEqual({ running: 0, failed: 0 });
+    // The frame is told to redraw after the news went out, and sees the failure gone.
+    expect(changes).toEqual([0]);
+    // The task itself is still listed as failed.
+    expect(m.get('bg1')!.status).toBe('failed');
+  });
+
+  it('counts only tasks that failed: a task that ended well or was stopped does not light the frame', async () => {
+    const m = make();
+    m.start(node('process.exit(0)'));
+    m.start(node('setInterval(()=>{},1000)'));
+    await until(() => m.get('bg1')!.status === 'exited');
+    await m.stop('bg2');
+    expect(backgroundSummary(m).failed).toBe(0);
   });
 
   it('shows the output of one task, by id or with "output"', async () => {
@@ -89,7 +105,7 @@ describe('/tasks', () => {
     m.start(node("console.log('line A'); console.log('line B'); setInterval(()=>{},1000)"));
     await until(() => m.read('bg1', { mode: 'tail' }).text.includes('line B'));
     for (const args of [['bg1'], ['output', 'bg1']]) {
-      const text = plain(await runTasksCommand(args, m, 80, () => {})).join('\n');
+      const text = plain(await runTasksCommand(args, m, 80)).join('\n');
       expect(text).toContain('line A');
       expect(text).toContain('line B');
     }
@@ -102,11 +118,11 @@ describe('/tasks', () => {
     m.start(node('setInterval(()=>{},1000)'));
     m.start(node('process.exit(0)'));
     await until(() => m.get('bg3')!.status !== 'running');
-    expect(plain(await runTasksCommand(['stop', 'bg1'], m, 80, () => {})).join('')).toContain('bg1 stopped');
-    expect(plain(await runTasksCommand(['stop', 'all'], m, 80, () => {})).join('')).toContain('Stopped 1 task');
-    expect(plain(await runTasksCommand(['clear'], m, 80, () => {})).join('')).toContain('Removed 3 ended tasks');
-    expect(plain(await runTasksCommand(['stop', 'nope'], m, 80, () => {})).join('')).toContain('No background task');
-    expect(plain(await runTasksCommand(['stop'], m, 80, () => {})).join('')).toContain('Usage');
+    expect(plain(await runTasksCommand(['stop', 'bg1'], m, 80)).join('')).toContain('bg1 stopped');
+    expect(plain(await runTasksCommand(['stop', 'all'], m, 80)).join('')).toContain('Stopped 1 task');
+    expect(plain(await runTasksCommand(['clear'], m, 80)).join('')).toContain('Removed 3 ended tasks');
+    expect(plain(await runTasksCommand(['stop', 'nope'], m, 80)).join('')).toContain('No background task');
+    expect(plain(await runTasksCommand(['stop'], m, 80)).join('')).toContain('Usage');
   });
 
   it('keeps every row inside a narrow terminal', async () => {

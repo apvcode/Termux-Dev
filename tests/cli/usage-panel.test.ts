@@ -29,7 +29,8 @@ const data: UsagePanelData = {
   session: {
     requestsCount: 3, bytesSent: 61_000, bytesReceived: 165_000, totalBytes: 226_000,
     promptTokens: 19_900, completionTokens: 667, totalTokens: 20_567, totalCost: 0.0058,
-    costState: { estimated: true, priced: 3, unpriced: 0 }, cacheReadTokens: 4000, lastPromptTokens: 7000,
+    costState: { estimated: true, priced: 3, unpriced: 0 }, cacheReadTokens: 4000, cacheWriteTokens: 0, uncachedTokens: 15_900,
+    costParts: { input: 0.0030, cacheRead: 0.0004, cacheWrite: 0, output: 0.0024 }, lastPromptTokens: 7000,
   },
 };
 
@@ -52,6 +53,17 @@ describe('contextBreakdown', () => {
   });
 });
 
+describe('the empty chat', () => {
+  it('shows 0 until the first message, then everything the next request carries', () => {
+    const sys = { role: 'system' as const, content: 'x'.repeat(9000) };
+    expect(contextBreakdown([sys], [tool], 128000).inUse).toBe(0);
+    const c = contextBreakdown([sys, { role: 'user', content: 'hi' }], [tool], 128000);
+    expect(c.inUse).toBe(c.total);
+    expect(c.inUse).toBeGreaterThan(c.system);
+    expect(c.inUse).toBeGreaterThanOrEqual(c.system + c.tools);
+  });
+});
+
 describe('the bar', () => {
   const segs = (a: number, b: number) => [
     { key: 'a', label: 'a', tokens: a, color: (s: string) => s },
@@ -69,6 +81,28 @@ describe('the bar', () => {
 
 describe('the panel', () => {
   beforeEach(() => setActiveTheme('cyan'));
+
+  it('says what the money was paid for: input, cached input, output', () => {
+    const text = plain(renderUsagePanel(data, 100, 40)).join('\n');
+    const row = (label: string) => text.split('\n').find((l) => l.includes(label)) ?? '';
+    expect(row('Input')).toMatch(/15\.9k.*~\$0\.0030/);
+    expect(row('Cached input')).toMatch(/4\.0k.*~\$0\.0004/);
+    expect(row('Output')).toMatch(/667.*~\$0\.0024/);
+    expect(text).not.toContain('Cache writes');
+  });
+
+  it('says that the total includes what the chat cost before it was resumed', () => {
+    const text = plain(renderUsagePanel({ ...data, session: { ...data.session, restoredCost: 0.5, costParts: undefined } }, 100, 40)).join('\n');
+    expect(text).toContain('Includes ~$0.5000 from before this chat was resumed');
+    expect(plain(renderUsagePanel(data, 100, 40)).join('\n')).not.toContain('resumed');
+  });
+
+  it('shows tokens only when the money cannot be split', () => {
+    const text = plain(renderUsagePanel({ ...data, session: { ...data.session, costParts: undefined } }, 100, 40)).join('\n');
+    const row = text.split('\n').find((l) => l.includes('Cached input')) ?? '';
+    expect(row).toContain('4.0k');
+    expect(row).not.toContain('$0.0004');
+  });
 
   it('shows the context by kind, the cost and how sure it is, and the traffic', () => {
     const text = plain(renderUsagePanel(data, 100, 40)).join('\n');

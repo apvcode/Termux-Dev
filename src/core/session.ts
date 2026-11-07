@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { Message } from './types.js';
 import { ensureSecureDir, writeSecureFile } from './secure-file.js';
+import { MediaIndex, externalizeImages, imagesDirFor, internalizeImages, pruneImages } from './session-media.js';
 
 export interface ChatSession {
   id: string;
@@ -23,6 +24,8 @@ export interface ChatSession {
 const SESSIONS_DIR = path.join(os.homedir(), '.devx', 'sessions');
 export class SessionManager {
   private currentSession: ChatSession;
+  /** The files of the pictures already seen (see session-media.ts). */
+  private media: MediaIndex = new Map();
 
   constructor(model: string, planMode: boolean) {
     this.currentSession = this.createEmptySession(model, planMode);
@@ -59,6 +62,7 @@ export class SessionManager {
 
   public startNewSession(model: string, planMode: boolean): ChatSession {
     this.currentSession = this.createEmptySession(model, planMode);
+    this.media = new Map();
     return this.currentSession;
   }
 
@@ -85,8 +89,13 @@ export class SessionManager {
       }
     }
 
+    // Pictures go into their own files; the chat file keeps only their names.
+    const imagesDir = imagesDirFor(SESSIONS_DIR, this.currentSession.id);
+    const stored = await externalizeImages(messages, imagesDir, this.media);
+
     const filePath = path.join(SESSIONS_DIR, `${this.currentSession.id}.json`);
-    await writeSecureFile(filePath, JSON.stringify(this.currentSession, null, 2));
+    await writeSecureFile(filePath, JSON.stringify({ ...this.currentSession, messages: stored.messages }, null, 2));
+    await pruneImages(imagesDir, stored.used);
   }
 
   public static async listSessions(): Promise<ChatSession[]> {
@@ -122,7 +131,9 @@ export class SessionManager {
 
     try {
       const content = await fs.readFile(filePath, 'utf8');
-      return JSON.parse(content);
+      const session = JSON.parse(content) as ChatSession;
+      session.messages = await internalizeImages(session.messages ?? [], imagesDirFor(SESSIONS_DIR, sessionId));
+      return session;
     } catch {
       return null;
     }
@@ -131,6 +142,7 @@ export class SessionManager {
   public static async deleteSession(sessionId: string): Promise<boolean> {
     const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
     try {
+      await fs.rm(imagesDirFor(SESSIONS_DIR, sessionId), { recursive: true, force: true }).catch(() => {});
       if (fsSync.existsSync(filePath)) {
         await fs.unlink(filePath);
         return true;
@@ -152,6 +164,10 @@ export class SessionManager {
           await fs.unlink(path.join(SESSIONS_DIR, file));
           count++;
         } catch {}
+      }
+      // The pictures of the chats, and those of chats whose file is already gone.
+      for (const name of files.filter(f => f.endsWith('.images'))) {
+        await fs.rm(path.join(SESSIONS_DIR, name), { recursive: true, force: true }).catch(() => {});
       }
       return count;
     } catch {

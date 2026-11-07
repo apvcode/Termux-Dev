@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { CostLedger, computeCost, formatMoney, isFreeModel, priceFromModelEntry, reportedCost } from '../../src/core/cost.js';
+import { CostLedger, computeCost, costParts, scaleParts, formatMoney, isFreeModel, priceFromModelEntry, reportedCost } from '../../src/core/cost.js';
 import {
   PriceCatalog, bundledPrices, priceUsage, resolvePrice, setEndpointPriceLookup, setPriceCatalogs, slimPrices,
 } from '../../src/core/prices.js';
@@ -180,7 +180,11 @@ describe('priceUsage', () => {
 
   it('believes the cost the provider reported', () => {
     use();
-    expect(priceUsage(ctx, counts, { cost: 0.123 })).toEqual({ cost: 0.123, costSource: 'reported' });
+    const out = priceUsage(ctx, counts, { cost: 0.123 });
+    expect(out).toMatchObject({ cost: 0.123, costSource: 'reported' });
+    // The parts are the known rates scaled to the reported total.
+    const p = out.parts!;
+    expect(p.input + p.cacheRead + p.cacheWrite + p.output).toBeCloseTo(0.123, 9);
   });
 
   it('does not believe a reported 0 for a model that costs money', () => {
@@ -197,7 +201,7 @@ describe('priceUsage', () => {
 
   it('costs nothing on a local server', () => {
     use();
-    expect(priceUsage({ model: 'claude-sonnet-4-5', baseUrl: 'http://localhost:1234/v1' }, counts)).toEqual({ cost: 0, costSource: 'free' });
+    expect(priceUsage({ model: 'claude-sonnet-4-5', baseUrl: 'http://localhost:1234/v1' }, counts)).toMatchObject({ cost: 0, costSource: 'free' });
   });
 });
 
@@ -247,5 +251,31 @@ describe('showing the cost', () => {
     expect(ledger.format()).toBe('~$0.7500+');
     ledger.reset();
     expect(ledger.format()).toBe('$0.0000');
+  });
+});
+
+describe('costParts', () => {
+  const rates = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+  const counts = { promptTokens: 10000, completionTokens: 1000, cacheReadTokens: 6000, cacheWriteTokens: 1000 };
+
+  it('splits the cost by what was paid for and adds up to computeCost', () => {
+    const p = costParts(rates, counts);
+    expect(p.input).toBeCloseTo((3000 * 3) / 1e6, 9);
+    expect(p.cacheRead).toBeCloseTo((6000 * 0.3) / 1e6, 9);
+    expect(p.cacheWrite).toBeCloseTo((1000 * 3.75) / 1e6, 9);
+    expect(p.output).toBeCloseTo((1000 * 15) / 1e6, 9);
+    expect(p.input + p.cacheRead + p.cacheWrite + p.output).toBeCloseTo(computeCost(rates, counts), 12);
+  });
+
+  it('bills cached tokens as ordinary input when the model has no cache price', () => {
+    const p = costParts({ input: 2, output: 4 }, { promptTokens: 1000, completionTokens: 0, cacheReadTokens: 400 });
+    expect(p.input).toBeCloseTo((600 * 2) / 1e6, 9);
+    expect(p.cacheRead).toBeCloseTo((400 * 2) / 1e6, 9);
+  });
+
+  it('scales parts to a reported total, and refuses when there is nothing to scale', () => {
+    const scaled = scaleParts(costParts(rates, counts), 1)!;
+    expect(scaled.input + scaled.cacheRead + scaled.cacheWrite + scaled.output).toBeCloseTo(1, 9);
+    expect(scaleParts({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }, 1)).toBeUndefined();
   });
 });

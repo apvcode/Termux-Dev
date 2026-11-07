@@ -179,3 +179,21 @@ export function wrapText(text: string, width: number): string[] {
   const unbreakable = text.split(/\s+/).some((word) => displayWidth(word) > width);
   return unbreakable ? wrapWidth(text, width) : wrapWords(text, width);
 }
+
+/**
+ * How many rows up the top of a block is from the cursor, once the terminal is `cols` wide.
+ *
+ * A block drawn at one width is re-wrapped by the terminal when the window is resized: a line that
+ * was as wide as the old window now takes several rows, so counting the lines of the block is not
+ * enough to get back to its top (the top stays on screen and the block shows up twice).
+ *
+ * @param lineWidths visible width of each line of the block as it was drawn
+ * @param cursorRow  the line the cursor is on
+ * @param cursorCol  the column of the cursor in that line
+ */
+export function rowsToTop(lineWidths: number[], cursorRow: number, cursorCol: number, cols: number): number {
+  const width = Math.max(1, cols);
+  let rows = 0;
+  for (let i = 0; i < cursorRow && i < lineWidths.length; i++) rows += Math.max(1, Math.ceil(lineWidths[i] / width));
+  return rows + Math.floor(Math.max(0, cursorCol) / width);
+}

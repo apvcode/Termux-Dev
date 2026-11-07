@@ -615,7 +615,7 @@ describe('UiSpinner', () => {
     const spinner = make();
     spinner.setMetaProvider(() => `↑ 7.2k ↓ ${tokens} tokens`);
     spinner.start('Waiting for the model');
-    expect(plain(out.chunks[1])).toContain('0.0s · ↑ 7.2k ↓ 100 tokens · ctrl+c to stop');
+    expect(plain(out.chunks[1])).toContain('0.0s · ↑ 7.2k ↓ 100 tokens · esc to stop');
     tokens = 364;
     clock += 8_000;
     vi.advanceTimersByTime(80);
@@ -642,7 +642,7 @@ describe('UiSpinner', () => {
     expect(spinner.isActive).toBe(true);
     expect(out.chunks[0]).toBe('\x1b[?25l'); // hide cursor
     expect(plain(out.chunks[1])).toContain('Read src/a.ts');
-    expect(plain(out.chunks[1])).toContain('0.0s · ctrl+c to stop');
+    expect(plain(out.chunks[1])).toContain('0.0s · esc to stop');
 
     clock += 3_400;
     vi.advanceTimersByTime(80);

@@ -134,10 +134,12 @@ export function runPicker<T>(options: PickerOptions<T>, io: PickerIO = { input: 
     const wasRaw = !!input.isRaw;
     input.setRawMode?.(true);
     input.resume();
+    const stopWatching = block.watchResize(draw);
 
     const finish = (value: T | undefined) => {
       done = true;
       input.off('data', onData);
+      stopWatching();
       block.erase();
       if (!wasRaw) input.setRawMode?.(false);
       resolve(value);

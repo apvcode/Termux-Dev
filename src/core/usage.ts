@@ -1,6 +1,6 @@
 import pc from 'picocolors';
 import { getCurrentTheme } from '../cli/theme.js';
-import { CostLedger, CostState, formatMoney } from './cost.js';
+import { CostLedger, CostParts, CostState, formatMoney } from './cost.js';
 import type { TokenUsage } from './types.js';
 
 export interface UsageSummary {
@@ -15,6 +15,19 @@ export interface UsageSummary {
   /** How to read totalCost: estimated, and how many requests could not be priced. */
   costState: CostState;
   cacheReadTokens: number;
+  cacheWriteTokens: number;
+  /** Input that was neither read from nor written to the cache (what is paid in full). */
+  uncachedTokens: number;
+  /**
+   * The cost by what was paid for. Only present when every priced request could be split
+   * (the rates of the model are known); otherwise just the total is trustworthy.
+   */
+  costParts?: CostParts;
+  /**
+   * The part of totalCost that was spent before this chat was resumed. Its tokens are not known
+   * (only the sum was saved), so the token lines count only what happened since.
+   */
+  restoredCost?: number;
   /** Input tokens of the last request as the provider counted them (0 before the first request). */
   lastPromptTokens: number;
   dataSaverLimitMB?: number;
@@ -35,6 +48,11 @@ export class UsageTracker {
   private ledger = new CostLedger();
   private cacheReadTokens = 0;
   private cacheWriteTokens = 0;
+  private uncachedTokens = 0;
+  private parts: CostParts = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+  /** Priced requests that came without a split. */
+  private unsplit = 0;
+  private restored = 0;
   private lastPromptTokens = 0;
   private dataSaverLimitMB?: number;
   private warnedThreshold: boolean = false;
@@ -62,8 +80,22 @@ export class UsageTracker {
     this.ledger.reset();
     this.cacheReadTokens = 0;
     this.cacheWriteTokens = 0;
+    this.uncachedTokens = 0;
+    this.parts = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+    this.unsplit = 0;
+    this.restored = 0;
     this.lastPromptTokens = 0;
     this.warnedThreshold = false;
+  }
+
+  /**
+   * A saved chat was resumed: what it cost so far is the starting point of the total, so that
+   * /usage and the prompt frame show the same number. Counting starts from zero before this.
+   */
+  restoreCost(total: number, estimated = false) {
+    this.reset();
+    this.ledger.restore(total, estimated);
+    this.restored = Number.isFinite(total) && total > 0 ? total : 0;
   }
 
   recordRequest(payloadBytes: number) {
@@ -76,16 +108,29 @@ export class UsageTracker {
   }
 
   /** Records the tokens of one request; an undefined cost means the price is not known. */
-  recordTokens(promptTokens: number, completionTokens: number, cost?: number, costSource?: TokenUsage['costSource']) {
+  recordTokens(promptTokens: number, completionTokens: number, cost?: number, costSource?: TokenUsage['costSource'], parts?: CostParts) {
     this.promptTokens += promptTokens;
     this.completionTokens += completionTokens;
     this.ledger.add({ cost, costSource });
+    if (typeof cost === 'number' && Number.isFinite(cost)) {
+      if (parts) {
+        this.parts.input += parts.input;
+        this.parts.cacheRead += parts.cacheRead;
+        this.parts.cacheWrite += parts.cacheWrite;
+        this.parts.output += parts.output;
+      } else {
+        this.unsplit++;
+      }
+    }
   }
 
   recordUsage(usage: TokenUsage) {
-    this.recordTokens(usage.promptTokens, usage.completionTokens, usage.cost, usage.costSource);
-    this.cacheReadTokens += usage.cacheReadTokens || 0;
-    this.cacheWriteTokens += usage.cacheWriteTokens || 0;
+    this.recordTokens(usage.promptTokens, usage.completionTokens, usage.cost, usage.costSource, usage.costParts);
+    const read = Math.min(usage.promptTokens, usage.cacheReadTokens || 0);
+    const written = Math.min(usage.promptTokens - read, usage.cacheWriteTokens || 0);
+    this.cacheReadTokens += read;
+    this.cacheWriteTokens += written;
+    this.uncachedTokens += Math.max(0, usage.promptTokens - read - written);
     if (!usage.tokensEstimated) this.lastPromptTokens = usage.promptTokens;
   }
 
@@ -101,6 +146,11 @@ export class UsageTracker {
       totalCost: this.ledger.total,
       costState: this.ledger.state(),
       cacheReadTokens: this.cacheReadTokens,
+      cacheWriteTokens: this.cacheWriteTokens,
+      uncachedTokens: this.uncachedTokens,
+      // The split covers only what was counted since launch: with a restored total it would not add up.
+      costParts: this.unsplit === 0 && this.restored === 0 && this.ledger.priced > 0 ? { ...this.parts } : undefined,
+      restoredCost: this.restored > 0 ? this.restored : undefined,
       lastPromptTokens: this.lastPromptTokens,
       dataSaverLimitMB: this.dataSaverLimitMB
     };

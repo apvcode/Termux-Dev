@@ -1,5 +1,88 @@
-import { TokenUsage } from '../core/types.js';
+import { Message, TokenUsage } from '../core/types.js';
 import { PriceContext, priceUsage } from '../core/prices.js';
+
+/** A slow model may think for minutes without a byte: the limit is generous, it is there for a dead connection. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 300_000;
+
+/**
+ * Gives up on a request that has gone silent. On a phone the connection can die without the app
+ * noticing (the network changes, the app sleeps), and the request would wait for ever. The timer
+ * starts with the request and starts over with every piece of data that arrives.
+ *
+ * `signal` is aborted when the time is up or when the caller's own signal is aborted; `timedOut`
+ * tells the two apart. The error it makes has the code ETIMEDOUT, which devx treats as a lost
+ * connection: the request is sent again.
+ */
+export class RequestWatchdog {
+  private controller = new AbortController();
+  private timer?: ReturnType<typeof setTimeout>;
+  private fired = false;
+  private unlink?: () => void;
+
+  constructor(private ms: number, parent?: AbortSignal) {
+    if (parent) {
+      if (parent.aborted) this.controller.abort();
+      else {
+        const onAbort = () => this.controller.abort();
+        parent.addEventListener('abort', onAbort, { once: true });
+        this.unlink = () => parent.removeEventListener('abort', onAbort);
+      }
+    }
+    this.touch();
+  }
+
+  get signal(): AbortSignal {
+    return this.controller.signal;
+  }
+
+  get timedOut(): boolean {
+    return this.fired;
+  }
+
+  /** Something arrived: the clock starts over. */
+  touch(): void {
+    if (!(this.ms > 0) || this.fired || this.controller.signal.aborted) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.fired = true;
+      this.controller.abort();
+    }, this.ms);
+    this.timer.unref?.();
+  }
+
+  stop(): void {
+    clearTimeout(this.timer);
+    this.unlink?.();
+    this.unlink = undefined;
+  }
+
+  error(): Error {
+    const seconds = Math.round(this.ms / 1000);
+    return Object.assign(new Error(`No response from the server for ${seconds} s (the connection may have dropped)`), { code: 'ETIMEDOUT' });
+  }
+}
+
+/**
+ * The indexes of the messages whose pictures are really sent. Only the newest pictures go out in
+ * full; older ones become a `[Attached Image: path]` note, which keeps a long chat cheap (the
+ * model can read the file again if it needs to). Pictures that parallel tool calls returned in
+ * one step belong together, so they are all kept.
+ */
+export function imagesToSend(messages: Message[]): Set<number> {
+  const keep = new Set<number>();
+  let last = -1;
+  messages.forEach((m, i) => {
+    if (m.images && m.images.length > 0) last = i;
+  });
+  if (last === -1) return keep;
+  keep.add(last);
+  if (messages[last].role === 'tool') {
+    for (let j = last - 1; j >= 0 && messages[j].role === 'tool'; j--) {
+      if (messages[j].images?.length) keep.add(j);
+    }
+  }
+  return keep;
+}
 
 /**
  * Parses the JSON arguments of a tool call. Invalid JSON is reported instead of being
@@ -52,6 +135,11 @@ export function imageNotSentText(paths: string[]): string {
 export interface ProviderOptions {
   /** false: the model is known to take text only, images are replaced by a note. */
   images?: boolean;
+  /**
+   * How long a request may stay silent (no response, no new data of the stream) before it is given
+   * up and sent again. 0 turns the limit off; missing: DEFAULT_REQUEST_TIMEOUT_MS.
+   */
+  timeoutMs?: number;
   /** Where to look for prices and the user's own price overrides. */
   price?: Omit<PriceContext, 'model'>;
 }
@@ -84,6 +172,7 @@ export function openAiUsage(raw: any, ctx: PriceContext, fallback?: { prompt: nu
   if (priced.cost !== undefined) {
     usage.cost = priced.cost;
     usage.costSource = guessed && priced.costSource !== 'free' ? 'estimated' : priced.costSource;
+    if (priced.parts) usage.costParts = priced.parts;
   }
   return usage;
 }

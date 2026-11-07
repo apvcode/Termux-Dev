@@ -116,3 +116,29 @@ describe('desktop notification', () => {
     expect(sendDesktopNotification('T', 'B', { env: {}, platform: 'linux', run: () => { throw new Error('x'); } })).toBe('none');
   });
 });
+
+describe('generateChatTitle time limit', () => {
+  it('cuts the request off when the time is up, so a slow model does not go on and bill for it', async () => {
+    let signal: AbortSignal | undefined;
+    const provider = {
+      chat: (request: { signal?: AbortSignal }) => {
+        signal = request.signal;
+        return new Promise<never>((_, reject) => request.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+      },
+    };
+    expect(await generateChatTitle(provider, 'hi', 'hello', 30)).toBe('');
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('leaves the request alone when the answer comes in time', async () => {
+    let signal: AbortSignal | undefined;
+    const provider = {
+      chat: async (request: { signal?: AbortSignal }) => {
+        signal = request.signal;
+        return { content: 'Fix the build' };
+      },
+    };
+    expect(await generateChatTitle(provider, 'hi', 'hello', 1000)).toBe('Fix the build');
+    expect(signal?.aborted).toBe(false);
+  });
+});

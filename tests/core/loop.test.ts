@@ -168,3 +168,27 @@ describe('Agent and background news', () => {
     expect(requests).toBe(1);
   });
 });
+
+describe('Agent and pictures from tools', () => {
+  it('stores what a tool shows to the model on the tool message, and nothing on other messages', async () => {
+    let step = 0;
+    const provider: LLMProvider = {
+      id: 'test',
+      chat: async () =>
+        step++ === 0
+          ? { content: '', toolCalls: [{ id: 'first', name: 'test_tool', arguments: {} }, { id: 'second', name: 'test_tool', arguments: { plain: true } }] }
+          : { content: 'done' },
+    };
+    const tool = createTool(async (args, _config, context) => {
+      if (args.plain) return 'just text';
+      context?.attachImage?.({ path: 'a.png', dataUrl: 'data:image/png;base64,AAAA' });
+      return '[Image a.png attached]';
+    });
+    const { agent, history } = setup(provider, tool);
+    for await (const _ of agent.run()) { /* drain */ }
+    const [first, second] = history.getMessages().filter((m) => m.role === 'tool');
+    expect(first.images).toEqual([{ path: 'a.png', dataUrl: 'data:image/png;base64,AAAA' }]);
+    expect(second.images).toBeUndefined();
+    expect('images' in second).toBe(false);
+  });
+});

@@ -1,4 +1,4 @@
-import { AgentConfig, AgentEvent, LLMProvider, Message, PermissionGuard, Tool } from './types.js';
+import { AgentConfig, AgentEvent, LLMProvider, Message, PermissionGuard, TokenUsage, Tool } from './types.js';
 import { History } from './history.js';
 import { CONTEXT_USAGE_RATIO, toolSchemaTokens } from './context-stats.js';
 import { t } from './i18n.js';
@@ -66,6 +66,16 @@ export function getActionDescription(toolName: string, args: any): string {
 
 const CONTEXT_LENGTH_ERROR =
   /context[_ ]length|maximum context|context window|too many tokens|prompt is too long|reduce the length|input is too long|exceeds? the (?:model|maximum|max)/i;
+
+/**
+ * A request that failed in a way that usually still costs money: the connection broke or timed out
+ * after the request had gone out (no HTTP status), or a gateway gave up waiting for a slow model
+ * (504, 524) that went on working. Rejections (400, 401, 429, ...) are not billed.
+ */
+function probablyBilled(err: any): boolean {
+  const status = err?.status ?? err?.statusCode;
+  return status === undefined || status === 0 || status === 504 || status === 524;
+}
 
 function isContextLengthError(err: any): boolean {
   const status = err?.status;
@@ -157,20 +167,31 @@ export class Agent {
       let attempt = 0;
       let contextRetries = 0;
       const maxRetries = 4;
+      // A request that goes out and gets no answer (cancelled, connection lost, gateway timeout) is
+      // usually billed all the same, and a retry sends the whole conversation again. Such requests
+      // are counted as an estimate instead of being left out of the cost.
+      let receivedChars = 0;
+      const lostUsage = (): TokenUsage | undefined =>
+        this.provider.lostRequestUsage?.(this.history.getTotalTokens() + schemaTokens, Math.ceil(receivedChars * 0.33));
 
       while (true) {
         if (signal?.aborted) return;
+        receivedChars = 0;
         try {
           if (this.provider.chatStream) {
             let receivedAnyChunk = false;
             for await (const chunk of this.provider.chatStream(request)) {
               if (signal?.aborted) {
+                const lost = lostUsage();
+                if (lost) yield { type: 'usage', usage: lost };
                 return;
               }
               receivedAnyChunk = true;
               if (chunk.type === 'reasoning_delta') {
+                receivedChars += chunk.delta.length;
                 yield { type: 'reasoning_delta', delta: chunk.delta };
               } else if (chunk.type === 'content_delta') {
+                receivedChars += chunk.delta.length;
                 yield { type: 'text_delta', delta: chunk.delta };
               } else if (chunk.type === 'tool_generating') {
                 yield { type: 'tool_generating', name: chunk.name, bytes: chunk.bytes, targetHint: chunk.targetHint };
@@ -191,6 +212,8 @@ export class Agent {
           }
         } catch (err: any) {
           if (signal?.aborted || err.name === 'AbortError' || err.message?.includes('aborted')) {
+            const lost = lostUsage();
+            if (lost) yield { type: 'usage', usage: lost };
             return;
           }
 
@@ -206,6 +229,10 @@ export class Agent {
           }
 
           const isNetwork = isNetworkOrRetryableError(err);
+          if (isNetwork && probablyBilled(err)) {
+            const lost = lostUsage();
+            if (lost) yield { type: 'usage', usage: lost };
+          }
           if (isNetwork && attempt < maxRetries) {
             attempt++;
             const delayMs = Math.min(1500 * Math.pow(1.5, attempt - 1), 8000);
@@ -286,6 +313,8 @@ export class Agent {
           if (signal?.aborted) return;
 
           let result = '';
+          // Pictures a tool wants the model to see (read_file on an image) travel with its result.
+          const pictures: NonNullable<Message['images']> = [];
           const tool = this.tools.get(call.name);
 
           if (!tool) {
@@ -307,7 +336,7 @@ export class Agent {
                 // Cancellation may arrive while waiting for confirmation.
                 if (signal?.aborted) return;
                 result = allowed
-                  ? await tool.execute(call.arguments, this.config, { signal })
+                  ? await tool.execute(call.arguments, this.config, { signal, attachImage: (image) => pictures.push(image) })
                   : 'Action denied by user.';
                 if (allowed) {
                   const post = await runHooks(this.config.hooks, 'PostToolUse', tool.name, call.arguments, result);
@@ -330,6 +359,7 @@ export class Agent {
             content: result,
             tool_call_id: call.id,
             name: call.name,
+            ...(pictures.length > 0 ? { images: pictures } : {}),
           });
           executedToolCallIds.add(call.id);
           yield { type: 'tool_end', id: call.id, name: call.name, result };

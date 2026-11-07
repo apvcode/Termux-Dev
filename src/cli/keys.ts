@@ -16,12 +16,23 @@ export function splitKeys(chunk: string): string[] {
 /** Erases the word before the cursor (Ctrl+W in a shell); Ctrl+Backspace and Alt+Backspace are mapped to it. */
 export const WORD_BACKSPACE = '\x17';
 
-/** What a terminal sends for Ctrl+Enter once the extended keyboard modes below are on. */
+/**
+ * What a terminal sends for Ctrl+Enter once the extended keyboard modes below are on. Ctrl+Enter
+ * and Alt+Enter break the line (a new paragraph) instead of sending it, like Shift+Enter.
+ */
 export const CTRL_ENTER = '\x1b[13;5u';
 
+/** Shift+Enter in the two extended encodings (a plain terminal sends the same byte as for Enter). */
+const SHIFT_ENTER = /^\x1b\[(?:13;2u|27;2;13~)$/;
+
+/** Does this key break the line instead of sending it? Ctrl+Enter, Alt+Enter and Shift+Enter, as far as the terminal tells them from Enter. */
+export function isNewlineKey(key: string): boolean {
+  return normalizeKey(key) === CTRL_ENTER || SHIFT_ENTER.test(key);
+}
+
 /**
- * Asks the terminal to tell Ctrl+Enter apart from Enter (a plain terminal sends the same
- * byte for both). Two protocols are requested, a terminal answers the one it knows:
+ * Asks the terminal to tell Ctrl+Enter and Shift+Enter apart from Enter (a plain terminal sends
+ * the same byte for all of them). Two protocols are requested, a terminal answers the one it knows:
  * the kitty keyboard protocol (kitty, foot, ghostty, wezterm, alacritty, ...) and xterm's
  * modifyOtherKeys. Terminals that know neither ignore both, and Alt+Enter still works.
  * While on, the keys arrive as `CSI … u`: run them through `normalizeKey`.

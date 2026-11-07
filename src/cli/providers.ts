@@ -885,10 +885,5 @@ export const ALL_PROVIDERS: ProviderInfo[] = [
     "value": "zhipuai-coding-plan",
     "label": "Zhipu AI Coding Plan",
     "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4"
-  },
-  {
-    "value": "custom",
-    "label": "Custom (Any OpenAI-compatible API)",
-    "baseUrl": ""
   }
 ];

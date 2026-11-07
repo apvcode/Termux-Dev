@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { CTRL_ENTER, EXTENDED_KEYS_OFF, EXTENDED_KEYS_ON, normalizeKey, splitKeys } from './keys.js';
+import { EXTENDED_KEYS_OFF, EXTENDED_KEYS_ON, isNewlineKey, normalizeKey, splitKeys } from './keys.js';
 import { FrameInput, buildPromptFrame, palette } from './ui.js';
 import { displayWidth, truncateWidth } from './width.js';
 import { t } from '../core/i18n.js';
@@ -28,8 +28,6 @@ export interface KeyResult {
   state: DraftState;
   /** The text to queue when Enter was pressed on a non-empty line. */
   submit?: string;
-  /** Ctrl+Enter: hand what is queued (and this line) to the agent now, do not wait for its next step. */
-  sendNow?: boolean;
 }
 
 /** The down arrow in every form a terminal may send it: `ESC [ B`, `ESC O B` (application mode), `ESC [ 1 ; mods B` (with modifier fields). */
@@ -61,13 +59,15 @@ export function applyKey(state: DraftState, key: string): KeyResult {
     return start === pos ? { state } : set([...chars.slice(0, start), ...chars.slice(pos)], start);
   };
 
+  // Ctrl+Enter, Alt+Enter, Shift+Enter: a new paragraph, the line is not sent.
+  if (isNewlineKey(key)) return set([...cs.slice(0, at), '\n', ...cs.slice(at)], at + 1);
+
   switch (key) {
-    case CTRL_ENTER: {
-      const text = state.text.trim();
-      return { state: text ? { text: '', cursor: 0 } : state, submit: text || undefined, sendNow: true };
-    }
     case '\r':
     case '\n': {
+      // A backslash before the cursor makes Enter a line break instead (for terminals that cannot
+      // tell Ctrl+Enter from Enter, a phone keyboard for one).
+      if (at > 0 && cs[at - 1] === '\\') return set([...cs.slice(0, at - 1), '\n', ...cs.slice(at)], at);
       const text = state.text.trim();
       return text ? { state: { text: '', cursor: 0 }, submit: text } : { state };
     }
@@ -145,7 +145,7 @@ export function renderComposer({ state, queued, cols, base }: ComposerInput): st
     const last = queued[queued.length - 1].replace(/\s+/g, ' ');
     const label = queued.length === 1 ? t('composer.queued') : t('composer.queuedMany', { n: queued.length });
     const prefix = palette.warn('↳ ' + label) + palette.faint(': ');
-    // What can be done with it: ctrl+enter sends it now, the down arrow takes it back to edit.
+    // What can be done with it: the down arrow takes it back to edit.
     const hint = t('composer.queuedHint');
     const suffixWidth = displayWidth(' · ' + hint);
     const withHint = room - displayWidth(prefix) - suffixWidth >= 12;
@@ -211,8 +211,6 @@ export class TurnComposer {
     private onQueue?: (text: string) => void,
     /** The working line shown above the frame for the whole turn; called on every animation tick. */
     private status?: () => string,
-    /** Ctrl+Enter: the user wants the queued messages to reach the agent right now. */
-    private onSendNow?: () => void
   ) {}
 
   get enabled(): boolean {
@@ -320,7 +318,6 @@ export class TurnComposer {
   handleData(chunk: string): void {
     if (!this.active || this.suspended) return;
     if (process.env.DEVX_DEBUG_KEYS) logKeys(chunk, this.queue.length, this.state.text);
-    let sendNow = false;
     for (const raw of splitKeys(chunk)) {
       const key = normalizeKey(raw);
       // Ctrl+C is the app's (it stops the generation); Ctrl+D does nothing.
@@ -339,12 +336,9 @@ export class TurnComposer {
         this.queue.push(result.submit);
         this.onQueue?.(result.submit);
       }
-      if (result.sendNow && this.queue.length > 0) sendNow = true;
     }
     this.lines = this.render();
     this.redraw();
-    // After the redraw: the caller takes the queue and stops the turn.
-    if (sendNow) this.onSendNow?.();
   }
 
   // ── terminal output

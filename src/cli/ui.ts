@@ -50,7 +50,7 @@ export const palette = {
   bold: (s: string) => (colorOn() ? `\x1b[1m${s}\x1b[22m` : s),
 };
 
-export type UiMode = 'agent' | 'plan' | 'yolo';
+export type UiMode = 'agent' | 'plan' | 'yolo' | 'extra';
 
 export interface ModeStyle {
   label: string;
@@ -58,8 +58,10 @@ export interface ModeStyle {
   color: (s: string) => string;
 }
 
-export function resolveMode(planMode: boolean, yolo: boolean): UiMode {
+/** `extra` is YOLO without the safety net (nothing is asked); it only counts while YOLO is on. */
+export function resolveMode(planMode: boolean, yolo: boolean, extra = false): UiMode {
   if (planMode) return 'plan';
+  if (yolo && extra) return 'extra';
   return yolo ? 'yolo' : 'agent';
 }
 
@@ -69,6 +71,8 @@ export function modeStyle(mode: UiMode): ModeStyle {
       return { label: 'plan', glyph: '◆', color: palette.plan };
     case 'yolo':
       return { label: 'yolo', glyph: '▲', color: palette.yolo };
+    case 'extra':
+      return { label: 'extra', glyph: '▲', color: palette.err };
     default:
       return { label: 'agent', glyph: '●', color: palette.accent };
   }
@@ -155,6 +159,8 @@ export interface HeaderInfo {
   dirty?: boolean;
   /** Auto-approve is on. The live plan / agent state is shown by the prompt, not here. */
   yolo?: boolean;
+  /** Extra is on as well: nothing is asked at all. */
+  extra?: boolean;
   tip?: string;
 }
 
@@ -179,7 +185,7 @@ function brand(version: string): string {
 
 export function renderHeader(info: HeaderInfo, cols: number): string[] {
   const W = contentWidth(cols);
-  const modePill = info.yolo ? palette.yolo(palette.bold('▲ auto-approve')) : '';
+  const modePill = info.extra ? palette.err(palette.bold('▲ extra: nothing asked')) : info.yolo ? palette.yolo(palette.bold('▲ auto-approve')) : '';
   const branch = info.branch
     ? `${palette.faint('git:')}${palette.muted(info.branch)}${info.dirty ? palette.warn('*') : ''}`
     : '';
@@ -190,7 +196,7 @@ export function renderHeader(info: HeaderInfo, cols: number): string[] {
     const limit = Math.max(8, cols - 1);
     const room = Math.max(6, cols - 3);
     const titleOptions = info.yolo
-      ? [`${brand(info.version)}  ${modePill}`, `${brand(info.version)}  ${palette.yolo('▲ yolo')}`, `${brand(info.version)} ${palette.yolo('▲')}`, brand(info.version)]
+      ? [`${brand(info.version)}  ${modePill}`, `${brand(info.version)}  ${info.extra ? palette.err('▲ extra') : palette.yolo('▲ yolo')}`, `${brand(info.version)} ${info.extra ? palette.err('▲') : palette.yolo('▲')}`, brand(info.version)]
       : [brand(info.version)];
     lines.push(titleOptions.find((t) => displayWidth(t) <= limit) ?? truncateWidth(stripAnsi(brand(info.version)), limit));
     lines.push(`  ${palette.text(truncateWidth(info.model, room))}`);
@@ -359,6 +365,9 @@ export function inputCells(cols: number): number {
   return Math.max(4, isCompact(cols) ? W - 4 : W - 6);
 }
 
+/** Control characters but the line break (`\n` is a real break in the input, it is laid out, not shown). */
+const CONTROL_EXCEPT_NEWLINE = /[\x00-\x09\x0b-\x1f\x7f]/g;
+
 /** Rows the input may take before it scrolls: a quarter of the terminal, at most 8. */
 export function maxInputRows(termRows = process.stdout.rows || 24): number {
   return Math.max(1, Math.min(8, Math.floor(termRows / 4)));
@@ -390,7 +399,10 @@ export function wrapInput(input: string, cells: number): InputRow[] {
     const start = i;
     let used = 0;
     let afterSpace = -1;
+    let hardBreak = false;
     while (i < cps.length) {
+      // A line break ends the row; it stays at the end of that row, so the cursor behind it is on the next one.
+      if (cps[i] === '\n') { i++; hardBreak = true; break; }
       let next = atoms.get(i) ?? i + 1;
       let w = widths.slice(i, next).reduce((a, b) => a + b, 0);
       if (next > i + 1 && w > cells) { next = i + 1; w = widths[i]; }   // a tag wider than a row is split
@@ -399,10 +411,14 @@ export function wrapInput(input: string, cells: number): InputRow[] {
       i = next;
       if (cps[i - 1] === ' ') afterSpace = i;
     }
-    if (i < cps.length && cps[i] !== ' ' && afterSpace > start) i = afterSpace;   // break between words
-    if (i === start) i = start + 1;                                               // a cell wider than the row
+    if (!hardBreak) {
+      if (i < cps.length && cps[i] !== ' ' && afterSpace > start) i = afterSpace;   // break between words
+      if (i === start) i = start + 1;                                               // a cell wider than the row
+    }
     rows.push({ start, end: i });
   }
+  // Text that ends with a line break: the cursor waits on a new, empty row.
+  if (cps[cps.length - 1] === '\n') rows.push({ start: cps.length, end: cps.length });
   return rows;
 }
 
@@ -434,7 +450,7 @@ function layoutInput(input: string, cursorPos: number, cells: number): InputLayo
  * (the arrow keys then walk the prompt history as before). Returns a UTF-16 index.
  */
 export function moveCursorRow(input: string, cursorPos: number, cols: number, dir: -1 | 1): number | null {
-  const clean = input.replace(/[\x00-\x1f\x7f]/g, ' ');
+  const clean = input.replace(CONTROL_EXCEPT_NEWLINE, ' ');
   const { cps, rows, widths, cursorRow, cursorCell } = layoutInput(clean, cursorPos, inputCells(cols));
   const target = rows[cursorRow + dir];
   if (!target) return null;
@@ -454,7 +470,7 @@ function inputRows(f: FrameInput, cells: number): { rows: string[]; firstRow: nu
   const { cps, rows, cursorRow, cursorCell } = layoutInput(f.input, f.cursorPos, cells);
   const limit = f.maxInputRows ?? maxInputRows();
   const firstRow = rows.length <= limit ? 0 : Math.max(0, Math.min(cursorRow - limit + 1, rows.length - limit));
-  const shown = rows.slice(firstRow, firstRow + limit).map((r) => formatBadges(cps.slice(r.start, r.end).join('')));
+  const shown = rows.slice(firstRow, firstRow + limit).map((r) => formatBadges(cps.slice(r.start, r.end).join('').replace(/\n$/, '')));
   return { rows: shown, firstRow, cursorRow: cursorRow - firstRow, cursorCol: cursorCell };
 }
 
@@ -496,8 +512,9 @@ export function fitModelLabel(label: string, max: number): string {
 
 export function buildPromptFrame(input: FrameInput): Frame {
   // Control characters would move the cursor and tear the frame apart. They are shown as
-  // spaces; one character stays one character, so cursor positions keep matching.
-  const f: FrameInput = { ...input, input: input.input.replace(/[\x00-\x1f\x7f]/g, ' ') };
+  // spaces; one character stays one character, so cursor positions keep matching. A line break
+  // is kept: it starts a new row of the input.
+  const f: FrameInput = { ...input, input: input.input.replace(CONTROL_EXCEPT_NEWLINE, ' ') };
   if (isCompact(f.cols)) return buildCompactFrame(f);
   const W = frameWidth(f.cols);
   const style = modeStyle(f.mode);
@@ -1175,7 +1192,7 @@ export interface StatusLineInput {
 }
 
 /**
- * The working line:  `  ⠹ Read src/x.ts  (12s · ↓ 364 tokens · ctrl+c to stop)`.
+ * The working line:  `  ⠹ Read src/x.ts  (12s · ↓ 364 tokens · esc to stop)`.
  * On a narrow screen the details are dropped step by step, the label is cut last.
  */
 export function renderStatusLine({ label: rawLabel, elapsedMs, meta = '', frame, columns }: StatusLineInput): string {
@@ -1205,7 +1222,7 @@ export function renderStatusLine({ label: rawLabel, elapsedMs, meta = '', frame,
 }
 
 /**
- * Animated "working" line:  `  ⠹ Read src/x.ts  (12s · 1.2k tok · ctrl+c to stop)`.
+ * Animated "working" line:  `  ⠹ Read src/x.ts  (12s · 1.2k tok · esc to stop)`.
  * Same start / message / stop API as the clack spinner it replaces.
  */
 let activeSpinner: UiSpinner | null = null;

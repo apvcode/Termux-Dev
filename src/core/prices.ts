@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { NATIVE_PROVIDERS, devxDir, normalizeModelKey, readJsonFile } from './catalog-util.js';
 import { ensureSecureDir } from './secure-file.js';
 import {
-  CostSource, PriceInfo, Rates, UsageCounts, computeCost, isFreeModel, reportedCost,
+  CostParts, CostSource, PriceInfo, Rates, UsageCounts, costParts, isFreeModel, reportedCost, scaleParts,
 } from './cost.js';
 
 /**
@@ -273,6 +273,8 @@ export function resolvePrice(ctx: PriceContext): PriceInfo | undefined {
 export interface PricedUsage {
   cost?: number;
   costSource?: CostSource;
+  /** The cost split by what was paid for (when the rates of the model are known). */
+  parts?: CostParts;
 }
 
 /**
@@ -286,8 +288,13 @@ export function priceUsage(ctx: PriceContext, counts: UsageCounts, rawUsage?: an
 
   if (reported !== undefined) {
     const suspicious = reported === 0 && tokens > 0 && !!info && info.source !== 'free' && info.rates.input + info.rates.output > 0;
-    if (!suspicious) return { cost: reported, costSource: reported === 0 && info?.source === 'free' ? 'free' : 'reported' };
+    if (!suspicious) {
+      // The provider gave only the total: split it in the proportions of the known rates.
+      const parts = info ? scaleParts(costParts(info.rates, counts), reported) : undefined;
+      return { cost: reported, costSource: reported === 0 && info?.source === 'free' ? 'free' : 'reported', parts };
+    }
   }
   if (!info) return {};
-  return { cost: computeCost(info.rates, counts), costSource: info.source };
+  const parts = costParts(info.rates, counts);
+  return { cost: parts.input + parts.cacheRead + parts.cacheWrite + parts.output, costSource: info.source, parts };
 }

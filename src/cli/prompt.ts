@@ -8,7 +8,8 @@ import { formatPromptHeader } from './modeborder.js';
 import { filterCommandPalette, estimatePromptTokens, formatPromptTokenBadge } from './prompt_palette.js';
 import { PromptHistoryNavigator } from './history_search.js';
 import { buildPromptFrame, moveCursorRow, palette, renderUserEcho, resolveMode } from './ui.js';
-import { padEndWidth, truncateWidth } from './width.js';
+import { displayWidth, padEndWidth, rowsToTop, truncateWidth } from './width.js';
+import { EXTENDED_KEYS_OFF, EXTENDED_KEYS_ON, isNewlineKey, normalizeKey } from './keys.js';
 
 import { UIConfig } from '../core/types.js';
 
@@ -57,6 +58,8 @@ export interface AskPromptOptions {
   initialValue?: string;
   planMode?: boolean;
   isYolo?: boolean;
+  /** Extra: YOLO without the safety net. */
+  isExtra?: boolean;
   ui?: UIConfig;
   /** Shown in the borders of the framed prompt (clean layout). */
   model?: string;
@@ -155,6 +158,8 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
       process.stdout.write('\x1b[?2004h'); // Enable bracketed paste mode
+      // Lets the terminal tell Ctrl+Enter and Shift+Enter (a new paragraph) from Enter (send).
+      process.stdout.write(EXTENDED_KEYS_ON);
     }
 
     // ── framed prompt (clean layout) ──
@@ -162,6 +167,11 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     // to the top of the block, rewrites every row and returns to the cursor position.
     let frameRowsDrawn = 0;
     let frameCursorRow = 0;
+    // The geometry of what is on screen, to find the top of the frame again after a resize
+    // (the terminal re-wraps the rows, so the number of lines is not the number of rows).
+    let frameLineWidths: number[] = [];
+    let frameCursorCol = 0;
+    const rowsUpToFrameTop = () => rowsToTop(frameLineWidths, frameCursorRow, frameCursorCol, process.stdout.columns || 80);
 
     function cleanDropdownRows(items: DropdownItem[], cols: number, rows: number): string[] {
       if (items.length === 0) return [];
@@ -194,7 +204,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       const rows = process.stdout.rows || 24;
       const frame = buildPromptFrame({
         cols,
-        mode: resolveMode(!!opts.planMode, !!opts.isYolo),
+        mode: resolveMode(!!opts.planMode, !!opts.isYolo, !!opts.isExtra),
         model: opts.model,
         cwd: opts.cwd,
         branch: opts.branch,
@@ -210,7 +220,8 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       });
 
       let buf = '\x1b[0m';
-      if (frameRowsDrawn > 0 && frameCursorRow > 0) buf += `\x1b[${frameCursorRow}A`;
+      const up = frameRowsDrawn > 0 ? rowsUpToFrameTop() : 0;
+      if (up > 0) buf += `\x1b[${up}A`;
       buf += '\r';
       frame.lines.forEach((line, i) => {
         buf += '\x1b[2K' + line + '\x1b[0m' + (i < frame.lines.length - 1 ? '\n' : '');
@@ -225,13 +236,18 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       process.stdout.write(buf);
       frameRowsDrawn = frame.lines.length;
       frameCursorRow = frame.cursorRow;
+      frameCursorCol = frame.cursorCol;
+      frameLineWidths = frame.lines.map((line) => displayWidth(line));
     }
 
     function eraseFrame() {
       if (frameRowsDrawn === 0) return;
-      process.stdout.write(`\x1b[0m${frameCursorRow > 0 ? `\x1b[${frameCursorRow}A` : ''}\r\x1b[J`);
+      const up = rowsUpToFrameTop();
+      process.stdout.write(`\x1b[0m${up > 0 ? `\x1b[${up}A` : ''}\r\x1b[J`);
       frameRowsDrawn = 0;
       frameCursorRow = 0;
+      frameCursorCol = 0;
+      frameLineWidths = [];
     }
 
     const onResize = () => {
@@ -627,7 +643,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       disposed = true;
       unsubscribeOwner?.();
       if (process.stdout.isTTY) {
-        process.stdout.write('\x1b[?2004l');
+        process.stdout.write('\x1b[?2004l' + EXTENDED_KEYS_OFF);
       }
       process.stdout.removeListener('resize', onResize);
       process.stdin.removeListener('data', onData);
@@ -677,9 +693,26 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       resolve(fullText);
     }
 
+    /** Breaks the line at the cursor (a new paragraph). A badge such as [Pasted text #1] is never cut in two. */
+    function insertNewline() {
+      const inside = getTagSpans().find((s) => cursorPos > s.start && cursorPos < s.end);
+      if (inside) cursorPos = inside.end;
+      input = input.slice(0, cursorPos) + '\n' + input.slice(cursorPos);
+      cursorPos++;
+      selectedIndex = 0;
+      render();
+    }
+
     function onData(data: Buffer) {
       if (disposed) return;
-      const str = data.toString('utf-8');
+      const raw = data.toString('utf-8');
+      // Ctrl+Enter, Alt+Enter and Shift+Enter break the line instead of sending it.
+      if (cleanLayout && isNewlineKey(raw)) {
+        insertNewline();
+        return;
+      }
+      // With the extended keyboard mode on, Ctrl+C, Esc, Ctrl+V... arrive as `CSI … u`: the usual keys again.
+      const str = normalizeKey(raw);
 
       // Bracketed paste mode handling
       if (str.includes('\x1b[200~')) {
@@ -759,12 +792,30 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
 
       const items = getDropdownItems();
 
+      // Esc with the command list (or the file list of an @) open: that entry is cancelled, the line is cleared.
+      if (str === '\x1b' && cleanLayout && items.length > 0) {
+        input = '';
+        cursorPos = 0;
+        selectedIndex = 0;
+        render();
+        return;
+      }
+
       // Enter / Return
       if (
         str === '\r' ||
         str === '\n' ||
         (str.length === 1 && (str.charCodeAt(0) === 13 || str.charCodeAt(0) === 10))
       ) {
+        // A backslash right before the cursor turns Enter into a line break (a terminal that cannot
+        // tell Ctrl+Enter from Enter, a phone keyboard for one).
+        if (cleanLayout && items.length === 0 && cursorPos > 0 && input[cursorPos - 1] === '\\') {
+          input = input.slice(0, cursorPos - 1) + input.slice(cursorPos);
+          cursorPos--;
+          insertNewline();
+          return;
+        }
+
         // Direct /image command
         if (
           input.trim() === '/image' ||

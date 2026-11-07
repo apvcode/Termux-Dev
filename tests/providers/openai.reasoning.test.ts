@@ -207,3 +207,43 @@ describe('a gateway that refuses without saying why', () => {
     expect(bodies[2].reasoning_effort).toBe('high');
   });
 });
+
+describe('createProvider for a side job', () => {
+  const base = { apiKey: 'k', model: 'o3', baseUrl: 'https://api.openai.com/v1', effort: { o3: 'high' } };
+
+  it('asks for the lightest reasoning the model offers instead of the level chosen for the work', async () => {
+    const bodies = mockFetch(okJson, okJson);
+    await createProvider(base).chat({ messages });
+    await createProvider(base, { light: true }).chat({ messages });
+    expect(bodies[0].reasoning_effort).toBe('high');
+    expect(bodies[1].reasoning_effort).toBe('low');
+  });
+
+  it('turns thinking off where the model allows it', async () => {
+    const bodies = mockFetch(okJson);
+    await createProvider({ apiKey: 'k', model: 'claude-sonnet-4-5', baseUrl: 'https://api.anthropic.com/v1', effort: { 'claude-sonnet-4-5': 'max' } }, { light: true }).chat({ messages });
+    expect(bodies[0].thinking).toBeUndefined();
+  });
+
+  it('sends nothing extra to a model that has no reasoning setting', async () => {
+    const bodies = mockFetch(okJson);
+    await createProvider({ apiKey: 'k', model: 'gpt-4o', baseUrl: 'https://api.openai.com/v1' }, { light: true }).chat({ messages });
+    expect(Object.keys(bodies[0]).sort()).toEqual(['messages', 'model', 'stream']);
+  });
+});
+
+describe('lostRequestUsage', () => {
+  it('prices a request that went out without an answer, as an estimate, and counts it in the session', async () => {
+    const { UsageTracker } = await import('../../src/core/usage.js');
+    const tracker = UsageTracker.getInstance();
+    tracker.reset();
+    const provider = new OpenAIProvider('https://gw.example.com/v1', 'k', 'mymodel', undefined, { price: { prices: { mymodel: { input: 1, output: 2 } } } } as any);
+    const usage = provider.lostRequestUsage(1_000_000, 500_000);
+    expect(usage.tokensEstimated).toBe(true);
+    expect(usage.cost).toBeCloseTo(2, 6);
+    expect(usage.costSource).toBe('estimated');
+    expect(tracker.getSummary().promptTokens).toBe(1_000_000);
+    expect(tracker.getSummary().totalCost).toBeCloseTo(2, 6);
+    tracker.reset();
+  });
+});

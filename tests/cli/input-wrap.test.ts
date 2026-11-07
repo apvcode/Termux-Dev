@@ -137,3 +137,50 @@ describe('prompt frame with a long text', () => {
     expect(maxInputRows(4)).toBe(1);
   });
 });
+
+describe('line breaks in the input', () => {
+  const rowsOf = (input: string, cells: number) => text(input, wrapInput(input, cells));
+
+  it('a line break ends the row, and stays at the end of it', () => {
+    expect(rowsOf('one\ntwo', 20)).toEqual(['one\n', 'two']);
+    expect(rowsOf('a\n\nb', 20)).toEqual(['a\n', '\n', 'b']);
+  });
+
+  it('text that ends with a break has an empty row after it, where the cursor waits', () => {
+    expect(wrapInput('one\n', 20)).toEqual([{ start: 0, end: 4 }, { start: 4, end: 4 }]);
+    expect(rowsOf('\n', 20)).toEqual(['\n', '']);
+  });
+
+  it('long paragraphs still wrap inside their own rows', () => {
+    const rows = rowsOf('one two three four\nfive', 10);
+    expect(rows.join('')).toBe('one two three four\nfive');
+    expect(rows[rows.length - 1]).toBe('five');
+  });
+
+  it('the frame shows each paragraph on its own row, with the cursor on the right one', () => {
+    const frame = buildPromptFrame({
+      cols: 100, mode: 'agent', model: 'm', cwd: '/p', contextPercent: 0, cost: 0,
+      input: 'one\ntwo', cursorPos: 5, placeholder: 'ask',
+    } as any);
+    const lines = frame.lines.map(stripAnsi);
+    expect(lines[1]).toContain('one');
+    expect(lines[1]).not.toContain('two');
+    expect(lines[2]).toContain('two');
+    expect(frame.cursorRow).toBe(2);               // the top border, the first row, then "two": the cursor is after its "t"
+    expect(frame.cursorCol).toBe(4 + 1);
+    // a break at the very end: an empty row for the cursor
+    const end = buildPromptFrame({
+      cols: 100, mode: 'agent', model: 'm', cwd: '/p', contextPercent: 0, cost: 0,
+      input: 'one\n', cursorPos: 4, placeholder: 'ask',
+    } as any);
+    expect(end.cursorRow).toBe(2);
+    expect(end.cursorCol).toBe(4);
+  });
+
+  it('up and down move between paragraphs', () => {
+    const input = 'one\ntwo';
+    expect(moveCursorRow(input, 6, 100, -1)).toBe(2);   // "tw|o" -> "on|e"
+    expect(moveCursorRow(input, 2, 100, 1)).toBe(6);
+    expect(moveCursorRow(input, 2, 100, -1)).toBeNull();
+  });
+});

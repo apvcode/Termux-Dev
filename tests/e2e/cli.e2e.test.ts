@@ -52,7 +52,7 @@ describe.skipIf(!canRunE2E)('devx in a terminal', () => {
       { wait: 'Ask or describe', timeout: 30 },
       { ms: 300, send: 'first task' },
       { ms: 200, send: KEY.enter },
-      { wait: 'ctrl\\+c to stop', timeout: 10 },                      // the agent is working
+      { wait: 'esc to stop', timeout: 10 },                           // the agent is working
       { ms: 300, send: 'second thought' },
       { ms: 200, send: KEY.enter },
       { wait: 'queued: second thought', timeout: 10 },
@@ -60,7 +60,29 @@ describe.skipIf(!canRunE2E)('devx in a terminal', () => {
       { wait: '❯ second thought', timeout: 10 },                        // back in the input line
     ], { exitWait: 1 });
     expect(r.steps.map((s) => s.ok)).toEqual([true, true, true, true, true, true, true, true, true]);
-    expect(r.plain).toContain('ctrl+enter sends now');                 // the hint next to the waiting message
+    expect(r.plain).toContain('↓ edit');                               // the hint next to the waiting message
+  }, 90000);
+
+  it('Esc stops the answer the agent is writing, keeps what was typed for the next prompt, and nothing else happens', async () => {
+    await provider.close();
+    provider = await startFakeProvider(8000);                         // a slow answer: time to press Esc
+    await box.cleanup();
+    box = await makeSandbox(provider);
+    const started = Date.now();
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      { ms: 300, send: 'long task' },
+      { ms: 200, send: KEY.enter },
+      { wait: 'esc to stop', timeout: 10 },                           // the agent is working
+      { ms: 300, send: 'my next thought' },                            // typed, not sent
+      { ms: 300, send: KEY.esc },
+      { wait: 'connection cancelled|stopped', timeout: 5 },
+      { wait: '❯ my next thought', timeout: 10 },                      // the draft is back in the prompt
+    ], { exitWait: 1 });
+    expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
+    expect(Date.now() - started).toBeLessThan(8000 + 10000);
+    expect(r.plain).not.toContain('FAKE-ANSWER');                    // it never got to answer
+    expect(r.exited).toBe(false);
   }, 90000);
 
   it('stops the task when the session reaches its cost limit, and asks before the next message', async () => {
@@ -153,12 +175,18 @@ describe.skipIf(!canRunE2E)('the first run', () => {
       { ms: 200, send: KEY.down },
       { ms: 200, send: KEY.enter },
       { wait: 'Провайдер', timeout: 10, ms: 300 },                           // the rest is in the chosen language
-      { ms: 200, send: KEY.up },                                             // from the first match to "Custom endpoint"
+      { ms: 200, send: KEY.up },                                             // from the first match to "Add a provider"
       { ms: 200, send: KEY.enter },
-      { wait: 'Base URL|URL', timeout: 10, ms: 300 },
+      { wait: 'Название провайдера', timeout: 10, ms: 300 },                 // a provider of one's own: name, address, key
+      { ms: 100, send: 'Fake gateway' },
+      { ms: 300, send: KEY.enter },
+      { wait: 'Базовый URL', timeout: 10, ms: 300 },
       { ms: 100, send: provider.baseUrl },
       { ms: 300, send: KEY.enter },
-      { wait: 'API', timeout: 10, ms: 300 },
+      { wait: 'Ключ не нужен', timeout: 10, ms: 300 },                       // a server on this machine may need no key
+      { ms: 200, send: KEY.down },                                           // "Enter a key"
+      { ms: 200, send: KEY.enter },
+      { wait: 'Вставь API-ключ', timeout: 10, ms: 300 },
       { ms: 100, send: 'secret-key-1' },
       { ms: 300, send: KEY.enter },
       { wait: 'fake', timeout: 15, ms: 300 },
@@ -171,6 +199,134 @@ describe.skipIf(!canRunE2E)('the first run', () => {
     expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
     expect(r.plain).not.toContain('secret-key-1');                           // the key is never echoed
     const saved = JSON.parse(await fs.readFile(path.join(box.home, '.devxrc.json'), 'utf8'));
-    expect(saved).toMatchObject({ language: 'ru', onboarded: true, theme: expect.any(String), provider: 'custom', baseUrl: provider.baseUrl, apiKey: 'secret-key-1', model: 'fake' });
+    expect(saved).toMatchObject({ language: 'ru', onboarded: true, theme: expect.any(String), provider: 'custom-fake-gateway', baseUrl: provider.baseUrl, apiKey: 'secret-key-1', model: 'fake' });
+    // and it is kept as a provider of its own, to be chosen again later
+    expect(saved.customProviders).toEqual({ 'custom-fake-gateway': { name: 'Fake gateway', baseUrl: provider.baseUrl } });
+    expect(saved.apiKeys['custom-fake-gateway']).toBe('secret-key-1');
   }, 120000);
+});
+
+describe.skipIf(!canRunE2E)('saved providers', () => {
+  let provider: FakeProvider;
+  let box: Sandbox;
+  beforeEach(async () => { provider = await startFakeProvider(0); box = await makeSandbox(provider); });
+  afterEach(async () => { await provider.close(); await box.cleanup(); });
+
+  it('the single "Custom" of older versions shows up as a saved provider, and can be deleted from its card', async () => {
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      { ms: 300, send: '/provider' },
+      { ms: 300, send: KEY.enter },
+      { wait: 'type to find a provider', timeout: 15 },
+      { wait: 'Add a provider', timeout: 5 },                                   // the row that adds one of your own
+      { ms: 300, send: KEY.enter },                                            // the focus is on the first saved provider: Custom
+      { wait: 'Change the name', timeout: 10 },                                // its card: use, rename, address, key, delete
+      { ms: 200, send: KEY.down }, { ms: 100, send: KEY.down }, { ms: 100, send: KEY.down }, { ms: 100, send: KEY.down },
+      { ms: 200, send: KEY.enter },
+      { wait: 'Delete the provider Custom and its key', timeout: 10 },
+      { ms: 300, send: KEY.up },                                               // "No" is on by default: move to "Delete"
+      { ms: 200, send: KEY.enter },
+      { wait: 'Provider Custom deleted', timeout: 10, ms: 300 },
+      { wait: 'type to find a provider', timeout: 10 },                        // back to the list, now without it
+      { ms: 300, send: KEY.esc },
+      { wait: 'Provider selection cancelled', timeout: 10 },
+    ], { exitWait: 1 });
+    expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
+    expect(r.plain).not.toContain('Custom (Any OpenAI');
+    const saved = JSON.parse(await fs.readFile(path.join(box.home, '.devxrc.json'), 'utf8'));
+    expect(saved.customProviders ?? {}).toEqual({});
+    expect(saved.apiKeys?.custom).toBeUndefined();
+    expect(saved.provider).toBeUndefined();                                    // it was the one in use: forgotten, though it keeps working
+    expect(saved.baseUrl).toBe(provider.baseUrl);
+  }, 90000);
+
+  it('a provider added from /provider is saved at once, even when the model step is left', async () => {
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      { ms: 300, send: '/provider' },
+      { ms: 300, send: KEY.enter },
+      { wait: 'type to find a provider', timeout: 15 },
+      { ms: 300, send: KEY.up },                                               // to the pinned "Add a provider"
+      { ms: 200, send: KEY.up },
+      { ms: 200, send: KEY.enter },
+      { wait: 'Name of the provider', timeout: 10, ms: 300 },
+      { ms: 100, send: 'Kimi proxy' },
+      { ms: 300, send: KEY.enter },
+      { wait: 'Base URL of the API', timeout: 10, ms: 300 },
+      { ms: 100, send: 'not a url' },                                          // asked again, with the reason
+      { ms: 300, send: KEY.enter },
+      { wait: 'This is not an address', timeout: 10 },
+      { ms: 100, send: '\x15' },                                               // Ctrl+U clears the field
+      { ms: 100, send: provider.baseUrl },
+      { ms: 300, send: KEY.enter },
+      { wait: 'No key needed', timeout: 10, ms: 300 },
+      { ms: 200, send: KEY.enter },                                            // no key: a local test server
+      { wait: 'Provider Kimi proxy saved', timeout: 10 },
+      { wait: 'type to find a model|fake', timeout: 15, ms: 300 },
+      { ms: 200, send: KEY.esc },                                              // leave the model step
+    ], { exitWait: 1 });
+    expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
+    const saved = JSON.parse(await fs.readFile(path.join(box.home, '.devxrc.json'), 'utf8'));
+    expect(saved.customProviders['custom-kimi-proxy']).toEqual({ name: 'Kimi proxy', baseUrl: provider.baseUrl });
+    expect(saved.apiKeys['custom-kimi-proxy']).toBe('no-key');
+  }, 90000);
+});
+
+describe.skipIf(!canRunE2E)('Extra in the settings', () => {
+  let provider: FakeProvider;
+  let box: Sandbox;
+  beforeEach(async () => { provider = await startFakeProvider(0); box = await makeSandbox(provider); });
+  afterEach(async () => { await provider.close(); await box.cleanup(); });
+
+  it('the row appears with YOLO, warns when switched on, is said again when the panel closes, and is never saved', async () => {
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      { ms: 300, send: '/settings' },
+      { ms: 300, send: KEY.enter },
+      { wait: 'Auto-approve \\(YOLO\\)', timeout: 10 },
+      { ms: 200, send: KEY.down }, { ms: 100, send: KEY.down }, { ms: 100, send: KEY.down },     // theme, interface, background, YOLO
+      { ms: 200, send: '\x1b[C' },                                          // YOLO on: the row appears under it
+      { wait: 'Extra \\(ask nothing\\)', timeout: 10 },
+      { ms: 200, send: KEY.down },
+      { ms: 200, send: '\x1b[C' },                                          // Extra on
+      { wait: 'Warning: nothing is asked', timeout: 10 },
+      { ms: 200, send: KEY.esc },
+      { wait: 'Extra is on', timeout: 10 },                                  // said once more after the panel closed
+      { wait: 'extra', timeout: 10, ms: 300 },                               // the prompt frame says extra, not yolo
+    ], { exitWait: 1 });
+    expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
+    const saved = JSON.parse(await fs.readFile(path.join(box.home, '.devxrc.json'), 'utf8'));
+    expect(saved.autoApprove).toBeUndefined();
+    expect(saved.autoApproveAll).toBeUndefined();                           // off again at the next start
+  }, 90000);
+
+  it('--extra starts with it on, and nothing about it reaches the config file', async () => {
+    const r = await runDevx(box, [
+      { wait: 'extra', timeout: 30 },
+      { wait: 'Ask or describe', timeout: 10, ms: 200 },
+    ], { exitWait: 1, args: ['--extra'] });
+    expect(r.steps.map((s) => s.ok)).toEqual([true, true]);
+    expect(r.plain).toContain('extra: nothing asked');                     // the header card
+    const saved = JSON.parse(await fs.readFile(path.join(box.home, '.devxrc.json'), 'utf8'));
+    expect(saved.autoApproveAll).toBeUndefined();
+  }, 90000);
+});
+
+describe.skipIf(!canRunE2E)('Esc at the prompt', () => {
+  let provider: FakeProvider;
+  let box: Sandbox;
+  beforeEach(async () => { provider = await startFakeProvider(0); box = await makeSandbox(provider); });
+  afterEach(async () => { await provider.close(); await box.cleanup(); });
+
+  it('cancels a command that is being typed: the list closes and the line is empty again', async () => {
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      { ms: 300, send: '/hel' },
+      { wait: '/help', timeout: 10 },                                        // the list of commands
+      { ms: 300, send: KEY.esc },
+      { wait: 'Ask or describe', timeout: 10 },                              // the placeholder is back: the line is empty
+    ], { exitWait: 1 });
+    expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
+    expect(r.exited).toBe(false);
+  }, 60000);
 });

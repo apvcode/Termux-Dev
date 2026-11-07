@@ -313,7 +313,21 @@ export class BackgroundManager extends EventEmitter {
     if (this.notes.length === 0) return '';
     const text = this.notes.map((n) => n.text).join('\n\n');
     this.notes = [];
+    // What the prompt frame shows about unreported news is gone now: let it redraw.
+    this.emit('change');
     return `[devx · background tasks]\n${text}`;
+  }
+
+  /**
+   * Tasks that ended badly and whose news the model has not received yet. The prompt frame shows
+   * this number: it goes away once devx has told the model about the failure.
+   */
+  unreportedFailures(): number {
+    const ids = new Set<string>();
+    for (const note of this.notes) {
+      if (note.kind === 'exit' && this.tasks.get(note.taskId)?.info.status === 'failed') ids.add(note.taskId);
+    }
+    return ids.size;
   }
 
   // ───────────────────────── internals ─────────────────────────

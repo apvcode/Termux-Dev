@@ -41,12 +41,18 @@ export function provisionalTitle(firstUserMessage: string): string {
 }
 
 export interface TitleChat {
-  chat(request: { messages: Message[] }): Promise<{ content?: string | null }>;
+  chat(request: { messages: Message[]; signal?: AbortSignal }): Promise<{ content?: string | null }>;
 }
 
-/** Asks the model for the name. Never throws: on a failure or a timeout the answer is ''. */
+/**
+ * Asks the model for the name. Never throws: on a failure or a timeout the answer is ''. When the
+ * time is up the request is cut off, so a slow thinking model does not go on (and bill) for a
+ * title nobody waits for.
+ */
 export async function generateChatTitle(provider: TitleChat, firstUser: string, firstReply: string, timeoutMs = 20000): Promise<string> {
   const sample = `User: ${firstUser.slice(0, 600)}\n\nAssistant: ${firstReply.slice(0, 600)}`;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const answer = await Promise.race([
       provider.chat({
@@ -54,12 +60,22 @@ export async function generateChatTitle(provider: TitleChat, firstUser: string, 
           { role: 'system', content: TITLE_SYSTEM_PROMPT },
           { role: 'user', content: sample },
         ],
+        signal: controller.signal,
       }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs).unref?.()),
+      // Also for a provider that ignores the signal: the title is given up on when the time is up.
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error('timeout'));
+        }, timeoutMs);
+        timer.unref?.();
+      }),
     ]);
     return cleanTitle(answer.content);
   } catch {
     return '';
+  } finally {
+    clearTimeout(timer);
   }
 }
 

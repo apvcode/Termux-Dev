@@ -22,6 +22,11 @@ export interface ContextBreakdown {
   imageCount: number;
   /** Everything the next request carries. */
   total: number;
+  /**
+   * What the frame shows: 0 while the chat is empty, and from the first message on everything
+   * the next request carries (system prompt and tool schemas included).
+   */
+  inUse: number;
   /** Where devx starts to drop old messages. */
   compactAt: number;
   free: number;
@@ -49,6 +54,7 @@ export function contextBreakdown(messages: Message[], definitions: ToolDefinitio
     user, assistant, toolResults,
     images, imageCount,
     total,
+    inUse: messages.some((m) => m.role !== 'system') ? total : 0,
     compactAt: Math.floor(limit * CONTEXT_USAGE_RATIO),
     free: Math.max(0, limit - total),
   };

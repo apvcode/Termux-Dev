@@ -1,8 +1,10 @@
 import fs from 'fs/promises';
 import path from 'path';
 import pc from 'picocolors';
-import { Tool } from '../core/types.js';
+import { Tool, ToolExecutionContext } from '../core/types.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
+import { IMAGE_WARN_BYTES, imageMimeForPath, sniffImageMime } from '../core/images.js';
+import { modelAcceptsImages } from '../core/vision.js';
 
 // A single read result lands in the model context, so it must stay bounded.
 export const MAX_READ_CHARS = 60000;
@@ -17,13 +19,40 @@ function toLineNumber(value: unknown, name: string): number | undefined {
   return n;
 }
 
+/** Hands an image file to the model. The text returned here is what the tool result says. */
+async function readImage(file: string, size: number, model: string | undefined, context?: ToolExecutionContext): Promise<string> {
+  const name = path.basename(file);
+  if (model && modelAcceptsImages(model) === false) {
+    return `[Image ${file}: the current model (${model}) cannot read images. Tell the user to switch to a model with vision (/model).]`;
+  }
+  if (!context?.attachImage) {
+    return `[Image ${file} (${size} bytes): images cannot be shown in this context]`;
+  }
+  // An image the API refuses stays in the history and breaks every following request,
+  // so the limit is the strictest one in use (Anthropic: 5 MB).
+  if (size > IMAGE_WARN_BYTES) {
+    throw new Error(
+      `Image ${name} is ${(size / 1048576).toFixed(1)} MB: too large to show (limit ${IMAGE_WARN_BYTES / 1048576} MB). ` +
+      'Make a smaller copy first with bash (for example ImageMagick: convert in.png -resize 1600x out.png) and read that.'
+    );
+  }
+  const buffer = await fs.readFile(file);
+  const mime = sniffImageMime(buffer);
+  if (!mime) {
+    throw new Error(`${name} is not a valid PNG, JPEG, GIF or WebP image (the file contents do not match its extension)`);
+  }
+  context.attachImage({ path: file, dataUrl: `data:${mime};base64,${buffer.toString('base64')}` });
+  return `[Image ${file} (${mime}, ${(size / 1024).toFixed(0)} KB) is attached to this result: look at it]`;
+}
+
 export const readFileTool: Tool = {
   name: 'read_file',
   definition: {
     name: 'read_file',
     description:
       `Read contents of a file. Large files are returned in parts (max ~${MAX_READ_CHARS} characters per call): ` +
-      'use startLine/endLine (1-based, inclusive) to read a specific range or to continue reading.',
+      'use startLine/endLine (1-based, inclusive) to read a specific range or to continue reading. ' +
+      'Image files (png, jpg, webp, gif) are shown to you as a picture, so you can look at screenshots, photos and design mockups.',
     parameters: {
       type: 'object',
       properties: {
@@ -42,11 +71,16 @@ export const readFileTool: Tool = {
       throw new Error('endLine must be greater than or equal to startLine');
     }
   },
-  async execute(args: any) {
+  async execute(args: any, config?: any, context?: ToolExecutionContext) {
     try {
       const stat = await fs.stat(args.path);
       if (stat.isDirectory()) {
         throw new Error('Path is a directory, use list_dir instead');
+      }
+
+      // A picture is not text: it is shown to the model together with this result.
+      if (imageMimeForPath(args.path)) {
+        return await readImage(args.path, stat.size, config?.model, context);
       }
       if (stat.size > MAX_READ_FILE_BYTES) {
         throw new Error(

@@ -2,12 +2,14 @@ import { BackgroundInfo, BackgroundManager, formatDuration } from '../core/backg
 import { palette } from './ui.js';
 import { displayWidth, padEndWidth, truncateWidth } from './width.js';
 
-/** What the prompt frame shows: how many tasks run, how many ended badly and were not looked at yet. */
-export function backgroundSummary(manager: BackgroundManager, seenFailures: Set<string>): { running: number; failed: number } {
-  const all = manager.list();
+/**
+ * What the prompt frame shows: how many tasks run, and how many ended badly without the model
+ * having been told yet. The failure disappears from the frame once the model has the news.
+ */
+export function backgroundSummary(manager: BackgroundManager): { running: number; failed: number } {
   return {
-    running: all.filter((t) => t.status === 'running').length,
-    failed: all.filter((t) => t.status === 'failed' && !seenFailures.has(t.id)).length,
+    running: manager.running().length,
+    failed: manager.unreportedFailures(),
   };
 }
 
@@ -80,12 +82,11 @@ export function noteRows(content: string): string[] {
 }
 
 /** `/tasks ...`: returns what to print. Stopping is asynchronous, so this is too. */
-export async function runTasksCommand(args: string[], manager: BackgroundManager, cols: number, markSeen: (ids: string[]) => void): Promise<string[]> {
+export async function runTasksCommand(args: string[], manager: BackgroundManager, cols: number): Promise<string[]> {
   const [first, second] = args;
   const word = (first ?? '').toLowerCase();
 
   if (!first || word === 'list' || word === 'ls') {
-    markSeen(manager.list().map((t) => t.id));
     return renderTaskList(manager, cols);
   }
   if (word === 'stop' || word === 'kill') {
@@ -108,6 +109,5 @@ export async function runTasksCommand(args: string[], manager: BackgroundManager
   // `/tasks bg1`, `/tasks output bg1`, `/tasks logs bg1`
   const id = ['output', 'logs', 'log', 'show'].includes(word) ? second : first;
   if (!id) return [`  ${palette.warn('!')} ${palette.warn('Usage: /tasks output <id>')}`];
-  markSeen([id]);
   return renderTaskOutput(manager, id, cols);
 }
