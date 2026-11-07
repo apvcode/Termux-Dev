@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import http from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FakeProvider, KEY, Sandbox, canRunE2E, makeSandbox, runDevx, startFakeProvider } from './helpers.js';
 
@@ -329,4 +330,67 @@ describe.skipIf(!canRunE2E)('Esc at the prompt', () => {
     expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
     expect(r.exited).toBe(false);
   }, 60000);
+});
+
+describe.skipIf(!canRunE2E)('the update screens', () => {
+  let provider: FakeProvider;
+  let box: Sandbox;
+  let news: http.Server;
+  let newsUrl: string;
+  const NOTES = '## English\n\n### Highlights\n\n- **Your own providers.** A name, an address and a key, saved.\n- **Esc stops.** The answer and the command it started.\n';
+
+  beforeEach(async () => {
+    provider = await startFakeProvider(0);
+    box = await makeSandbox(provider);
+    // A made-up "GitHub": a newer version than the one that runs.
+    news = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(req.url?.startsWith('/release')
+        ? JSON.stringify({ tag_name: 'v99.0.0', body: NOTES, published_at: '2026-11-08T10:00:00Z' })
+        : JSON.stringify({ version: '99.0.0' }));
+    });
+    await new Promise<void>((resolve) => news.listen(0, '127.0.0.1', resolve));
+    newsUrl = `http://127.0.0.1:${(news.address() as any).port}`;
+  });
+  afterEach(async () => { await new Promise((r) => news.close(r)); await provider.close(); await box.cleanup(); });
+
+  const env = () => ({ DEVX_UPDATE_PKG_URL: `${newsUrl}/package.json`, DEVX_UPDATE_RELEASE_URL: `${newsUrl}/release`, DEVX_UPDATE_METHOD: 'npm' });
+
+  it('/update shows the card with what is new; "Update now" runs the steps on a live screen and a version that npm does not have fails with the way to do it by hand', async () => {
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      { ms: 300, send: '/update' },
+      { ms: 300, send: KEY.enter },
+      { wait: 'devx 99.0.0 is out', timeout: 20 },
+      { wait: 'Your own providers', timeout: 5 },
+      { wait: 'Update now', timeout: 10 },
+      { ms: 300, send: KEY.enter },                                          // "Update now" is the first and the default
+      { wait: 'update failed', timeout: 60 },                                // npm answers E404 for 99.0.0 (or there is no network)
+      { wait: 'Stopped at: Checking the registry', timeout: 5 },
+      { wait: 'npm install -g termux-dev@latest', timeout: 5 },
+      { wait: 'Ask or describe', timeout: 10, ms: 300 },                     // devx goes on
+    ], { exitWait: 1, env: env() });
+    expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
+    expect(r.plain).toContain('Keep devx open');
+    expect(r.exited).toBe(false);
+  }, 120000);
+
+  it('at start-up "Skip this version" is remembered, and the next start does not ask again', async () => {
+    await fs.writeFile(path.join(box.home, '.devxrc.json'), JSON.stringify({ ...JSON.parse(await fs.readFile(path.join(box.home, '.devxrc.json'), 'utf8')), checkUpdates: true }));
+    const first = await runDevx(box, [
+      { wait: 'devx 99.0.0 is out', timeout: 30 },
+      { wait: 'Skip this version', timeout: 10 },
+      { ms: 300, send: KEY.down }, { ms: 200, send: KEY.down },
+      { ms: 200, send: KEY.enter },
+      { wait: 'no more questions about 99.0.0', timeout: 10 },
+      { wait: 'Ask or describe', timeout: 20 },
+    ], { exitWait: 1, env: env() });
+    expect(first.steps.map((s) => s.ok)).toEqual(first.steps.map(() => true));
+    const saved = JSON.parse(await fs.readFile(path.join(box.home, '.devxrc.json'), 'utf8'));
+    expect(saved.skippedUpdate).toBe('99.0.0');
+
+    const second = await runDevx(box, [{ wait: 'Ask or describe', timeout: 30 }], { exitWait: 1, env: env() });
+    expect(second.steps.map((s) => s.ok)).toEqual([true]);
+    expect(second.plain).not.toContain('is out');
+  }, 120000);
 });

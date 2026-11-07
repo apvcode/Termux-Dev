@@ -65,10 +65,14 @@ function hintLine(width: number, typing: boolean): string {
 }
 
 /** The card around some content rows; `rows` are already padded to the inner width by the caller's `box`. */
-function frame(title: string, subtitle: string | undefined, cols: number, body: (iw: number, box: (c: string, shaded?: boolean) => string) => string[], footer: string): string[] {
+/** The card every list and field is drawn in: a title and a subtitle in the border, a body, a line of hints under it. */
+export function frame(title: string, subtitle: string | undefined, cols: number, body: (iw: number, box: (c: string, shaded?: boolean) => string) => string[], footer: string): string[] {
   if (cols < 60) {
     const width = Math.max(20, cols - 1);
-    const head = ' ' + palette.bold(palette.accent(title)) + (subtitle ? palette.faint(' · ' + truncateWidth(subtitle, Math.max(6, width - displayWidth(title) - 6))) : '');
+    // Never wider than the screen, however long the title is in the language of the interface.
+    const shownTitle = truncateWidth(title, Math.max(4, width - 1));
+    const subRoom = width - 1 - displayWidth(shownTitle) - 3;
+    const head = ' ' + palette.bold(palette.accent(shownTitle)) + (subtitle && subRoom >= 6 ? palette.faint(' · ' + truncateWidth(subtitle, subRoom)) : '');
     const plain = (c: string, shaded = false) => (shaded ? palette.shade(padEndWidth(' ' + c, width)) : ' ' + c);
     return [head, ...body(width - 1, plain), ' ' + footer];
   }

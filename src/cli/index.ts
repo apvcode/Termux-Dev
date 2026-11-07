@@ -35,7 +35,7 @@ import { MarkdownStreamer, renderMarkdown } from './markdown.js';
 import { SmoothStreamer } from './smooth.js';
 import { askPrompt } from './prompt.js';
 import { resolveAtMentions } from './files.js';
-import { runStartupUpdateCheck, checkForUpdates, performSelfUpdate } from './updater.js';
+import { runManualUpdate, runStartupUpdateCheck } from './update-screen.js';
 import { getTheme, setActiveTheme, getCurrentTheme, listThemes, findTheme, THEMES, ThemeDef } from './theme.js';
 import { runHeadlessMode } from './headless.js';
 import { CustomCommandManager } from '../core/commands.js';
@@ -983,7 +983,7 @@ export async function main() {
   const sessionManager = new SessionManager(config.model, planMode);
 
   drawLogo(config.banner || 'full');
-  await runStartupUpdateCheck(config);
+  await runStartupUpdateCheck(config, { save: saveConfig });
   await MCPManager.getInstance().init(undefined, config.projectMcpTrusted === true);
   // Ask a custom endpoint what the current model can do (cached for a day; never blocks the prompt).
   void refreshEndpoint(config).catch(() => null);
@@ -1325,19 +1325,7 @@ export async function main() {
       }
 
       if (cmd === '/update') {
-        const s = new UiSpinner();
-        s.start('Checking for updates from https://github.com/apvcode/Termux-Dev...');
-        const res = await checkForUpdates(10000);
-        s.stop();
-        if (res.updateAvailable) {
-          log.info(pc.bold(pc.yellow(`Update available: v${res.currentVersion} → v${res.latestVersion}`)));
-          const doUpdate = await askConfirm({ title: 'update', question: t('confirm.update', { version: res.latestVersion }), initial: true });
-          if (doUpdate) {
-            await performSelfUpdate(res.latestVersion);
-          }
-        } else {
-          log.success(pc.green(`devx is up to date! (v${res.currentVersion})`));
-        }
+        await runManualUpdate();
         continue;
       }
 

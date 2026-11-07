@@ -180,7 +180,7 @@ Escribe `/` en el prompt para abrir la paleta de comandos con autocompletado:
 | **`/resume`** | Explorar y retomar sesiones de chat guardadas |
 | **`/session del`** | Borrar sesiones guardadas de forma selectiva o masiva |
 | **`/settings`** | Configurar tema, interfaz, autoaprobación YOLO, memoria del proyecto, comprobación de actualizaciones e idioma de la interfaz |
-| **`/update`** | Buscar e instalar las últimas actualizaciones desde GitHub |
+| **`/update`** | Buscar una versión nueva: una tarjeta con las novedades y luego **Actualizar ahora**, **Más tarde** o (al iniciar) **Omitir esta versión**. La instalación se muestra paso a paso en una pantalla en vivo, comprueba que npm tenga la versión y reinicia devx. Si falla, muestra el motivo y el comando para hacerlo a mano |
 | **`/model`** | Cambiar el modelo del proveedor activo con búsqueda en vivo |
 | **`/effort [level]`** | Fijar el esfuerzo de razonamiento. Solo se ofrecen los niveles que admite el modelo actual (consulta [Esfuerzo de razonamiento](#esfuerzo-de-razonamiento)) |
 | **`/provider`** | Cambiar de proveedor (OpenRouter, Gemini, Groq, DeepSeek, Local) |

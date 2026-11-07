@@ -180,7 +180,7 @@ Tippe `/` im Prompt, um die Befehlspalette mit Autovervollständigung zu öffnen
 | **`/resume`** | Gespeicherte Chat-Sitzungen durchsuchen und fortsetzen |
 | **`/session del`** | Gespeicherte Sitzungen gezielt oder gesammelt löschen |
 | **`/settings`** | Farbschema, Oberfläche, YOLO-Auto-Freigabe, Projektgedächtnis, Updateprüfung und Sprache der Oberfläche einstellen |
-| **`/update`** | Nach Updates von GitHub suchen und sie installieren |
+| **`/update`** | Nach einer neuen Version suchen: eine Karte mit den Neuerungen, dann **Jetzt aktualisieren**, **Später** oder (beim Start) **Diese Version überspringen**. Die Installation läuft Schritt für Schritt auf einem Live-Bildschirm, prüft, dass npm die Version wirklich hat, und startet devx neu. Bei einem Fehler siehst du den Grund und den Befehl für die Handarbeit |
 | **`/model`** | Das Modell des aktiven Anbieters mit Live-Suche wechseln |
 | **`/effort [level]`** | Den Denkaufwand setzen. Angeboten werden nur Stufen, die das aktuelle Modell unterstützt (siehe [Denkaufwand](#denkaufwand)) |
 | **`/provider`** | Den Anbieter wechseln (OpenRouter, Gemini, Groq, DeepSeek, Local) |

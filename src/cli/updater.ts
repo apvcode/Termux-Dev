@@ -1,20 +1,20 @@
-import { execSync, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
-import pc from 'picocolors';
-import { select } from '@inquirer/prompts';
-import { palette } from './ui.js';
 import { fileURLToPath } from 'url';
 
 const GITHUB_REPO_URL = 'https://github.com/apvcode/Termux-Dev';
-const REMOTE_PKG_URL = 'https://raw.githubusercontent.com/apvcode/Termux-Dev/main/package.json';
-const REMOTE_RELEASE_URL = 'https://api.github.com/repos/apvcode/Termux-Dev/releases/latest';
+// Where to look for the newest version. Overridable (a mirror, a test server).
+const REMOTE_PKG_URL = process.env.DEVX_UPDATE_PKG_URL || 'https://raw.githubusercontent.com/apvcode/Termux-Dev/main/package.json';
+const REMOTE_RELEASE_URL = process.env.DEVX_UPDATE_RELEASE_URL || 'https://api.github.com/repos/apvcode/Termux-Dev/releases/latest';
 
 export interface UpdateCheckResult {
   updateAvailable: boolean;
   currentVersion: string;
   latestVersion: string;
   releaseNotes?: string;
+  /** When the release was published (ISO date), if GitHub said so. */
+  publishedAt?: string;
   error?: string;
 }
 
@@ -66,6 +66,7 @@ export async function checkForUpdates(timeoutMs = 10000): Promise<UpdateCheckRes
 
     let latestVersion = '';
     let releaseNotes = '';
+    let publishedAt = '';
 
     if (res.ok) {
       const pkg = await res.json();
@@ -85,6 +86,7 @@ export async function checkForUpdates(timeoutMs = 10000): Promise<UpdateCheckRes
           latestVersion = relTag;
         }
         releaseNotes = relData.body || '';
+        publishedAt = relData.published_at || '';
       }
     } catch {}
 
@@ -93,7 +95,8 @@ export async function checkForUpdates(timeoutMs = 10000): Promise<UpdateCheckRes
         updateAvailable: true,
         currentVersion,
         latestVersion,
-        releaseNotes
+        releaseNotes,
+        publishedAt: publishedAt || undefined
       };
     }
 
@@ -113,174 +116,163 @@ export async function checkForUpdates(timeoutMs = 10000): Promise<UpdateCheckRes
   }
 }
 
-async function isGitRepository(dir: string): Promise<boolean> {
+// ───────────────────────── installing ─────────────────────────
+
+export type InstallMethod = 'npm' | 'git';
+
+/** How this devx was installed: from the npm package, or from a git clone (a developer's copy). */
+export async function detectInstallMethod(): Promise<{ method: InstallMethod; root: string }> {
+  const here = fileURLToPath(import.meta.url);
+  const root = path.resolve(path.dirname(here), '../../');
+  // DEVX_UPDATE_METHOD forces one of them (a copy in a git folder that is installed with npm, a test).
+  const forced = (process.env.DEVX_UPDATE_METHOD || '').toLowerCase();
+  if (forced === 'npm' || forced === 'git') return { method: forced, root };
   try {
-    await fs.stat(path.join(dir, '.git'));
-    return true;
+    await fs.stat(path.join(root, '.git'));
+    return { method: 'git', root };
   } catch {
-    return false;
+    return { method: 'npm', root };
   }
 }
 
-export async function performSelfUpdate(latestVersion: string): Promise<boolean> {
-  const __filename = fileURLToPath(import.meta.url);
-  const projectRoot = path.resolve(path.dirname(__filename), '../../');
-  const isGit = await isGitRepository(projectRoot);
-
-  console.log('\n' + pc.bold(pc.cyan('─── Starting devx Update ──────────────────────────')));
-
-  if (!isGit) {
-    // 1. Installed via global npm package: termux-dev
-    process.stdout.write(`  ${pc.cyan('›')} [1/1] ${pc.white(`Updating termux-dev via npm (v${latestVersion})...`)}\n`);
-
-    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-    let fIdx = 0;
-    const interval = setInterval(() => {
-      process.stdout.write(`\r  ${pc.cyan(frames[fIdx++ % frames.length])} ${pc.dim(`npm install -g termux-dev@latest`)} `);
-    }, 80);
-
-    try {
-      execSync('npm install -g termux-dev@latest --prefer-online', { stdio: 'pipe' });
-      clearInterval(interval);
-      process.stdout.write(`\r  ${pc.green('✓')} ${pc.bold(pc.white(`Successfully updated termux-dev to v${latestVersion} via npm!`))}\n`);
-    } catch (err: any) {
-      clearInterval(interval);
-      process.stdout.write(`\r  ${pc.red('✖')} ${pc.red(`Update failed: ${err.message}`)}\n`);
-      console.log(pc.yellow(`\nTo update manually, run: ${pc.bold('npm install -g termux-dev@latest')}`));
-      return false;
-    }
-  } else {
-    // 2. Installed via git clone (Developer mode)
-    const steps = [
-      {
-        title: 'Pulling latest updates from GitHub repository...',
-        action: () => {
-          execSync('git pull origin main', { cwd: projectRoot, stdio: 'pipe' });
-        }
-      },
-      {
-        title: 'Building and compiling TypeScript sources...',
-        action: () => {
-          execSync('npm install', { cwd: projectRoot, stdio: 'pipe' });
-          execSync('npm run build', { cwd: projectRoot, stdio: 'pipe' });
-        }
-      },
-      {
-        title: 'Ensuring binary execution permissions & linking...',
-        action: () => {
-          try {
-            execSync('npm link', { cwd: projectRoot, stdio: 'pipe' });
-          } catch {}
-        }
-      }
-    ];
-
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      process.stdout.write(`  ${pc.cyan('›')} [${i + 1}/${steps.length}] ${pc.white(step.title)}\n`);
-
-      const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-      let fIdx = 0;
-      const interval = setInterval(() => {
-        process.stdout.write(`\r  ${pc.cyan(frames[fIdx++ % frames.length])} ${pc.dim(step.title)} `);
-      }, 80);
-
-      try {
-        await new Promise(resolve => setTimeout(resolve, 200));
-        step.action();
-        clearInterval(interval);
-        process.stdout.write(`\r  ${pc.green('✓')} ${pc.bold(pc.white(step.title))}\n`);
-      } catch (err: any) {
-        clearInterval(interval);
-        process.stdout.write(`\r  ${pc.red('✖')} ${pc.red(step.title)} - ${err.message}\n`);
-        console.log(pc.red(`\nUpdate failed during step ${i + 1}: ${err.message}`));
-        console.log(pc.yellow(`\nTo update manually, run: ${pc.bold('npm install -g termux-dev')}`));
-        return false;
-      }
-    }
+/** What a step of the update says when it fails. `not-published`: the version is on GitHub but not in npm yet. */
+export class UpdateError extends Error {
+  constructor(message: string, public kind: 'failed' | 'not-published' = 'failed') {
+    super(message);
+    this.name = 'UpdateError';
   }
-
-  console.log(pc.bold(pc.green(`\nSuccessfully updated to v${latestVersion}! Restarting devx...\n`)));
-  console.log(pc.bold(pc.cyan('──────────────────────────────────────────────────────\n')));
-
-  await new Promise(r => setTimeout(r, 1000));
-
-  try {
-    const child = spawn(process.argv[0], process.argv.slice(1), {
-      stdio: 'inherit',
-      detached: true
-    });
-    child.unref();
-    process.exit(0);
-  } catch {
-    process.exit(0);
-  }
-
-  return true;
 }
 
-export async function runStartupUpdateCheck(config: any): Promise<void> {
-  // If updates checking is disabled in settings, return immediately
-  if (config.checkUpdates === false) {
-    return;
-  }
+export interface RunResult {
+  code: number;
+  /** The end of what the command wrote (stdout and stderr together). */
+  output: string;
+}
 
-  const currentVersion = await getCurrentVersion();
-  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-  let fIdx = 0;
-  let isDone = false;
+/** Runs a program and waits for it. Replaceable, so the steps can be tested without installing anything. */
+export type CommandRunner = (command: string, args: string[], options?: { cwd?: string }) => Promise<RunResult>;
 
-  const spinner = setInterval(() => {
-    if (isDone) return;
-    // The colours of the theme, like the rest of the interface.
-    const frame = palette.accent(frames[fIdx++ % frames.length]);
-    process.stdout.write(`\r  ${frame} ${palette.muted('Checking for updates from')} ${palette.accent('apvcode/Termux-Dev')} ${palette.faint(`(v${currentVersion})...`)} `);
-  }, 75);
+const OUTPUT_KEEP = 4000;
 
-  const result = await checkForUpdates(10000);
-  isDone = true;
-  clearInterval(spinner);
-  
-  // Clear spinner line
-  process.stdout.write('\r\x1b[K');
+export const runCommand: CommandRunner = (command, args, options = {}) =>
+  new Promise((resolve) => {
+    let output = '';
+    const keep = (chunk: Buffer) => {
+      output = (output + chunk.toString('utf8')).slice(-OUTPUT_KEEP);
+    };
+    // On Windows npm is a .cmd file, which only a shell can start.
+    const child = spawn(command, args, { cwd: options.cwd, shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    child.stdout?.on('data', keep);
+    child.stderr?.on('data', keep);
+    child.on('error', (err) => resolve({ code: -1, output: output + String(err.message) }));
+    child.on('close', (code) => resolve({ code: code ?? -1, output }));
+  });
 
-  if (result.updateAvailable) {
-    console.log();
-    console.log(palette.rule('  ┌───────────────────────────────────────────────────────────┐'));
-    console.log(palette.rule('  │') + palette.bold(palette.accent(`  A new update is available: `)) + palette.muted(`v${result.currentVersion}`) + palette.bold(palette.ok(` → v${result.latestVersion}`)) + ' '.repeat(Math.max(1, 23 - result.currentVersion.length - result.latestVersion.length)) + palette.rule('│'));
-    console.log(palette.rule('  │') + palette.faint(`  Repository: https://github.com/apvcode/Termux-Dev          `) + palette.rule('│'));
-    console.log(palette.rule('  └───────────────────────────────────────────────────────────┘'));
-    console.log();
+export type StepId = 'registry' | 'install' | 'verify' | 'pull' | 'build' | 'link';
 
-    try {
-      const choice = await select({
-        message: palette.bold('Do you want to update devx now?'),
-        loop: false,
-        choices: [
-          {
-            name: `Update now (Pull v${result.latestVersion}, rebuild & restart)`,
-            value: 'update',
-            description: 'Download latest code, compile TypeScript, and restart devx'
-          },
-          {
-            name: 'Skip for now (Continue to chat)',
-            value: 'skip',
-            description: 'Keep current version and start session'
+export interface UpdateStep {
+  id: StepId;
+  run: () => Promise<void>;
+}
+
+/** The last lines of a command's output, for the message of a failure. */
+export function tail(output: string, lines = 4): string {
+  return output
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(-lines)
+    .join('\n');
+}
+
+function must(result: RunResult, what: string): RunResult {
+  if (result.code !== 0) throw new UpdateError(tail(result.output) || `${what} failed (exit code ${result.code})`);
+  return result;
+}
+
+/**
+ * The steps of an update, in order. Nothing is run until `run()` of a step is called.
+ *
+ *  npm: ask the registry whether the version is there (GitHub knows a release before npm has the
+ *       package: installing `latest` then would "update" to the old version), install exactly that
+ *       version, and read back which version is installed.
+ *  git: pull, install and build, link the command.
+ */
+export function buildUpdateSteps(method: InstallMethod, root: string, version: string, run: CommandRunner = runCommand): UpdateStep[] {
+  if (method === 'npm') {
+    return [
+      {
+        id: 'registry',
+        run: async () => {
+          const res = await run('npm', ['view', `termux-dev@${version}`, 'version', '--prefer-online']);
+          if (res.code !== 0) {
+            // A version that is not in the registry is an E404, not an older answer.
+            if (/E404|No match found/i.test(res.output)) throw new UpdateError(`termux-dev@${version} is not in the npm registry yet`, 'not-published');
+            throw new UpdateError(tail(res.output) || `npm view failed (exit code ${res.code})`);
           }
-        ]
-      });
-
-      if (choice === 'update') {
-        await performSelfUpdate(result.latestVersion);
-      }
-    } catch {
-      // If user presses Ctrl+C / cancels prompt, continue
-    }
-  } else {
-    // Briefly show up to date message
-    process.stdout.write(`  ${palette.ok('✓')} ${palette.muted(`devx is up to date (v${result.currentVersion})`)}\n`);
-    await new Promise(r => setTimeout(r, 450));
-    // Clean up line
-    process.stdout.write('\x1b[1A\x1b[2K');
+          if (res.output.trim().split('\n').pop()?.trim() !== version) {
+            throw new UpdateError(`termux-dev@${version} is not in the npm registry yet`, 'not-published');
+          }
+        },
+      },
+      {
+        id: 'install',
+        run: async () => {
+          must(await run('npm', ['install', '-g', `termux-dev@${version}`, '--prefer-online']), 'npm install');
+        },
+      },
+      {
+        id: 'verify',
+        run: async () => {
+          const res = await run('npm', ['ls', '-g', 'termux-dev', '--depth=0', '--json']);
+          let installed = '';
+          try {
+            installed = JSON.parse(res.output.slice(res.output.indexOf('{')))?.dependencies?.['termux-dev']?.version ?? '';
+          } catch {}
+          if (installed !== version) throw new UpdateError(`npm reports ${installed || 'no version'} instead of ${version}`);
+        },
+      },
+    ];
   }
+  return [
+    { id: 'pull', run: async () => void must(await run('git', ['pull', '--ff-only', 'origin', 'main'], { cwd: root }), 'git pull') },
+    {
+      id: 'build',
+      run: async () => {
+        must(await run('npm', ['install'], { cwd: root }), 'npm install');
+        must(await run('npm', ['run', 'build'], { cwd: root }), 'npm run build');
+      },
+    },
+    // Linking is a convenience: a failure here does not undo the update.
+    { id: 'link', run: async () => void (await run('npm', ['link'], { cwd: root })) },
+  ];
+}
+
+export interface StepEvents {
+  onStart?: (index: number) => void;
+  onDone?: (index: number, ms: number) => void;
+}
+
+export type UpdateOutcome = { ok: true } | { ok: false; index: number; error: UpdateError };
+
+/** Runs the steps one after the other and stops at the first that fails. */
+export async function runUpdateSteps(steps: UpdateStep[], events: StepEvents = {}, now: () => number = Date.now): Promise<UpdateOutcome> {
+  for (let index = 0; index < steps.length; index++) {
+    events.onStart?.(index);
+    const started = now();
+    try {
+      await steps[index].run();
+    } catch (err: any) {
+      return { ok: false, index, error: err instanceof UpdateError ? err : new UpdateError(String(err?.message || err)) };
+    }
+    events.onDone?.(index, now() - started);
+  }
+  return { ok: true };
+}
+
+/** Starts devx again, with the same arguments, and ends this process when the new one ends. */
+export function restartDevx(): void {
+  const child = spawn(process.argv[0], process.argv.slice(1), { stdio: 'inherit' });
+  child.on('exit', (code) => process.exit(code ?? 0));
+  child.on('error', () => process.exit(0));
 }

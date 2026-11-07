@@ -71,6 +71,16 @@ export class LiveBlock {
     this.widths = [];
   }
 
+  /** Leaves what is drawn on the screen as it is: the cursor comes back under it and the next draw starts a new block. */
+  release(): void {
+    if (this.widths.length === 0) {
+      this.out.write('\x1b[?25h');
+      return;
+    }
+    this.out.write('\n\x1b[?25h');
+    this.widths = [];
+  }
+
   /**
    * Calls `redraw` when the window is resized, so the block is drawn again at the new width.
    * Returns the function that stops watching (call it when the panel closes).

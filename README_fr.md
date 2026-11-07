@@ -180,7 +180,7 @@ Tapez `/` dans l’invite pour ouvrir la palette de commandes avec autocompléti
 | **`/resume`** | Parcourir et reprendre les sessions de chat enregistrées |
 | **`/session del`** | Supprimer des sessions enregistrées, une par une ou en masse |
 | **`/settings`** | Régler le thème, l’interface, l’auto-approbation YOLO, la mémoire du projet, la vérification des mises à jour et la langue de l’interface |
-| **`/update`** | Rechercher et installer les dernières mises à jour depuis GitHub |
+| **`/update`** | Chercher une nouvelle version : une carte avec les nouveautés, puis **Mettre à jour maintenant**, **Plus tard** ou (au démarrage) **Ignorer cette version**. L’installation se déroule étape par étape sur un écran en direct, vérifie que npm a bien la version et redémarre devx. En cas d’échec, vous voyez la raison et la commande à lancer à la main |
 | **`/model`** | Changer le modèle du fournisseur actif avec recherche en direct |
 | **`/effort [level]`** | Définir l’effort de raisonnement. Seuls les niveaux que le modèle actuel prend en charge sont proposés (voir [Effort de raisonnement](#effort-de-raisonnement)) |
 | **`/provider`** | Changer de fournisseur (OpenRouter, Gemini, Groq, DeepSeek, Local) |

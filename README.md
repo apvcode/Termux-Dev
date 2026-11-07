@@ -185,7 +185,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 | **`/resume`** | Browse and resume saved chat sessions |
 | **`/session del`** | Selectively or bulk delete saved sessions |
 | **`/settings`** | Configure theme, interface, YOLO auto-approve, project memory, update checks and the interface language |
-| **`/update`** | Check and install latest updates from GitHub |
+| **`/update`** | Check for a new version: a card with what is new, then **Update now**, **Later** or (at start-up) **Skip this version**. The install runs on a live screen step by step, checks that npm really has the version, and restarts devx. If it fails you get the reason and the command to run by hand |
 | **`/model`** | Switch model for the active provider with live search |
 | **`/effort [level]`** | Set the reasoning effort. Only the levels the current model supports are offered (see [Reasoning effort](#reasoning-effort)) |
 | **`/provider`** | Switch provider (OpenRouter, Gemini, Groq, DeepSeek, Local) |
