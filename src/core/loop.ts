@@ -49,6 +49,9 @@ export function getActionDescription(toolName: string, args: any): string {
   if (t === 'todo_list' || t === 'update_todos') {
     return `→ Update Plan & Tasks`;
   }
+  if (t === 'search_chats') {
+    return args?.id ? `→ Chats: read #${String(args.id).replace(/^#/, '')}${args.from ? ` from ${args.from}` : ''}` : args?.query ? `→ Chats: search "${args.query}"` : `→ Chats: recent`;
+  }
   if (t === 'mcp_search') {
     const what = Array.isArray(args?.names) && args.names.length ? `load ${args.names.join(', ')}` : args?.query ? `find "${args.query}"` : args?.server ? `tools of ${args.server}` : 'servers';
     return `→ MCP: ${what.length > 120 ? what.slice(0, 117) + '...' : what}`;

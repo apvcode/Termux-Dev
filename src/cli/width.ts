@@ -138,15 +138,45 @@ export function wrapWidth(text: string, width: number): string[] {
   return lines;
 }
 
-/** Wraps text at word boundaries (a word longer than the line is cut). */
-export function wrapWords(text: string, width: number): string[] {
+/** Cuts a word into pieces of at most `width` cells, never splitting a character. */
+export function splitWord(word: string, width: number): string[] {
+  if (width <= 0) return [word];
+  const pieces: string[] = [];
+  let current = '';
+  let cells = 0;
+  for (const ch of word) {
+    const w = codePointWidth(ch.codePointAt(0)!);
+    if (cells + w > width && current !== '') {
+      pieces.push(current);
+      current = '';
+      cells = 0;
+    }
+    current += ch;
+    cells += w;
+  }
+  if (current !== '') pieces.push(current);
+  return pieces;
+}
+
+/**
+ * Words are put on lines one after another. A word longer than a whole line is dealt with by
+ * `cutLong`: false shortens it with an ellipsis, true cuts it into pieces (the text after it goes on
+ * right behind its last piece). A word that fits on a line is never cut.
+ */
+function wrapWordList(text: string, width: number, cutLong: boolean): string[] {
   const lines: string[] = [];
   let current = '';
   for (const word of text.split(/\s+/).filter(Boolean)) {
     if (displayWidth(word) > width) {
       if (current) lines.push(current);
-      lines.push(truncateWidth(word, width));
-      current = '';
+      if (cutLong) {
+        const pieces = splitWord(word, width);
+        lines.push(...pieces.slice(0, -1));
+        current = pieces[pieces.length - 1] ?? '';
+      } else {
+        lines.push(truncateWidth(word, width));
+        current = '';
+      }
     } else if (current === '') {
       current = word;
     } else if (displayWidth(current) + 1 + displayWidth(word) <= width) {
@@ -158,6 +188,11 @@ export function wrapWords(text: string, width: number): string[] {
   }
   if (current) lines.push(current);
   return lines;
+}
+
+/** Wraps text at word boundaries (a word longer than the line is cut). */
+export function wrapWords(text: string, width: number): string[] {
+  return wrapWordList(text, width, false);
 }
 
 /** The last `maxCells` cells of a text (what a running line shows: the newest words). */
@@ -174,10 +209,63 @@ export function tailWidth(text: string, maxCells: number): string {
   return chars.slice(start).join('');
 }
 
-/** Wraps at word boundaries; text without spaces (Chinese, Japanese) is wrapped anywhere. */
+/**
+ * Wraps at word boundaries. Only a word that is longer than the line is cut (Chinese and Japanese
+ * have no spaces, so a whole sentence is such a word); the words around it stay whole.
+ */
 export function wrapText(text: string, width: number): string[] {
-  const unbreakable = text.split(/\s+/).some((word) => displayWidth(word) > width);
-  return unbreakable ? wrapWidth(text, width) : wrapWords(text, width);
+  return wrapWordList(text, width, true);
+}
+
+/**
+ * Wraps text for showing it back (the message of the user): explicit newlines, blank lines, the
+ * indentation and the spaces inside a line stay as they were. A line is broken at a space, where the
+ * space is dropped; a word longer than a whole line goes on a row of its own and is cut by cells.
+ */
+export function wrapKeepSpaces(text: string, width: number): string[] {
+  const rows: string[] = [];
+  for (const raw of text.split(/\r\n|\r|\n/)) {
+    const line = raw.replace(/\s+$/, '');
+    if (line === '') {
+      rows.push('');
+      continue;
+    }
+    let current = '';
+    let cells = 0;
+    let gap = '';
+    for (const token of line.match(/\S+|\s+/g) ?? []) {
+      if (/^\s/.test(token)) {
+        // Indentation stays; the space between two words waits to see whether the next word fits.
+        if (current === '') {
+          current = token;
+          cells = displayWidth(token);
+        } else gap = token;
+        continue;
+      }
+      const w = displayWidth(token);
+      const gapCells = displayWidth(gap);
+      if (current.trim() !== '' && cells + gapCells + w <= width) {
+        current += gap + token;
+        cells += gapCells + w;
+      } else if (current.trim() === '' && cells + w <= width) {
+        current += token;
+        cells += w;
+      } else if (w <= width) {
+        if (current.trim() !== '') rows.push(current);
+        current = token;
+        cells = w;
+      } else {
+        if (current.trim() !== '') rows.push(current);
+        const pieces = splitWord(token, width);
+        rows.push(...pieces.slice(0, -1));
+        current = pieces[pieces.length - 1];
+        cells = displayWidth(current);
+      }
+      gap = '';
+    }
+    rows.push(current);
+  }
+  return rows;
 }
 
 /**

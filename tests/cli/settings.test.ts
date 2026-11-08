@@ -417,9 +417,9 @@ describe('Extra: YOLO without the safety net', () => {
     expect(visibleRows(base).map((r) => r.key)).not.toContain('extra');
     const rows = visibleRows({ ...base, autoApprove: true }).map((r) => r.key);
     expect(rows[rows.indexOf('autoApprove') + 1]).toBe('extra');          // right under YOLO
-    const hidden = plain(renderSettings(base, 0, 100, 40, '1.9.4')).join('\n');
+    const hidden = plain(renderSettings(base, 0, 100, 40, '1.9.5')).join('\n');
     expect(hidden).not.toContain('Extra');
-    const shown = plain(renderSettings({ ...base, autoApprove: true }, 0, 100, 40, '1.9.4')).join('\n');
+    const shown = plain(renderSettings({ ...base, autoApprove: true }, 0, 100, 40, '1.9.5')).join('\n');
     expect(shown).toMatch(/Extra \(ask nothing\)\s+○ off/);
   });
 
@@ -437,16 +437,16 @@ describe('Extra: YOLO without the safety net', () => {
 
   it('warns in red where it is switched on, and in the line that is never cut', () => {
     const row = visibleRows(all).findIndex((r) => r.key === 'extra');
-    const text = plain(renderSettings(all, row, 100, 40, '1.9.4')).join('\n');
+    const text = plain(renderSettings(all, row, 100, 40, '1.9.5')).join('\n');
     expect(text).toMatch(/Extra \(ask nothing\)\s+▲ on/);
     expect(text).toContain('Runs ANY command without asking');
     expect(text).toContain('Warning: nothing is asked');
     // off: the explanation is there, the warning is not
-    const quiet = plain(renderSettings({ ...all, extra: false }, row, 100, 40, '1.9.4')).join('\n');
+    const quiet = plain(renderSettings({ ...all, extra: false }, row, 100, 40, '1.9.5')).join('\n');
     expect(quiet).toContain('Runs ANY command without asking');
     expect(quiet).not.toContain('Warning: nothing is asked');
     // also on a phone, where the explanation gives way
-    expect(plain(renderSettings(all, row, 40, 24, '1.9.4')).join('\n')).toContain('Warning');
+    expect(plain(renderSettings(all, row, 40, 24, '1.9.5')).join('\n')).toContain('Warning');
   });
 
   it('can be switched on in the panel; switching YOLO off takes the row away and keeps the focus on the list', async () => {
@@ -455,7 +455,7 @@ describe('Extra: YOLO without the safety net', () => {
     input.setRawMode = () => {}; input.resume = () => {};
     const output = { columns: 100, rows: 40, write: () => true };
     const changes: string[] = [];
-    const result = runSettings({ ...base, autoApprove: true }, { version: '1.9.4', io: { input, output }, onChange: (k) => changes.push(k) });
+    const result = runSettings({ ...base, autoApprove: true }, { version: '1.9.5', io: { input, output }, onChange: (k) => changes.push(k) });
     const press = (...keys: string[]) => keys.forEach((k) => input.emit('data', Buffer.from(k)));
     const DOWN = '\x1b[B', UP = '\x1b[A', RIGHT = '\x1b[C';
     press(DOWN, DOWN, DOWN, DOWN, RIGHT);        // theme, layout, black, YOLO, Extra: on

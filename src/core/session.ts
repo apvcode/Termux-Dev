@@ -14,6 +14,8 @@ export interface ChatSession {
   model: string;
   planMode: boolean;
   messages: Message[];
+  /** The folder devx was started in (chats saved before this was recorded have none). */
+  cwd?: string;
   totalCost: number;
   /** Part of totalCost is a catalogue estimate. */
   costEstimated?: boolean;
@@ -22,13 +24,23 @@ export interface ChatSession {
 }
 
 const SESSIONS_DIR = path.join(os.homedir(), '.devx', 'sessions');
+
+/** Where the chats are saved. */
+export function sessionsDir(): string {
+  return SESSIONS_DIR;
+}
+
 export class SessionManager {
+  /** The id of the chat that is open now (it is in the context already, so a search of earlier chats leaves it out). */
+  static activeId = '';
+
   private currentSession: ChatSession;
   /** The files of the pictures already seen (see session-media.ts). */
   private media: MediaIndex = new Map();
 
   constructor(model: string, planMode: boolean) {
     this.currentSession = this.createEmptySession(model, planMode);
+    SessionManager.activeId = this.currentSession.id;
   }
 
   private createEmptySession(model: string, planMode: boolean): ChatSession {
@@ -42,6 +54,7 @@ export class SessionManager {
       model,
       planMode,
       messages: [],
+      cwd: process.cwd(),
       totalCost: 0
     };
   }
@@ -62,6 +75,7 @@ export class SessionManager {
 
   public startNewSession(model: string, planMode: boolean): ChatSession {
     this.currentSession = this.createEmptySession(model, planMode);
+    SessionManager.activeId = this.currentSession.id;
     this.media = new Map();
     return this.currentSession;
   }
@@ -177,5 +191,6 @@ export class SessionManager {
 
   public setLoadedSession(session: ChatSession) {
     this.currentSession = session;
+    SessionManager.activeId = session.id;
   }
 }

@@ -67,6 +67,8 @@ The terminal interface is built around a framed prompt that carries the status i
   Built-in support for TypeScript (`tsc`), JavaScript (`node --check`), Python (`py_compile`), and Rust (`cargo check`). The AI automatically finds and fixes errors before finishing turns.
 - **Project Memory Bank (`.devx/memory.md`):**  
   Persistent project context across sessions with `/memory add <rule>`.
+- **Past chats (`search_chats`):**  
+  When you say "as we decided last time" or "in that chat about the parser", the agent can look through your saved chats by keywords (any language, other word forms match: page / pages) and read the one it needs, a few messages at a time. It is read-only and local, so it asks nothing; the chat that is open is not searched; tool output is not indexed; and what it reads is handed to the model as data, not as instructions. The agent does not use it on a normal task.
 - **18 Colour Themes on a Pure Black Background (`#0a0a0c`):**  
   Deep OLED black for distraction-free CLI vibe-coding, with full palettes instead of a single accent: Cyan Cyber, Synthwave Purple, Matrix Hacker, Solar Amber, Ruby Crimson, Pure Monochrome, Nord Frost, Dracula, Tokyo Night, Gruvbox, Catppuccin Mocha, Solarized Dark, Rose Pine, Monokai, GitHub Dark, Deep Ocean, Sunset Glow and Forest Moss. See [Themes](#themes).
 - **Smart Session History (`/resume` & `/session`):**  

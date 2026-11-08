@@ -10,6 +10,7 @@ import {
   padEndWidth,
   stripAnsi,
   truncateWidth,
+  wrapKeepSpaces,
   wrapText,
   wrapWidth,
   wrapWords,
@@ -626,7 +627,7 @@ function hintsRow(cols: number, mode: UiMode): string {
 export function renderUserEcho(text: string, cols: number): string[] {
   const W = frameWidth(cols);
   const cw = W - 4;
-  const rows = wrapWidth(text.trimEnd(), cw);
+  const rows = wrapKeepSpaces(text.trimEnd(), cw);
   const shaded = rows.map((line, i) => {
     const marker = i === 0 ? palette.accent('❯') : ' ';
     return palette.shade(' ' + marker + ' ' + padEndWidth(palette.text(line), cw) + ' ');
@@ -890,7 +891,7 @@ export function summarizeToolResult(name: string, result: string, cols = 80, exp
 
   if (expanded && t !== 'bash' && !(t === 'edit_file' || t === 'write_file')) {
     // For these the first line is part of the output, not a summary of it.
-    const own = t.startsWith('mcp__') || t === 'mcp_search' || t === 'web_search' || t === 'fetch_url' || t === 'background';
+    const own = t.startsWith('mcp__') || t === 'mcp_search' || t === 'search_chats' || t === 'web_search' || t === 'fetch_url' || t === 'background';
     const first = own ? [] : summarizeToolResult(name, result, cols, false);
     return [...first, ...fullRows(text, cols)];
   }
@@ -937,7 +938,7 @@ export function summarizeToolResult(name: string, result: string, cols = 80, exp
   }
 
   // Output of an MCP tool or a web fetch: the first line and how many more there are.
-  if (t.startsWith('mcp__') || t === 'mcp_search' || t === 'web_search' || t === 'fetch_url') {
+  if (t.startsWith('mcp__') || t === 'mcp_search' || t === 'search_chats' || t === 'web_search' || t === 'fetch_url') {
     const nonEmpty = outputRows(text).filter((l) => l.trim());
     if (nonEmpty.length === 0) return [renderResultLine('(no output)', 'muted', cols)];
     const rest = nonEmpty.length - 1;

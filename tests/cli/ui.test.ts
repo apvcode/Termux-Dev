@@ -38,6 +38,13 @@ const plain = (lines: string | string[]) => (Array.isArray(lines) ? lines.map(st
 const WIDTHS = [26, 30, 38, 40, 46, 60, 80, 120, 200];
 
 describe('formatters', () => {
+  it('echoes a long message without tearing words apart', () => {
+    const words = 'ознакомься с проектом и посмотри как устроены инструменты чтобы потом добавить поиск'.split(' ');
+    const rows = plain(renderUserEcho(words.join(' '), 70)).slice(1, -1).map((r) => r.replace(/^\s*[❯ ]\s/, '').trim());
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) for (const w of row.split(' ')) expect(words).toContain(w);
+  });
+
   it('formats tokens, cost and durations', () => {
     expect(formatTokens(950)).toBe('950');
     expect(formatTokens(12_340)).toBe('12.3k');

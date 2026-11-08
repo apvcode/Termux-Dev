@@ -7,6 +7,8 @@ import {
   sliceByWidth,
   stripAnsi,
   truncateWidth,
+  wrapKeepSpaces,
+  wrapText,
   wrapWidth,
 } from '../../src/cli/width.js';
 
@@ -95,5 +97,58 @@ describe('rowsToTop', () => {
   it('is safe with nothing drawn or a zero width', () => {
     expect(rowsToTop([], 0, 0, 80)).toBe(0);
     expect(rowsToTop(widths, 1, 0, 0)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+
+describe('wrapText: words are not torn apart', () => {
+  it('breaks at spaces', () => {
+    expect(wrapText('привет мир как дела', 10)).toEqual(['привет мир', 'как дела']);
+  });
+
+  it('cuts only the word that is longer than the line, and the words around it stay whole', () => {
+    const url = 'https://example.com/a/very/long/path/that/does/not/fit';
+    const rows = wrapText(`привет мир ${url} и ещё слова`, 20);
+    expect(rows.every((r) => displayWidth(r) <= 20)).toBe(true);
+    expect(rows[0]).toBe('привет мир');
+    // The pieces of the url put together give the url back, and the short words are all there, whole.
+    const flat = rows.join(' ');
+    for (const w of ['привет', 'мир', 'и', 'ещё', 'слова']) expect(flat.split(' ')).toContain(w);
+    expect(rows.slice(1).join('').startsWith(url)).toBe(true);
+  });
+
+  it('still wraps text without spaces anywhere (Chinese, Japanese)', () => {
+    expect(wrapText('日本語日本語', 8)).toEqual(['日本語日', '本語']);
+  });
+});
+
+describe('wrapKeepSpaces', () => {
+  it('never cuts a word that fits on a line (проект is not про / ект)', () => {
+    const rows = wrapKeepSpaces('ознакомься с проектом привет', 20);
+    expect(rows).toEqual(['ознакомься с', 'проектом привет']);
+    for (const r of wrapKeepSpaces('привет '.repeat(20).trim(), 17)) expect(r).toMatch(/^(привет ?)+$/);
+  });
+
+  it('keeps explicit newlines, blank lines, indentation and inner spacing', () => {
+    expect(wrapKeepSpaces('a\n\n  b   c', 20)).toEqual(['a', '', '  b   c']);
+  });
+
+  it('drops the space where a line is broken, so no row starts or ends with one', () => {
+    for (const r of wrapKeepSpaces('one two three four five six seven eight nine ten', 11)) {
+      expect(r).toBe(r.trim());
+      expect(displayWidth(r)).toBeLessThanOrEqual(11);
+    }
+  });
+
+  it('puts a word that is too long for a line on its own, cut by cells, and goes on after it', () => {
+    const rows = wrapKeepSpaces(`see ${'x'.repeat(25)} now`, 10);
+    expect(rows).toEqual(['see', 'xxxxxxxxxx', 'xxxxxxxxxx', 'xxxxx now']);
+  });
+
+  it('counts wide characters as two cells and loses no character', () => {
+    const text = 'привет \u{1F600} мир, 日本語日本語日本語 конец';
+    const rows = wrapKeepSpaces(text, 9);
+    expect(rows.every((r) => displayWidth(r) <= 9)).toBe(true);
+    expect(rows.join('').replace(/\s/g, '')).toBe(text.replace(/\s/g, ''));
   });
 });
