@@ -24,6 +24,12 @@
 
 <img src="assets/preview.svg" alt="devx のターミナル画面" width="880" />
 
+<br/>
+
+<a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="devx デモ：プラン、ビルド、テスト、QR コード付きプレビュー" width="880" /></a>
+
+<sub>▶ <a href="assets/demo.mp4">デモ動画を見る（43 秒）</a></sub>
+
 </div>
 
 ---
