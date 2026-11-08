@@ -22,9 +22,7 @@ Creado especialmente para **Android Termux**, **Windows**, **macOS** y **Linux**
 
 <br/><br/>
 
-<a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="Demo de devx: plan, construcción, pruebas, vista previa con código QR" width="880" /></a>
-
-<sub>▶ <a href="assets/demo.mp4">Ver la demo (43 segundos)</a></sub>
+<a href="assets/demo.mp4"><img src="assets/demo.gif" alt="Demo de devx: plan, construcción, pruebas, vista previa con código QR" width="880" /></a>
 
 <br/>
 

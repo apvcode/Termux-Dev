@@ -22,9 +22,7 @@
 
 <br/><br/>
 
-<a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="Демо devx: план, сборка, тесты, предпросмотр с QR-кодом" width="880" /></a>
-
-<sub>▶ <a href="assets/demo.mp4">Смотреть демо (43 секунды)</a></sub>
+<a href="assets/demo.mp4"><img src="assets/demo.gif" alt="Демо devx: план, сборка, тесты, предпросмотр с QR-кодом" width="880" /></a>
 
 <br/>
 

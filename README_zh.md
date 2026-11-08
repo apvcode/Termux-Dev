@@ -22,9 +22,7 @@
 
 <br/><br/>
 
-<a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="devx 演示：规划、构建、测试、带二维码的预览" width="880" /></a>
-
-<sub>▶ <a href="assets/demo.mp4">观看演示视频（43 秒）</a></sub>
+<a href="assets/demo.mp4"><img src="assets/demo.gif" alt="devx 演示：规划、构建、测试、带二维码的预览" width="880" /></a>
 
 <br/>
 

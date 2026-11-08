@@ -22,9 +22,7 @@
 
 <br/><br/>
 
-<a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="devx デモ：プラン、ビルド、テスト、QR コード付きプレビュー" width="880" /></a>
-
-<sub>▶ <a href="assets/demo.mp4">デモ動画を見る（43 秒）</a></sub>
+<a href="assets/demo.mp4"><img src="assets/demo.gif" alt="devx デモ：プラン、ビルド、テスト、QR コード付きプレビュー" width="880" /></a>
 
 <br/>
 
