@@ -558,7 +558,8 @@ export function buildPromptFrame(input: FrameInput): Frame {
   // ◈ 2 bg: tasks that keep running while the conversation goes on (/tasks lists them)
   const bgBadge = backgroundBadge(f.background);
   const bgWidth = bgBadge ? displayWidth(stripAnsi(bgBadge)) + 2 : 0;
-  const leftRoom = bottomFree - displayWidth(bottomRight) - 2 - bgWidth;
+  // The folder is shortened to leave room for the task badge (a long path used to push it out of the frame).
+  const leftRoom = bottomFree - displayWidth(bottomRight) - 2 - bgWidth - (bgBadge ? 2 : 0);
   let bottomLeft = '';
   if (f.cwd && leftRoom >= 10) {
     const branch = f.branch ? `${palette.faint('git:')}${palette.muted(f.branch)}${f.dirty ? palette.warn('*') : ''}` : '';

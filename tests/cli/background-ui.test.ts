@@ -43,6 +43,18 @@ describe('prompt frame with background tasks', () => {
     }
   });
 
+  it('keeps the count when the folder is long: the path is shortened, the badge is not pushed out', () => {
+    // a macOS temporary folder, a deep project: the path used to fill the whole border
+    for (const length of [10, 40, 60, 80, 100, 160]) {
+      for (const cols of [80, 100, 120, 160]) {
+        const cwd = '/private/var/folders/' + 'x'.repeat(length);
+        const lines = plain(buildPromptFrame({ ...base, cwd, branch: undefined, cols, background: { running: 1 } }).lines);
+        expect(lines[2], `${length} chars, ${cols} cols`).toContain('◈ 1 bg');
+        expect(displayWidth(lines[0])).toBe(displayWidth(lines[2]));
+      }
+    }
+  });
+
   it('shows nothing without tasks', () => {
     expect(plain(buildPromptFrame({ ...base, cols: 100 }).lines)[2]).not.toContain('bg');
     expect(plain(buildPromptFrame({ ...base, cols: 100, background: { running: 0 } }).lines)[2]).not.toContain('bg');
