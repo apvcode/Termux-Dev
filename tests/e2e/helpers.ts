@@ -108,7 +108,8 @@ export interface PtyResult {
 export function runDevx(sandbox: Sandbox, steps: Step[], opts: { exitWait?: number; env?: Record<string, string>; args?: string[] } = {}): Promise<PtyResult> {
   const cfg = {
     cwd: sandbox.work,
-    env: { HOME: sandbox.home, USERPROFILE: sandbox.home, ...(opts.env ?? {}) },
+    // DEVX_HISTORY_FILE is set for the unit tests (vitest.config.ts): the program under test keeps its history in the sandbox home.
+    env: { HOME: sandbox.home, USERPROFILE: sandbox.home, DEVX_HISTORY_FILE: '', ...(opts.env ?? {}) },
     cmd: ['node', path.join(ROOT, 'bin', 'devx.js'), ...(opts.args ?? [])],
     steps,
     exitWait: opts.exitWait ?? 4,

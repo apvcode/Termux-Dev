@@ -39,6 +39,7 @@ export const pt: Messages = {
   'composer.queued': 'na fila',
   'composer.queuedMany': '{n} na fila',
   'composer.queuedHint': '↓ editar',
+  'composer.newline': 'nova linha',
   'composer.hint1': 'enter enfileira · esc para',
   'composer.hint2': 'enter enfileira',
   'composer.hint3': 'enter enfileira · esc para',

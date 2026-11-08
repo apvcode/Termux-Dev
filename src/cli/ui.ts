@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { getCurrentTheme } from './theme.js';
 import { t } from '../core/i18n.js';
+import { newlineKeyLabel } from './keys.js';
 import { CostState, formatMoney } from '../core/cost.js';
 import {
   codePointWidth,
@@ -483,11 +484,13 @@ function keyHints(cols: number, mode: UiMode): string {
     ['@', 'files'],
     ['ctrl+c', 'stop'],
   ];
+  // The key for a new line comes last: it is the first to go when the row is narrow.
+  const withNewline: Array<[string, string]> = [...all, [newlineKeyLabel(), t('composer.newline')]];
   const compact: Array<[string, string]> = [['tab', 'mode'], ['/', 'cmds'], ['@', 'files']];
   const render = (items: Array<[string, string]>) =>
     items.map(([k, label]) => palette.text(k) + ' ' + palette.faint(label)).join(palette.faint(' · '));
 
-  for (const items of [all, all.slice(0, 3), compact, compact.slice(0, 2)]) {
+  for (const items of [withNewline, all, all.slice(0, 3), compact, compact.slice(0, 2)]) {
     const text = render(items);
     if (displayWidth(text) <= cols - 3) return text;
   }
@@ -1243,6 +1246,42 @@ export function pauseSpinners(): () => void {
 }
 
 const pauseHooks: Array<() => () => void> = [];
+
+let uiActive = false;
+const uiWaiting: Array<() => void> = [];
+
+function uiNext(): void {
+  const next = uiWaiting.shift();
+  if (next) next();
+  else uiActive = false;
+}
+
+/**
+ * One thing at a time owns the lower part of the screen: an approval card the agent asks for and a panel the
+ * user opened (/settings while the agent works) wait for each other instead of drawing over each other.
+ * When nothing is open the task starts at once, in the same tick.
+ */
+export function exclusiveUi<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const start = () => {
+      let running: Promise<T>;
+      try {
+        running = task();
+      } catch (err) {
+        reject(err);
+        uiNext();
+        return;
+      }
+      running.then(resolve, reject).finally(uiNext);
+    };
+    if (!uiActive) {
+      uiActive = true;
+      start();
+    } else {
+      uiWaiting.push(start);
+    }
+  });
+}
 
 /**
  * Registers something else that must step aside while an approval prompt owns the terminal

@@ -34,7 +34,8 @@ import { getModelContextInfo, getModelContextLimit, LimitSource } from '../core/
 import { SessionManager } from '../core/session.js';
 import { MarkdownStreamer, renderMarkdown } from './markdown.js';
 import { SmoothStreamer } from './smooth.js';
-import { askPrompt } from './prompt.js';
+import { SLASH_COMMANDS as PROMPT_COMMANDS, askPrompt } from './prompt.js';
+import { loadPromptHistory, trimPromptHistoryFile } from './prompt_history.js';
 import { resolveAtMentions } from './files.js';
 import { runManualUpdate, runStartupUpdateCheck } from './update-screen.js';
 import { getTheme, setActiveTheme, getCurrentTheme, listThemes, findTheme, THEMES, ThemeDef } from './theme.js';
@@ -71,6 +72,8 @@ import {
   renderToolLine,
   renderTurnSummary,
   registerPauseHook,
+  exclusiveUi,
+  pauseSpinners,
   easeToward,
   renderStatusLine,
   renderUserEcho,
@@ -92,6 +95,7 @@ import { modelAcceptsImages } from '../core/vision.js';
 import { contextBreakdown } from '../core/context-stats.js';
 import { runUsagePanel } from './usage-panel.js';
 import { TurnComposer } from './typeahead.js';
+import { KNOWN_COMMANDS, LIVE_COMMANDS, pathExists, startsWithPath } from './slash.js';
 import { extendedKeysOff, normalizeKey, splitKeys } from './keys.js';
 import { LANGUAGES, getLanguage, setLanguage, t } from '../core/i18n.js';
 import { anthropicOnlyModels, formatFromBaseUrl, refreshFormats } from '../core/formats.js';
@@ -987,6 +991,9 @@ export async function main() {
   
   MemoryManager.enabled = config.enableMemory !== false;
   const sessionManager = new SessionManager(config.model, planMode);
+  // What was typed in earlier chats comes back with the up arrow: read it before the first prompt.
+  void trimPromptHistoryFile();
+  await loadPromptHistory().catch(() => null);
 
   drawLogo(config.banner || 'full');
   if ((await runStartupUpdateCheck(config, { save: saveConfig })) === 'updated') await waitForRestartedDevx();
@@ -1028,6 +1035,8 @@ export async function main() {
     contextBreakdown(history.getMessages(), getTools(planMode).map(t => t.definition), config.maxContextTokens || getModelContextLimit(config.model));
   let currentDraft = '';
   let autoTriggerPrompt = '';
+  // Commands typed while the agent worked that change the conversation (/compact, /new ...): they run after the turn.
+  const pendingCommands: string[] = [];
   // ctrl+p and ctrl+o while the agent works: reasoning and tool output, collapsed unless switched on.
   let thinkingExpanded = false;
   let outputExpanded = false;
@@ -1090,6 +1099,254 @@ export async function main() {
     else console.log(renderNotice('ok', message));
   };
 
+  /**
+   * The commands that only show or change a setting: they need nothing of the conversation that is
+   * running, so they also work while the agent is at work (see `runDuringTurn`). Returns false when
+   * `cmd` is not one of them.
+   */
+  const runInfoCommand = async (cmd: string, parts: string[], answer: string): Promise<boolean> => {
+    if (cmd === '/settings') {
+      // The panel erases itself; the conversation above it stays where it is.
+      config = await handleSettings(config);
+      costLimitRaised = null;
+      costWarned = false;
+      // The project memory switch changes what the system prompt contains.
+      history.updateSystemPrompt(await buildSystemPrompt(planMode));
+      return true;
+    }
+    if (cmd === '/help') {
+      note('/settings - Configure permissions (Auto-Approve / Ask every time)\n/resume - Resume previous chat session\n/session del - Select and delete saved sessions\n/new - Start a new chat session (or /new <prompt>)\n/model - Switch model for current provider\n/effort - Set the reasoning effort (only levels the model supports)\n/provider - Switch AI provider (with saved keys)\n/config - View configuration\n/plan - Switch to plan mode\n/agent - Switch to agent mode\n/clear - Clear context and start a new session\n/exit - Exit', 'Commands');
+      return true;
+    }
+    if (cmd === '/theme' || cmd === '/themes') {
+      const themeArg = answer.replace(/^\/(?:theme|themes)\s*/i, '').trim();
+      if (themeArg) {
+        const matched = findTheme(themeArg);
+        if (matched) {
+          config.theme = matched.id;
+          await saveConfig(config);
+          const th = setActiveTheme(matched.id);
+          announce(`theme ${th.name}`);
+        } else {
+          const themes = listThemes();
+          log.warn(`Unknown theme: "${themeArg}". Available themes: ${themes.map(t => `${t.colorFn(t.symbol)} ${t.id}`).join(', ')}`);
+        }
+      } else {
+        await handleThemeSelect(config);
+      }
+      return true;
+    }
+    if (cmd === '/tasks' || cmd === '/bg' || cmd === '/jobs') {
+      const rows = await runTasksCommand(parts.slice(1).filter(Boolean), bg, process.stdout.columns || 80);
+      console.log(rows.join('\n'));
+      console.log();
+      return true;
+    }
+    if (cmd === '/doctor') {
+      await runDoctor(config);
+      return true;
+    }
+    if (cmd === '/status') {
+      try {
+        const statusOutput = execSync('git status --short', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+        if (!statusOutput.trim()) {
+          log.success('Working directory clean, no modified files.');
+        } else {
+          console.log('\n' + pc.bold(pc.cyan('─── Git Status ───────────────────────')));
+          for (const line of statusOutput.split('\n')) {
+            if (!line.trim()) continue;
+            if (line.startsWith(' M') || line.startsWith('M ')) {
+              console.log(pc.yellow(`  ${line}`));
+            } else if (line.startsWith('??')) {
+              console.log(pc.green(`  ${line}`));
+            } else if (line.startsWith(' D')) {
+              console.log(pc.red(`  ${line}`));
+            } else {
+              console.log(`  ${line}`);
+            }
+          }
+          console.log(pc.bold(pc.cyan('──────────────────────────────────────\n')));
+        }
+      } catch {
+        log.warn('Git is not available or current directory is not a git repo.');
+      }
+      return true;
+    }
+    if (cmd === '/permissions') {
+      if ((parts[1] || '').toLowerCase() === 'clear') {
+        config.bashAllowlist = [];
+        config.allowedTools = [];
+        permissionMemory.bash.clear();
+        permissionMemory.tools.clear();
+        await saveConfig(config);
+        log.success(t('permissions.cleared'));
+      } else {
+        const bash = Array.from(new Set([...(config.bashAllowlist || []), ...permissionMemory.bash]));
+        const tools = Array.from(permissionMemory.tools);
+        const rows = [
+          ...bash.map((k) => `command   ${k}`),
+          ...tools.map((k) => `tool      ${k}`),
+        ];
+        if (rows.length === 0) log.info(t('permissions.none'));
+        else note(rows.join('\n'), t('permissions.title'));
+        if (rows.length > 0) log.info(t('permissions.hint'));
+      }
+      return true;
+    }
+    if (cmd === '/usage') {
+      await runUsagePanel({
+        model: config.model,
+        format: providerFormat(config),
+        effort: thinkLabel(config) || undefined,
+        context: currentContext(),
+        compactions: history.compactions,
+        dropped: history.droppedMessages,
+        session: UsageTracker.getInstance().getSummary(),
+        noVision: modelAcceptsImages(config.model) === false,
+        limitSource: resolveContextLimit(config).source,
+      });
+      process.stdin.resume();
+      return true;
+    }
+    if (cmd === '/mcp') {
+      await mcpReady;
+      const sub = (parts[1] || '').toLowerCase();
+      if (sub === 'reload' || sub === 'restart' || sub === 'r') {
+        const s = new UiSpinner();
+        s.start('Reloading MCP servers...');
+        await MCPManager.getInstance().reload();
+        s.stop();
+        console.log('\n' + MCPManager.getInstance().renderStatusCard());
+      } else if (sub === 'import') {
+        // The servers that Claude Code already knows (~/.claude.json) become devx servers.
+        const found = readClaudeServers();
+        if (Object.keys(found).length === 0) {
+          console.log(renderNotice('warn', 'No servers found in ~/.claude.json'));
+        } else {
+          const added = saveUserServers(found);
+          const skipped = Object.keys(found).filter((n) => !added.includes(n));
+          const s = new UiSpinner();
+          s.start('Starting MCP servers...');
+          await MCPManager.getInstance().reload();
+          s.stop();
+          console.log(renderNotice('ok', added.length ? `imported: ${added.join(', ')} (saved to ~/.devx/mcp.json)` : 'nothing new to import'));
+          if (skipped.length) console.log(renderNotice('info', `already in devx: ${skipped.join(', ')}`));
+          console.log('\n' + MCPManager.getInstance().renderStatusCard());
+        }
+      } else if (sub === 'add') {
+        // /mcp add <name> <command> [args...]
+        const [name, command, ...rest] = parts.slice(2);
+        if (!name || !command) {
+          console.log(renderNotice('warn', 'Usage: /mcp add <name> <command|url> [args...]   e.g. /mcp add notion npx -y mcp-remote https://mcp.notion.com/mcp'));
+        } else {
+          // An address is a remote server (over HTTP); anything else is a program to start.
+          saveUserServers({ [name]: /^https?:\/\//i.test(command) ? { url: command } : { command, ...(rest.length ? { args: rest } : {}) } }, true);
+          const s = new UiSpinner();
+          s.start(`Starting ${name}...`);
+          await MCPManager.getInstance().reload();
+          s.stop();
+          const st = MCPManager.getInstance().getStatus(name);
+          console.log(st?.status === 'connected'
+            ? renderNotice('ok', `${name} connected, ${st.toolsCount} tools (saved to ~/.devx/mcp.json)`)
+            : renderNotice('error', `${name}: ${st?.error || st?.status || 'not started'}`));
+        }
+      } else if (process.stdin.isTTY && process.stdout.isTTY) {
+        // The panel erases itself when it is closed; the conversation above it stays where it is.
+        await runMcpPanel(MCPManager.getInstance());
+        process.stdin.resume();
+      } else {
+        console.log('\n' + MCPManager.getInstance().renderStatusCard());
+      }
+      return true;
+    }
+    if (cmd === '/config') {
+      const masked = { ...config };
+      if (masked.apiKey) masked.apiKey = maskApiKey(masked.apiKey);
+      if (masked.apiKeys) {
+        masked.apiKeys = { ...masked.apiKeys };
+        for (const k of Object.keys(masked.apiKeys)) {
+          masked.apiKeys[k] = maskApiKey(masked.apiKeys[k]);
+        }
+      }
+      note(JSON.stringify(masked, null, 2), 'Configuration (Secrets Masked)');
+      return true;
+    }
+    if (cmd === '/model') {
+      const res = await selectModel(config.baseUrl, config.apiKey, config.model, config.provider || '', true);
+      if (res) {
+        config.model = res.model;
+        config.maxContextTokens = config.contextLimits?.[config.model] ?? res.contextLimit;
+        await saveConfig(config);
+        await refreshEndpoint(config).catch(() => null);
+        announce(`model ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
+      } else {
+        log.info('Model selection cancelled.');
+      }
+      return true;
+    }
+    if (cmd === '/effort') {
+      const showSay = (say: Say) => {
+        if (config.ui?.layout === 'classic') {
+          const text = say.detail ? `${say.text}\n${say.detail}` : say.text;
+          if (say.kind === 'ok') log.success(text);
+          else if (say.kind === 'warn') log.warn(text);
+          else log.info(text);
+        } else {
+          console.log(renderNotice(say.kind, say.text));
+          if (say.detail) console.log(renderResultBlock(say.detail, 'muted', process.stdout.columns || 80));
+        }
+      };
+      const argText = parts.slice(1).join(' ').trim();
+      if (/^(refresh|update)$/i.test(argText)) {
+        showSay({ kind: 'info', text: 'asking models.dev and the endpoint...' });
+        try {
+          const result = await refreshCatalog();
+          showSay({ kind: 'ok', text: `catalogue updated: ${result.models} models from ${result.providers} providers, ${result.priced} prices`, detail: `models.dev, ${result.generated}` });
+        } catch (e: any) {
+          const info = catalogInfo();
+          showSay({ kind: 'warn', text: 'could not download the catalogue.', detail: `${String(e?.message || e)}. Using the ${info.downloaded ? 'downloaded' : 'built-in'} one (${info.models} models, ${info.generated}).` });
+        }
+        const route = detectRoute(config.baseUrl);
+        if (route === 'generic' || route === 'openrouter') {
+          const record = await refreshEndpoint(config, { force: true }).catch(() => null);
+          showSay(record?.data
+            ? { kind: 'ok', text: `the endpoint described ${config.model}` }
+            : { kind: 'info', text: `the endpoint says nothing about ${config.model}`, detail: 'levels come from the catalogue or from the model name' });
+        }
+        return true;
+      }
+      // A custom endpoint is asked about this model first (cached, a few seconds at most).
+      await refreshEndpoint(config).catch(() => null);
+      const outcome = effortCommand(config, argText);
+      if (outcome.type === 'say') {
+        if (outcome.say.kind === 'ok') await saveConfig(config);
+        showSay(outcome.say);
+      } else {
+        const choice = await runPicker(outcome.picker);
+        if (choice === undefined) {
+          showSay({ kind: 'info', text: 'effort unchanged' });
+        } else {
+          const say = chooseEffort(config, choice);
+          await saveConfig(config);
+          showSay(say);
+        }
+      }
+      return true;
+    }
+    if (cmd === '/provider' || cmd === '/providers') {
+      const newConfig = await selectProvider(config, true);
+      if (newConfig) {
+        config = newConfig;
+        await refreshEndpoint(config).catch(() => null);
+        announce(`provider ${providerDisplayName(config, config.provider, ALL_PROVIDERS) || config.provider || 'custom'} · ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
+      } else {
+        log.info('Provider selection cancelled.');
+      }
+      return true;
+    }
+    return false;
+  };
+
   while (true) {
     const maxTokens = config.maxContextTokens || getModelContextLimit(config.model);
     config.maxContextTokens = maxTokens;
@@ -1147,6 +1404,8 @@ export async function main() {
         p.intro(`${badge}  ${pc.dim(tokenStats)}`);
       }
     }
+
+    if (!autoTriggerPrompt && pendingCommands.length > 0) autoTriggerPrompt = pendingCommands.shift()!;
 
     let answer = '';
     // Set when this turn starts by itself, from the news of a background task (not from the user).
@@ -1239,7 +1498,8 @@ export async function main() {
 
     if (!answer) continue;
 
-    if (answer.startsWith('/')) {
+    // A message that begins with a path (/home/me/boot.img ...) is a message, not a command.
+    if (answer.startsWith('/') && !startsWithPath(answer, pathExists)) {
       const parts = answer.split(' ');
       let cmd = parts[0];
 
@@ -1251,14 +1511,7 @@ export async function main() {
         answer = expandedPrompt;
         log.info(pc.cyan(`Executing custom command: ${pc.bold(customCmd.cmd)} (${customCmd.desc})`));
       } else {
-        const VALID_COMMANDS = [
-          '/new', '/reset', '/resume', '/session', '/sessions', '/history',
-          '/theme', '/themes', '/usage', '/export', '/mcp',
-          '/settings', '/update', '/model', '/provider', '/providers',
-          '/plan', '/agent', '/image', '/serve', '/memory', '/permissions', '/copy', '/rename', '/title', '/rewind', '/undo',
-          '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
-          '/config', '/clear', '/exit', '/quit', '/help', '/effort', '/tasks', '/bg', '/jobs'
-        ];
+        const VALID_COMMANDS = KNOWN_COMMANDS;
         if (!VALID_COMMANDS.includes(cmd)) {
           const customList = await CustomCommandManager.listCommands();
           const customSlashItems = customList.map(c => ({
@@ -1327,25 +1580,14 @@ export async function main() {
         }
       }
 
-      if (cmd === '/settings') {
-        // The panel erases itself; the conversation above it stays where it is.
-        config = await handleSettings(config);
-        costLimitRaised = null;
-        costWarned = false;
-        // The project memory switch changes what the system prompt contains.
-        history.updateSystemPrompt(await buildSystemPrompt(planMode));
-        continue;
-      }
+
+      if (await runInfoCommand(cmd, parts, answer)) continue;
 
       if (cmd === '/update') {
         if ((await runManualUpdate()) === 'updated') await waitForRestartedDevx();
         continue;
       }
 
-      if (cmd === '/help') {
-        note('/settings - Configure permissions (Auto-Approve / Ask every time)\n/resume - Resume previous chat session\n/session del - Select and delete saved sessions\n/new - Start a new chat session (or /new <prompt>)\n/model - Switch model for current provider\n/effort - Set the reasoning effort (only levels the model supports)\n/provider - Switch AI provider (with saved keys)\n/config - View configuration\n/plan - Switch to plan mode\n/agent - Switch to agent mode\n/clear - Clear context and start a new session\n/exit - Exit', 'Commands');
-        continue;
-      }
       if (cmd === '/exit') {
         printFarewell(t('confirm.goodbye'));
         break;
@@ -1514,32 +1756,6 @@ export async function main() {
         }
         continue;
       }
-      if (cmd === '/status') {
-        try {
-          const statusOutput = execSync('git status --short', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-          if (!statusOutput.trim()) {
-            log.success('Working directory clean, no modified files.');
-          } else {
-            console.log('\n' + pc.bold(pc.cyan('─── Git Status ───────────────────────')));
-            for (const line of statusOutput.split('\n')) {
-              if (!line.trim()) continue;
-              if (line.startsWith(' M') || line.startsWith('M ')) {
-                console.log(pc.yellow(`  ${line}`));
-              } else if (line.startsWith('??')) {
-                console.log(pc.green(`  ${line}`));
-              } else if (line.startsWith(' D')) {
-                console.log(pc.red(`  ${line}`));
-              } else {
-                console.log(`  ${line}`);
-              }
-            }
-            console.log(pc.bold(pc.cyan('──────────────────────────────────────\n')));
-          }
-        } catch {
-          log.warn('Git is not available or current directory is not a git repo.');
-        }
-        continue;
-      }
       if (cmd === '/commit') {
         try {
           const status = execSync('git status --short', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -1660,16 +1876,6 @@ export async function main() {
         }
         continue;
       }
-      if (cmd === '/doctor') {
-        await runDoctor(config);
-        continue;
-      }
-      if (cmd === '/tasks' || cmd === '/bg' || cmd === '/jobs') {
-        const rows = await runTasksCommand(parts.slice(1).filter(Boolean), bg, process.stdout.columns || 80);
-        console.log(rows.join('\n'));
-        console.log();
-        continue;
-      }
       if (cmd === '/serve') {
         const sub = parts[1]?.toLowerCase();
         if (sub === 'stop') {
@@ -1686,24 +1892,6 @@ export async function main() {
           } catch (err: any) {
             log.error(`Failed to start web server: ${err.message}`);
           }
-        }
-        continue;
-      }
-      if (cmd === '/theme' || cmd === '/themes') {
-        const themeArg = answer.replace(/^\/(?:theme|themes)\s*/i, '').trim();
-        if (themeArg) {
-          const matched = findTheme(themeArg);
-          if (matched) {
-            config.theme = matched.id;
-            await saveConfig(config);
-            const th = setActiveTheme(matched.id);
-            announce(`theme ${th.name}`);
-          } else {
-            const themes = listThemes();
-            log.warn(`Unknown theme: "${themeArg}". Available themes: ${themes.map(t => `${t.colorFn(t.symbol)} ${t.id}`).join(', ')}`);
-          }
-        } else {
-          await handleThemeSelect(config);
         }
         continue;
       }
@@ -1790,27 +1978,6 @@ export async function main() {
         }
         continue;
       }
-      if (cmd === '/permissions') {
-        if ((parts[1] || '').toLowerCase() === 'clear') {
-          config.bashAllowlist = [];
-          config.allowedTools = [];
-          permissionMemory.bash.clear();
-          permissionMemory.tools.clear();
-          await saveConfig(config);
-          log.success(t('permissions.cleared'));
-        } else {
-          const bash = Array.from(new Set([...(config.bashAllowlist || []), ...permissionMemory.bash]));
-          const tools = Array.from(permissionMemory.tools);
-          const rows = [
-            ...bash.map((k) => `command   ${k}`),
-            ...tools.map((k) => `tool      ${k}`),
-          ];
-          if (rows.length === 0) log.info(t('permissions.none'));
-          else note(rows.join('\n'), t('permissions.title'));
-          if (rows.length > 0) log.info(t('permissions.hint'));
-        }
-        continue;
-      }
       if (cmd === '/memory') {
         const sub = parts[1]?.toLowerCase();
         if (sub === 'clear') {
@@ -1853,21 +2020,6 @@ export async function main() {
         }
         continue;
       }
-      if (cmd === '/usage') {
-        await runUsagePanel({
-          model: config.model,
-          format: providerFormat(config),
-          effort: thinkLabel(config) || undefined,
-          context: currentContext(),
-          compactions: history.compactions,
-          dropped: history.droppedMessages,
-          session: UsageTracker.getInstance().getSummary(),
-          noVision: modelAcceptsImages(config.model) === false,
-          limitSource: resolveContextLimit(config).source,
-        });
-        process.stdin.resume();
-        continue;
-      }
       if (cmd === '/export') {
         const targetName = parts.slice(1).join(' ').trim();
         const res = await SessionExporter.exportToMarkdown(history.getMessages(), config.model, targetName || undefined);
@@ -1875,142 +2027,6 @@ export async function main() {
           log.success(pc.bold(pc.green(`Session exported to: ${res.filePath}`)));
         } else {
           log.error(`Failed to export session: ${res.error}`);
-        }
-        continue;
-      }
-      if (cmd === '/mcp') {
-        await mcpReady;
-        const sub = (parts[1] || '').toLowerCase();
-        if (sub === 'reload' || sub === 'restart' || sub === 'r') {
-          const s = new UiSpinner();
-          s.start('Reloading MCP servers...');
-          await MCPManager.getInstance().reload();
-          s.stop();
-          console.log('\n' + MCPManager.getInstance().renderStatusCard());
-        } else if (sub === 'import') {
-          // The servers that Claude Code already knows (~/.claude.json) become devx servers.
-          const found = readClaudeServers();
-          if (Object.keys(found).length === 0) {
-            console.log(renderNotice('warn', 'No servers found in ~/.claude.json'));
-          } else {
-            const added = saveUserServers(found);
-            const skipped = Object.keys(found).filter((n) => !added.includes(n));
-            const s = new UiSpinner();
-            s.start('Starting MCP servers...');
-            await MCPManager.getInstance().reload();
-            s.stop();
-            console.log(renderNotice('ok', added.length ? `imported: ${added.join(', ')} (saved to ~/.devx/mcp.json)` : 'nothing new to import'));
-            if (skipped.length) console.log(renderNotice('info', `already in devx: ${skipped.join(', ')}`));
-            console.log('\n' + MCPManager.getInstance().renderStatusCard());
-          }
-        } else if (sub === 'add') {
-          // /mcp add <name> <command> [args...]
-          const [name, command, ...rest] = parts.slice(2);
-          if (!name || !command) {
-            console.log(renderNotice('warn', 'Usage: /mcp add <name> <command|url> [args...]   e.g. /mcp add notion npx -y mcp-remote https://mcp.notion.com/mcp'));
-          } else {
-            // An address is a remote server (over HTTP); anything else is a program to start.
-            saveUserServers({ [name]: /^https?:\/\//i.test(command) ? { url: command } : { command, ...(rest.length ? { args: rest } : {}) } }, true);
-            const s = new UiSpinner();
-            s.start(`Starting ${name}...`);
-            await MCPManager.getInstance().reload();
-            s.stop();
-            const st = MCPManager.getInstance().getStatus(name);
-            console.log(st?.status === 'connected'
-              ? renderNotice('ok', `${name} connected, ${st.toolsCount} tools (saved to ~/.devx/mcp.json)`)
-              : renderNotice('error', `${name}: ${st?.error || st?.status || 'not started'}`));
-          }
-        } else if (process.stdin.isTTY && process.stdout.isTTY) {
-          // The panel erases itself when it is closed; the conversation above it stays where it is.
-          await runMcpPanel(MCPManager.getInstance());
-          process.stdin.resume();
-        } else {
-          console.log('\n' + MCPManager.getInstance().renderStatusCard());
-        }
-        continue;
-      }
-      if (cmd === '/config') {
-        const masked = { ...config };
-        if (masked.apiKey) masked.apiKey = maskApiKey(masked.apiKey);
-        if (masked.apiKeys) {
-          masked.apiKeys = { ...masked.apiKeys };
-          for (const k of Object.keys(masked.apiKeys)) {
-            masked.apiKeys[k] = maskApiKey(masked.apiKeys[k]);
-          }
-        }
-        note(JSON.stringify(masked, null, 2), 'Configuration (Secrets Masked)');
-        continue;
-      }
-      if (cmd === '/model') {
-        const res = await selectModel(config.baseUrl, config.apiKey, config.model, config.provider || '', true);
-        if (res) {
-          config.model = res.model;
-          config.maxContextTokens = config.contextLimits?.[config.model] ?? res.contextLimit;
-          await saveConfig(config);
-          await refreshEndpoint(config).catch(() => null);
-          announce(`model ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
-        } else {
-          log.info('Model selection cancelled.');
-        }
-        continue;
-      }
-      if (cmd === '/effort') {
-        const showSay = (say: Say) => {
-          if (config.ui?.layout === 'classic') {
-            const text = say.detail ? `${say.text}\n${say.detail}` : say.text;
-            if (say.kind === 'ok') log.success(text);
-            else if (say.kind === 'warn') log.warn(text);
-            else log.info(text);
-          } else {
-            console.log(renderNotice(say.kind, say.text));
-            if (say.detail) console.log(renderResultBlock(say.detail, 'muted', process.stdout.columns || 80));
-          }
-        };
-        const argText = parts.slice(1).join(' ').trim();
-        if (/^(refresh|update)$/i.test(argText)) {
-          showSay({ kind: 'info', text: 'asking models.dev and the endpoint...' });
-          try {
-            const result = await refreshCatalog();
-            showSay({ kind: 'ok', text: `catalogue updated: ${result.models} models from ${result.providers} providers, ${result.priced} prices`, detail: `models.dev, ${result.generated}` });
-          } catch (e: any) {
-            const info = catalogInfo();
-            showSay({ kind: 'warn', text: 'could not download the catalogue.', detail: `${String(e?.message || e)}. Using the ${info.downloaded ? 'downloaded' : 'built-in'} one (${info.models} models, ${info.generated}).` });
-          }
-          const route = detectRoute(config.baseUrl);
-          if (route === 'generic' || route === 'openrouter') {
-            const record = await refreshEndpoint(config, { force: true }).catch(() => null);
-            showSay(record?.data
-              ? { kind: 'ok', text: `the endpoint described ${config.model}` }
-              : { kind: 'info', text: `the endpoint says nothing about ${config.model}`, detail: 'levels come from the catalogue or from the model name' });
-          }
-          continue;
-        }
-        // A custom endpoint is asked about this model first (cached, a few seconds at most).
-        await refreshEndpoint(config).catch(() => null);
-        const outcome = effortCommand(config, argText);
-        if (outcome.type === 'say') {
-          if (outcome.say.kind === 'ok') await saveConfig(config);
-          showSay(outcome.say);
-        } else {
-          const choice = await runPicker(outcome.picker);
-          if (choice === undefined) {
-            showSay({ kind: 'info', text: 'effort unchanged' });
-          } else {
-            const say = chooseEffort(config, choice);
-            await saveConfig(config);
-            showSay(say);
-          }
-        }
-        continue;
-      }
-      if (cmd === '/provider' || cmd === '/providers') {
-        const newConfig = await selectProvider(config, true);
-        if (newConfig) {
-          config = newConfig;
-          await refreshEndpoint(config).catch(() => null);
-          announce(`provider ${providerDisplayName(config, config.provider, ALL_PROVIDERS) || config.provider || 'custom'} · ${config.model}${providerFormat(config) === 'anthropic' ? ' (Anthropic format)' : ''}`);
-        } else {
-          log.info('Provider selection cancelled.');
         }
         continue;
       }
@@ -2417,6 +2433,42 @@ export async function main() {
     const onBgChange = () => composer.refresh();
     bg.on('change', onBgChange);
     composer.live = liveThought;
+    // The commands of the project (.devx/commands) are offered too; they are read in the background.
+    let customCommandItems: Array<{ cmd: string; desc: string }> = [];
+    CustomCommandManager.listCommands()
+      .then((list) => { customCommandItems = list.map((c) => ({ cmd: c.cmd, desc: `(custom) ${c.desc}` })); })
+      .catch(() => undefined);
+    // The list of commands under the line, and what a command typed while the agent works does.
+    composer.commands = () => [...PROMPT_COMMANDS, ...customCommandItems];
+    let liveCommand = null as Promise<void> | null;
+    composer.onCommand = (text) => {
+      const parts = text.split(' ');
+      const cmd = parts[0];
+      if (LIVE_COMMANDS.has(cmd)) {
+        // Shown and used at once: the typing line and the spinner step aside, the agent's output waits
+        // (see `liveCommand` in the event loop), the panel draws where the frame was.
+        const run = exclusiveUi(async () => {
+          const resume = pauseSpinners();
+          try {
+            await runInfoCommand(cmd, parts, text);
+          } catch (err: any) {
+            console.log(renderNotice('error', `${cmd}: ${err?.message ?? err}`));
+          } finally {
+            process.stdin.resume();
+            resume();
+          }
+        });
+        liveCommand = run.finally(() => { if (liveCommand === tracked) liveCommand = null; });
+        const tracked = liveCommand;
+        return true;
+      }
+      if (KNOWN_COMMANDS.includes(cmd) || customCommandItems.some((c) => c.cmd === cmd)) {
+        pendingCommands.push(text);
+        console.log(renderNotice('info', `${cmd} · runs when the agent is done`));
+        return true;
+      }
+      return false;
+    };
     composer.onToggle = toggleView;
     const releasePauseHook = registerPauseHook(() => {
       composer.suspend();
@@ -2490,6 +2542,8 @@ export async function main() {
         takeNotes: () => bg.takeNotes(),
         hasNotes: () => bg.hasNotes(),
       })) {
+        // A panel the user opened (a command typed meanwhile) keeps the screen until it is closed.
+        while (liveCommand) await liveCommand.catch(() => undefined);
         if (aborted) {
           // The request that was cancelled is still billed by the provider: its estimate counts.
           if (event.type === 'usage') {

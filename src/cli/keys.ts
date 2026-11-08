@@ -108,3 +108,11 @@ export function normalizeKey(key: string): string {
   if (code >= 32 && code !== 127 && !shift) return String.fromCodePoint(code);
   return key;
 }
+
+/**
+ * The key that breaks the line, as it is written in a hint. Shift+Enter where the terminal tells it from
+ * Enter; elsewhere (Termux, a multiplexer) a backslash before Enter, which works in every terminal.
+ */
+export function newlineKeyLabel(env: NodeJS.ProcessEnv = process.env, platform: string = process.platform): string {
+  return extendedKeysSupported(env, platform) ? 'shift+enter' : '\\ enter';
+}

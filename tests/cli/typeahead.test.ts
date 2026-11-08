@@ -5,6 +5,8 @@ import { DraftState, FrameBase, TurnComposer, applyKey, renderComposer } from '.
 import { setActiveTheme } from '../../src/cli/theme.js';
 import { displayWidth, stripAnsi } from '../../src/cli/width.js';
 import { CTRL_ENTER, normalizeKey, splitKeys } from '../../src/cli/keys.js';
+import { SLASH_COMMANDS } from '../../src/cli/prompt.js';
+import { promptHistory, resetPromptHistory } from '../../src/cli/prompt_history.js';
 
 const type = (text: string, from: DraftState = { text: '', cursor: 0 }): DraftState => {
   let state = from;
@@ -115,6 +117,33 @@ describe('the composer frame', () => {
   beforeEach(() => setActiveTheme('cyan'));
   const draw = (text: string, queued: string[] = [], cols = 100, cursor = Array.from(text).length) =>
     renderComposer({ state: { text, cursor }, queued, cols, base: BASE });
+
+  it('names the key for a new line next to the hints and next to a queued message', () => {
+    vi.stubEnv('DEVX_EXTENDED_KEYS', '1');
+    try {
+      const idle = draw('').map(stripAnsi)[3];
+      expect(idle).toContain('enter queues');
+      expect(idle).toContain('shift+enter new line');
+      const queued = draw('', ['also add tests']).map(stripAnsi)[3];
+      expect(queued).toContain('↓ edit');
+      expect(queued).toContain('shift+enter new line');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('names a backslash before Enter where the terminal cannot tell Shift+Enter from Enter, and drops the hint on a narrow row', () => {
+    vi.stubEnv('DEVX_EXTENDED_KEYS', '0');
+    try {
+      expect(draw('').map(stripAnsi)[3]).toContain('\\ enter new line');
+      expect(draw('', ['also add tests']).map(stripAnsi)[3]).toContain('↓ edit');
+      const narrow = draw('', ['also add tests'], 40).map(stripAnsi).at(-1)!;
+      expect(narrow).not.toContain('new line');
+      expect(displayWidth(narrow)).toBeLessThanOrEqual(40);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 
   it('is the prompt frame: mode, model, folder, context and cost, with the placeholder on an empty line', () => {
     const lines = draw('').map(stripAnsi);
@@ -672,5 +701,124 @@ describe('a message that waits for the agent', () => {
       expect(composer.draft, JSON.stringify(key)).toBe('msg');
       composer.stop();
     }
+  });
+});
+
+describe('commands, the list of them, and the history on the line under the output', () => {
+  let written: string[];
+  let out: { write: (c: any, e?: any, cb?: any) => boolean; columns: number; rows: number; isTTY: boolean };
+  const all = () => stripAnsi(written.join(''));
+  const UP = '\x1b[A';
+  const DOWN = '\x1b[B';
+
+  beforeEach(() => {
+    setActiveTheme('cyan');
+    resetPromptHistory();
+    written = [];
+    out = { write: (c: any) => { written.push(String(c)); return true; }, columns: 100, rows: 40, isTTY: true };
+  });
+  afterEach(() => resetPromptHistory());
+
+  const start = (setup?: (c: TurnComposer) => void) => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.commands = () => SLASH_COMMANDS;
+    setup?.(composer);
+    composer.start();
+    return composer;
+  };
+
+  it('a command goes to onCommand and is not queued; a message is queued', () => {
+    const taken: string[] = [];
+    const composer = start((c) => { c.onCommand = (text) => { taken.push(text); return true; }; });
+    composer.handleData('/settings\r');
+    composer.handleData('and a message\r');
+    expect(taken).toEqual(['/settings']);
+    expect(composer.queued).toEqual(['and a message']);
+    composer.stop();
+  });
+
+  it('a command that is not taken goes to the agent like a message', () => {
+    const composer = start((c) => { c.onCommand = () => false; });
+    composer.handleData('/nothing\r');
+    expect(composer.queued).toEqual(['/nothing']);
+    composer.stop();
+  });
+
+  it('a message that begins with a path is a message, not a command', () => {
+    const taken: string[] = [];
+    const composer = start((c) => { c.onCommand = (text) => { taken.push(text); return true; }; });
+    composer.handleData('/home/mega/boot.img flash it\r');
+    expect(taken).toEqual([]);
+    expect(composer.queued).toEqual(['/home/mega/boot.img flash it']);
+    composer.stop();
+  });
+
+  it('a slash opens the list of commands, and the arrows reach all of them', () => {
+    const composer = start();
+    composer.handleData('/');
+    expect(all()).toContain(`1 / ${SLASH_COMMANDS.length}`);
+    expect(all()).toContain('› /new');
+    for (let i = 0; i < SLASH_COMMANDS.length; i++) composer.handleData(DOWN);
+    expect(all()).toContain('› /exit');
+    composer.stop();
+  });
+
+  it('typing narrows the list, Tab completes the marked command', () => {
+    const composer = start();
+    composer.handleData('/comp');
+    expect(all()).toContain('› /compact');
+    composer.handleData('\t');
+    expect(composer.draft).toBe('/compact ');
+    composer.stop();
+  });
+
+  it('Enter takes the marked command when only part of it is typed', () => {
+    const taken: string[] = [];
+    const composer = start((c) => { c.onCommand = (text) => { taken.push(text); return true; }; });
+    composer.handleData('/comp\r');
+    expect(taken).toEqual(['/compact']);
+    composer.stop();
+  });
+
+  it('the list closes after the first word: the arguments are typed without it', () => {
+    const composer = start();
+    composer.handleData('/effort ');
+    written.length = 0;
+    composer.handleData('h');
+    expect(all()).not.toContain('› /');
+    composer.stop();
+  });
+
+  it('up and down bring back the lines sent before, and the draft comes back at the end', () => {
+    const composer = start();
+    composer.handleData('first one\r');
+    composer.handleData('second one\r');
+    composer.handleData('half typed');
+    composer.handleData(UP);
+    expect(composer.draft).toBe('second one');
+    composer.handleData(UP);
+    expect(composer.draft).toBe('first one');
+    composer.handleData(DOWN);
+    expect(composer.draft).toBe('second one');
+    composer.handleData(DOWN);
+    expect(composer.draft).toBe('half typed');
+    composer.stop();
+  });
+
+  it('a sent line, a message or a command, is kept for the next chats', () => {
+    const composer = start((c) => { c.onCommand = () => true; });
+    composer.handleData('a message\r');
+    composer.handleData('/model\r');
+    expect(promptHistory()).toEqual(['a message', '/model']);
+    composer.stop();
+  });
+
+  it('down with nothing typed still takes the waiting message back, when no history is open', () => {
+    const composer = start();
+    composer.handleData('waiting\r');
+    composer.handleData(DOWN);
+    expect(composer.draft).toBe('waiting');
+    expect(composer.queued).toEqual([]);
+    composer.stop();
   });
 });

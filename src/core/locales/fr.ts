@@ -39,6 +39,7 @@ export const fr: Messages = {
   'composer.queued': 'en file',
   'composer.queuedMany': '{n} en file',
   'composer.queuedHint': '↓ modifier',
+  'composer.newline': 'nouvelle ligne',
   'composer.hint1': 'entrée en file · esc arrête',
   'composer.hint2': 'entrée en file',
   'composer.hint3': 'entrée en file · esc arrête',

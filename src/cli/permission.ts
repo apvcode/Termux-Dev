@@ -3,6 +3,7 @@ import {
   PermissionAnswer,
   PermissionOffer,
   PermissionRequest,
+  exclusiveUi,
   pauseSpinners,
   renderPermissionCard,
   renderPermissionChoice,
@@ -41,6 +42,17 @@ export function askPermissionDecision(
   defaultAnswer: PermissionAnswer = 'allow',
   io: { input: PermissionInput; output: PermissionOutput } = { input: process.stdin, output: process.stdout },
   offer: PermissionOffer = {}
+): Promise<PermissionAnswer> {
+  // A panel the user has open on the real terminal (a command typed while the agent works) is finished first.
+  if (io.input !== process.stdin) return showPermissionCard(request, defaultAnswer, io, offer);
+  return exclusiveUi(() => showPermissionCard(request, defaultAnswer, io, offer));
+}
+
+function showPermissionCard(
+  request: PermissionRequest,
+  defaultAnswer: PermissionAnswer,
+  io: { input: PermissionInput; output: PermissionOutput },
+  offer: PermissionOffer
 ): Promise<PermissionAnswer> {
   return new Promise((resolve) => {
     const { input, output } = io;

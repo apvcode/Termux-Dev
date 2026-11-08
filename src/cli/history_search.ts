@@ -3,7 +3,10 @@ import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
 
-export const HISTORY_FILE = path.join(os.homedir(), '.devx', 'history.jsonl');
+/** Where the typed lines are kept between sessions (`DEVX_HISTORY_FILE` moves it: the tests must not write into the real one). */
+export function historyFile(): string {
+  return process.env.DEVX_HISTORY_FILE || path.join(os.homedir(), '.devx', 'history.jsonl');
+}
 const MAX_HISTORY_LINES = 500;
 
 export class PromptHistoryNavigator {
@@ -21,10 +24,10 @@ export class PromptHistoryNavigator {
 
   public static async loadPersistent(): Promise<string[]> {
     try {
-      if (!fsSync.existsSync(HISTORY_FILE)) {
+      if (!fsSync.existsSync(historyFile())) {
         return [];
       }
-      const raw = await fs.readFile(HISTORY_FILE, 'utf8');
+      const raw = await fs.readFile(historyFile(), 'utf8');
       const lines = raw
         .split('\n')
         .map((l) => l.trim())
@@ -45,12 +48,12 @@ export class PromptHistoryNavigator {
 
   public static async appendPersistent(prompt: string): Promise<void> {
     try {
-      const dir = path.dirname(HISTORY_FILE);
+      const dir = path.dirname(historyFile());
       if (!fsSync.existsSync(dir)) {
         await fs.mkdir(dir, { recursive: true });
       }
       const entry = JSON.stringify({ prompt, timestamp: Date.now() }) + '\n';
-      await fs.appendFile(HISTORY_FILE, entry, 'utf8');
+      await fs.appendFile(historyFile(), entry, 'utf8');
     } catch {}
   }
 
@@ -67,6 +70,11 @@ export class PromptHistoryNavigator {
     this.cursor = this.history.length;
     this.filterQuery = '';
     PromptHistoryNavigator.appendPersistent(trimmed).catch(() => {});
+  }
+
+  /** True while an older (or newer) entry of the history is on the line. */
+  public isBrowsing(): boolean {
+    return this.cursor < this.history.length;
   }
 
   public getHistory(): string[] {

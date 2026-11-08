@@ -1,9 +1,14 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { extendedKeysOff, extendedKeysOn, isNewlineKey, normalizeKey, splitKeys } from './keys.js';
+import { extendedKeysOff, extendedKeysOn, isNewlineKey, newlineKeyLabel, normalizeKey, splitKeys } from './keys.js';
 import { FrameInput, buildPromptFrame, palette } from './ui.js';
 import { columnAfter, displayWidth, truncateWidth } from './width.js';
+import { renderDropdown } from './dropdown.js';
+import { CommandItem, filterCommandPalette } from './prompt_palette.js';
+import { PromptHistoryNavigator } from './history_search.js';
+import { promptHistory, recordPrompt } from './prompt_history.js';
+import { pathExists, startsWithPath } from './slash.js';
 import { t } from '../core/i18n.js';
 
 /**
@@ -32,6 +37,7 @@ export interface KeyResult {
 
 /** The down arrow in every form a terminal may send it: `ESC [ B`, `ESC O B` (application mode), `ESC [ 1 ; mods B` (with modifier fields). */
 const DOWN_ARROW = /^\x1b(?:\[|O)(?:1;[\d:]+)?B$/;
+const UP_ARROW = /^\x1b(?:\[|O)(?:1;[\d:]+)?A$/;
 
 /** DEVX_DEBUG_KEYS=1: what the terminal sends is written to ~/.devx/keys.log, to find out why a key does nothing. */
 function logKeys(chunk: string, queued: number, draft: string): void {
@@ -123,6 +129,8 @@ export interface ComposerInput {
   queued: string[];
   cols: number;
   base: FrameBase;
+  /** Rows of the list of commands that is open under the line (it takes the place of the hint row). */
+  menu?: string[];
 }
 
 // A stand-in for the cursor while the frame is laid out; it is swapped for a highlighted cell.
@@ -134,7 +142,7 @@ const CURSOR_CELL = '\x1b[7m \x1b[27m';
  * or what is already queued. The real cursor is busy marking where the output goes, so the
  * cursor of the line is drawn as a highlighted cell.
  */
-export function renderComposer({ state, queued, cols, base }: ComposerInput): string[] {
+export function renderComposer({ state, queued, cols, base, menu }: ComposerInput): string[] {
   const cs = Array.from(state.text);
   const at = Math.max(0, Math.min(cs.length, state.cursor));
   const withMark = state.text === '' ? '' : cs.slice(0, at).join('') + CURSOR_MARK + cs.slice(at).join('');
@@ -145,14 +153,16 @@ export function renderComposer({ state, queued, cols, base }: ComposerInput): st
     const last = queued[queued.length - 1].replace(/\s+/g, ' ');
     const label = queued.length === 1 ? t('composer.queued') : t('composer.queuedMany', { n: queued.length });
     const prefix = palette.warn('↳ ' + label) + palette.faint(': ');
-    // What can be done with it: the down arrow takes it back to edit.
-    const hint = t('composer.queuedHint');
-    const suffixWidth = displayWidth(' · ' + hint);
-    const withHint = room - displayWidth(prefix) - suffixWidth >= 12;
-    const message = truncateWidth(last, Math.max(4, room - displayWidth(prefix) - (withHint ? suffixWidth : 0)));
-    note = prefix + palette.muted(message) + (withHint ? palette.faint(' · ') + palette.text(hint) : '');
+    // What can be done with it: the down arrow takes it back to edit; the key for a new line is named too.
+    const edit = t('composer.queuedHint');
+    const newline = `${newlineKeyLabel()} ${t('composer.newline')}`;
+    const fits = (hint: string) => room - displayWidth(prefix) - displayWidth(' · ' + hint) >= 12;
+    const hint = [`${edit} · ${newline}`, edit].find(fits) ?? '';
+    const suffixWidth = hint ? displayWidth(' · ' + hint) : 0;
+    const message = truncateWidth(last, Math.max(4, room - displayWidth(prefix) - suffixWidth));
+    note = prefix + palette.muted(message) + (hint ? palette.faint(' · ') + palette.text(hint) : '');
   } else {
-    const variants = [t('composer.hint1'), t('composer.hint2'), t('composer.hint3'), t('composer.hint4')];
+    const variants = [`${t('composer.hint1')} · ${newlineKeyLabel()} ${t('composer.newline')}`, t('composer.hint1'), t('composer.hint2'), t('composer.hint3'), t('composer.hint4')];
     const text = variants.find((v) => displayWidth(v) <= room) ?? '';
     note = palette.faint(text);
   }
@@ -163,7 +173,7 @@ export function renderComposer({ state, queued, cols, base }: ComposerInput): st
     input: withMark,
     cursorPos: withMark === '' ? 0 : at,
     placeholder: CURSOR_MARK + t('composer.placeholder'),
-    below: [note],
+    below: menu && menu.length > 0 ? menu : [note],
   });
   return frame.lines.map((line) => line.split(CURSOR_MARK).join(CURSOR_CELL));
 }
@@ -206,6 +216,15 @@ export class TurnComposer {
   onToggle?: (kind: 'thinking' | 'output') => void;
   /** The line of live reasoning shown above the working line while thinking is collapsed; empty for none. */
   live?: () => string;
+  /** The commands offered when the line starts with a slash. */
+  commands?: () => CommandItem[];
+  /**
+   * A command was sent from the line. Returns true when it was taken (run at once, or kept for the end of
+   * the turn); false sends it to the agent like any other message.
+   */
+  onCommand?: (text: string) => boolean;
+  private menuIndex = 0;
+  private history = new PromptHistoryNavigator(promptHistory());
 
   constructor(
     private out: ComposerOut = process.stdout,
@@ -254,6 +273,8 @@ export class TurnComposer {
 
     this.state = { text: initialDraft, cursor: Array.from(initialDraft).length };
     this.queue = [];
+    this.menuIndex = 0;
+    this.history = new PromptHistoryNavigator(promptHistory());
     this.lines = this.render();
     // A frame that takes half the screen is not worth it.
     if (this.lines.length > Math.floor(rows / 2)) return false;
@@ -325,23 +346,75 @@ export class TurnComposer {
       const key = normalizeKey(raw);
       // Ctrl+C is the app's (it stops the generation); Ctrl+D does nothing.
       if (key === '\x03' || key === '\x04') continue;
-      // Down arrow with nothing typed: the message that waits comes back into the line to be edited.
-      if (DOWN_ARROW.test(key) && this.queue.length > 0 && this.state.text === '') {
-        const back = this.queue.pop()!;
-        this.state = { text: back, cursor: Array.from(back).length };
+      const items = this.menuItems();
+      if (items.length > 0) {
+        // The list of commands is open: the arrows walk through it, Tab completes, Enter takes the marked one.
+        if (UP_ARROW.test(key)) { this.menuIndex = Math.max(0, this.menuIndex - 1); continue; }
+        if (DOWN_ARROW.test(key)) { this.menuIndex = Math.min(items.length - 1, this.menuIndex + 1); continue; }
+        const chosen = items[Math.min(this.menuIndex, items.length - 1)].cmd;
+        if (key === '\t') {
+          this.setText(chosen + ' ');
+          continue;
+        }
+        if ((key === '\r' || key === '\n') && this.state.text.trim().toLowerCase() !== chosen.toLowerCase()) {
+          this.state = { text: chosen, cursor: Array.from(chosen).length };
+        }
+      } else if (UP_ARROW.test(key)) {
+        // Up and down bring back what was sent before: in this chat and in the earlier ones.
+        const older = this.history.navigateUp(this.state.text);
+        if (older !== null) this.setText(older, true);
+        continue;
+      } else if (DOWN_ARROW.test(key)) {
+        if (this.history.isBrowsing()) {
+          const newer = this.history.navigateDown();
+          if (newer !== null) this.setText(newer, true);
+          continue;
+        }
+        // Down arrow with nothing typed: the message that waits comes back into the line to be edited.
+        if (this.queue.length > 0 && this.state.text === '') {
+          const back = this.queue.pop()!;
+          this.state = { text: back, cursor: Array.from(back).length };
+        }
         continue;
       }
       if (key === '\x10') { this.onToggle?.('thinking'); continue; }   // ctrl+p
       if (key === '\x0f') { this.onToggle?.('output'); continue; }     // ctrl+o
+      const before = this.state.text;
       const result = applyKey(this.state, key);
       this.state = result.state;
-      if (result.submit) {
-        this.queue.push(result.submit);
-        this.onQueue?.(result.submit);
+      if (this.state.text !== before) {
+        this.menuIndex = 0;
+        this.history.reset();
       }
+      if (result.submit) this.send(result.submit);
     }
     this.lines = this.render();
     this.redraw();
+  }
+
+  /** A line was sent: it is remembered, and goes to the commands or to the queue of messages. */
+  private send(text: string): void {
+    recordPrompt(text);
+    this.history = new PromptHistoryNavigator(promptHistory());
+    this.menuIndex = 0;
+    const isCommand = text.startsWith('/') && !startsWithPath(text, pathExists);
+    if (isCommand && this.onCommand?.(text)) return;
+    this.queue.push(text);
+    this.onQueue?.(text);
+  }
+
+  /** Puts a text on the line (the cursor goes to its end). `fromHistory` keeps the place in the history. */
+  private setText(text: string, fromHistory = false): void {
+    this.state = { text, cursor: Array.from(text).length };
+    this.menuIndex = 0;
+    if (!fromHistory) this.history.reset();
+  }
+
+  /** The commands that fit what is typed after the slash: only while the first word is being typed. */
+  private menuItems(): CommandItem[] {
+    const text = this.state.text;
+    if (!this.commands || !text.startsWith('/') || /\s/.test(text) || startsWithPath(text)) return [];
+    return filterCommandPalette(text, this.commands());
   }
 
   // ── terminal output
@@ -394,7 +467,11 @@ export class TurnComposer {
    * Without a working line only one empty row separates the frame from the output.
    */
   private render(): string[] {
-    const frame = renderComposer({ state: this.state, queued: this.queue, cols: this.out.columns ?? 80, base: this.frameBase() });
+    const items = this.menuItems();
+    const menu = items.length > 0
+      ? renderDropdown(items.map((i) => ({ label: i.cmd, desc: i.desc })), Math.min(this.menuIndex, items.length - 1), this.out.columns ?? 80, Math.max(12, (this.out.rows ?? 24) - 8))
+      : undefined;
+    const frame = renderComposer({ state: this.state, queued: this.queue, cols: this.out.columns ?? 80, base: this.frameBase(), menu });
     // the live reasoning, then the working line right above the frame (always in the same place), and a blank row
     return this.status ? ['', this.oneRow(this.live?.() ?? ''), this.oneRow(this.status()), '', ...frame] : ['', ...frame];
   }

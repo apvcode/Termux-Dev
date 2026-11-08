@@ -46,6 +46,7 @@ export const en = {
   'composer.queued': 'queued',
   'composer.queuedMany': '{n} queued',
   'composer.queuedHint': '↓ edit',
+  'composer.newline': 'new line',
   'composer.hint1': 'enter queues · esc stop',
   'composer.hint2': 'enter queues',
   'composer.hint3': 'enter queues · esc stop',

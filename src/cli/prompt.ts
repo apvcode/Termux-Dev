@@ -10,6 +10,9 @@ import { PromptHistoryNavigator } from './history_search.js';
 import { buildPromptFrame, moveCursorRow, palette, renderUserEcho, resolveMode } from './ui.js';
 import { displayWidth, padEndWidth, rowsToTop, truncateWidth } from './width.js';
 import { extendedKeysOff, extendedKeysOn, isNewlineKey, normalizeKey } from './keys.js';
+import { startsWithPath } from './slash.js';
+import { loadPromptHistory, promptHistory, recordPrompt } from './prompt_history.js';
+import { renderDropdown } from './dropdown.js';
 
 import { UIConfig } from '../core/types.js';
 
@@ -50,7 +53,6 @@ export const SLASH_COMMANDS = [
   { cmd: '/exit', desc: 'Exit devx' }
 ];
 
-const GLOBAL_PROMPT_HISTORY: string[] = [];
 
 export interface AskPromptOptions {
   message?: string;
@@ -132,14 +134,9 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     let selectedIndex = 0;
     let lastRenderedDropdownLines = 0;
 
-    const historyNav = new PromptHistoryNavigator(GLOBAL_PROMPT_HISTORY, !!opts.ui?.promptHistoryFuzzy);
-    PromptHistoryNavigator.loadPersistent().then((persisted) => {
-      for (const p of persisted) {
-        if (!GLOBAL_PROMPT_HISTORY.includes(p)) {
-          GLOBAL_PROMPT_HISTORY.push(p);
-        }
-      }
-    }).catch(() => {});
+    // The lines sent before, in this chat and in earlier ones (kept in a file, see prompt_history.ts).
+    void loadPromptHistory().catch(() => {});
+    const historyNav = new PromptHistoryNavigator(promptHistory(), !!opts.ui?.promptHistoryFuzzy);
 
     const imageAttachments: Array<{ tag: string; fileName: string; filePath: string; sizeStr: string }> = [];
     const usedImageNames = new Set<string>();
@@ -177,26 +174,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       if (items.length === 0) return [];
       if (selectedIndex >= items.length) selectedIndex = items.length - 1;
       if (selectedIndex < 0) selectedIndex = 0;
-
-      const pageSize = Math.max(2, Math.min(6, rows - 7));
-      let startIndex = 0;
-      if (items.length > pageSize && selectedIndex >= pageSize) {
-        startIndex = Math.min(selectedIndex - pageSize + 1, items.length - pageSize);
-      }
-      const endIndex = Math.min(startIndex + pageSize, items.length);
-      const labelWidth = Math.min(22, Math.max(8, Math.floor(cols * 0.4)));
-      const descRoom = cols - 1 - 2 - 2 - labelWidth - 2;
-
-      const out: string[] = [];
-      for (let i = startIndex; i < endIndex; i++) {
-        const item = items[i];
-        const selected = i === selectedIndex;
-        const label = truncateWidth(item.label, labelWidth);
-        const labelCell = padEndWidth(selected ? palette.bold(palette.accent(label)) : palette.text(label), labelWidth);
-        const desc = descRoom >= 6 ? truncateWidth(item.desc, descRoom) : '';
-        out.push(`${selected ? palette.accent('›') : ' '} ${labelCell}${desc ? '  ' + palette.faint(desc) : ''}`);
-      }
-      return out;
+      return renderDropdown(items, selectedIndex, cols, rows);
     }
 
     function drawFrame() {
@@ -417,7 +395,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
     }
 
     function getDropdownItems(): DropdownItem[] {
-      if (input.startsWith('/')) {
+      if (input.startsWith('/') && !startsWithPath(input)) {
         const q = input.trim().toLowerCase();
         if (cleanLayout || opts.ui?.commandPalette) {
           const baseList = [
@@ -425,7 +403,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
             ...customCommandsList.map((c) => ({ cmd: c.cmd, desc: `(custom) ${c.desc}` }))
           ];
 
-          const filtered = filterCommandPalette(input, baseList).slice(0, 15);
+          const filtered = filterCommandPalette(input, baseList);   // all of them: the list scrolls
           return filtered.map((item) => ({
             label: item.cmd,
             desc: item.desc,
@@ -657,14 +635,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       if (cleanLayout) {
         eraseFrame();
         const fullTextClean = expandPastes(finalInput);
-        if (fullTextClean.trim()) {
-          if (
-            GLOBAL_PROMPT_HISTORY.length === 0 ||
-            GLOBAL_PROMPT_HISTORY[GLOBAL_PROMPT_HISTORY.length - 1] !== fullTextClean.trim()
-          ) {
-            GLOBAL_PROMPT_HISTORY.push(fullTextClean.trim());
-          }
-        }
+        recordPrompt(fullTextClean);
         process.stdout.write(renderUserEcho(echoText(finalInput), process.stdout.columns || 80).join('\n') + '\n');
         cleanup();
         resolve(fullTextClean);
@@ -679,14 +650,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       }
 
       const fullText = expandPastes(finalInput);
-      if (fullText.trim()) {
-        if (
-          GLOBAL_PROMPT_HISTORY.length === 0 ||
-          GLOBAL_PROMPT_HISTORY[GLOBAL_PROMPT_HISTORY.length - 1] !== fullText.trim()
-        ) {
-          GLOBAL_PROMPT_HISTORY.push(fullText.trim());
-        }
-      }
+      recordPrompt(fullText);
 
       process.stdout.write(`\x1b[0m\r\x1b[2K${promptPrefix}${formatInputWithBadges(finalInput)}\x1b[0m\n\n`);
       cleanup();
@@ -832,7 +796,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
 
         if (items.length > 0 && selectedIndex >= 0 && selectedIndex < items.length) {
           const selected = items[selectedIndex];
-          if (input.startsWith('/')) {
+          if (input.startsWith('/') && !startsWithPath(input)) {
             input = selected.replacement;
             clearBoxAndExit(input);
             return;
@@ -855,7 +819,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       if (str === '\t' || (str.length === 1 && str.charCodeAt(0) === 9)) {
         if (items.length > 0 && selectedIndex >= 0 && selectedIndex < items.length) {
           const selected = items[selectedIndex];
-          if (input.startsWith('/')) {
+          if (input.startsWith('/') && !startsWithPath(input)) {
             input = selected.replacement + ' ';
             cursorPos = input.length;
             render();
