@@ -5,7 +5,7 @@ import { Agent } from '../core/loop.js';
 import { buildSystemPrompt } from '../prompts/builder.js';
 import { createProvider } from '../providers/index.js';
 import { refreshFormats } from '../core/formats.js';
-import { getTools } from '../tools/index.js';
+import { getToolSource } from '../tools/index.js';
 import { CLIConsoleGuard } from '../permissions/guard.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
 import { UsageTracker } from '../core/usage.js';
@@ -34,8 +34,6 @@ export async function runHeadlessMode(
   const isJson = !!options.json;
 
   let history = new History();
-  const sysPrompt = await buildSystemPrompt(planMode);
-  history.updateSystemPrompt(sysPrompt);
   history.addMessage({ role: 'user', content: userPrompt });
 
   let executedTools: Array<{ id: string; name: string; result: string }> = [];
@@ -58,9 +56,11 @@ export async function runHeadlessMode(
 
   try {
     await MCPManager.getInstance().init(undefined, (config as any).projectMcpTrusted === true);
+    // Written once the servers are up: it tells how to reach the tools that wait to be loaded.
+    history.updateSystemPrompt(await buildSystemPrompt(planMode));
     await refreshFormats(config).catch(() => null);
     const provider = createProvider(config);
-    const tools = getTools(planMode);
+    const tools = getToolSource(planMode);
     const guard = new CLIConsoleGuard(isYolo, [], { extra: isExtra });
     const agent = new Agent(config, provider, tools, history, guard);
 

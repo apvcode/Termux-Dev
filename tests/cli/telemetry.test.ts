@@ -43,4 +43,21 @@ describe('LiveTelemetryTracker', () => {
     expect(tracker.getElapsedSeconds()).toBe(0);
     expect(tracker.getTokensPerSecond()).toBe(0);
   });
+
+  describe('thoughtStats', () => {
+    it('gives tokens and speed over the span of the thought', () => {
+      expect(LiveTelemetryTracker.thoughtStats(812, 11000)).toBe(' · 812 tok · 74 tok/s');
+      expect(LiveTelemetryTracker.thoughtStats(2400, 20000)).toBe(' · 2.4k tok · 120 tok/s');
+    });
+
+    it('leaves the speed out when the thought was too short to measure', () => {
+      expect(LiveTelemetryTracker.thoughtStats(8, 100)).toBe(' · 8 tok');
+      expect(LiveTelemetryTracker.thoughtStats(300, 400)).toBe(' · 300 tok');
+      expect(LiveTelemetryTracker.thoughtStats(15, 5000)).toBe(' · 15 tok');
+    });
+
+    it('says nothing when there was no thought', () => {
+      expect(LiveTelemetryTracker.thoughtStats(0, 0)).toBe('');
+    });
+  });
 });

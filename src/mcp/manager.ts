@@ -6,7 +6,8 @@ import pc from 'picocolors';
 import { MCPServerConfig, MCPServersConfig, MCPServerStatus, MCPToolInfo } from './types.js';
 import { MCPClient } from './client.js';
 import { HttpMCPClient } from './http-client.js';
-import { Tool } from '../core/types.js';
+import { Message, Tool } from '../core/types.js';
+import { toolSchemaTokens } from '../core/context-stats.js';
 import { getCurrentTheme } from '../cli/theme.js';
 
 function stripAnsi(str: string): string {
@@ -235,11 +236,28 @@ export function removeUserServer(name: string): boolean {
   }
 }
 
+/** Tool schemas of the servers that are not lazy by choice stay within this (estimated tokens); the rest waits for the agent. */
+export const EAGER_BUDGET_TOKENS = 4000;
+
+/** One tool for the agent: its name, what it does and its parameters (required ones marked with *). */
+export function describeTool(tool: Tool): string {
+  const desc = tool.definition.description.replace(/^\[MCP: [^\]]*\]\s*/, '').replace(/\s+/g, ' ').trim();
+  const required = new Set(tool.definition.parameters.required ?? []);
+  const params = Object.keys(tool.definition.parameters.properties ?? {}).map((p) => (required.has(p) ? `${p}*` : p));
+  return `- ${tool.name}: ${desc.length > 240 ? desc.slice(0, 237) + '...' : desc}${params.length ? ` (params: ${params.join(', ')})` : ''}`;
+}
+
 export class MCPManager {
   private static instance: MCPManager;
   private clients = new Map<string, McpClientLike>();
   private entries = new Map<string, ServerEntry>();
   private tools: Tool[] = [];
+  /** Which server a tool belongs to, and its name there (the tool names the agent sees are prefixed). */
+  private meta = new Map<string, { server: string; bare: string }>();
+  /** What the tool schemas of a server weigh (estimated tokens). */
+  private weights = new Map<string, number>();
+  /** Tools of lazy servers the agent has loaded, in the order it loaded them. Survives reload() and reconnects. */
+  private loaded = new Set<string>();
   private serverStatuses = new Map<string, MCPServerStatus>();
   private isInitialized = false;
   private trustProject = false;
@@ -315,6 +333,7 @@ export class MCPManager {
         toolInfo: mcpTools.map(toolInfo),
       });
 
+
       // Convert MCP tools into devx Tool format
       for (const mt of mcpTools) {
         const namespacedName = uniqueName(mcpToolName(name, mt.name), this.tools);
@@ -330,12 +349,17 @@ export class MCPManager {
             },
           },
           validateArgs(_args: any) {},
-          async execute(args: any) {
+          execute: async (args: any) => {
+            // What the agent has used stays in its requests, also when the server later turns lazy.
+            this.loaded.add(namespacedName);
             return await client.callTool(mt.name, args);
           },
         };
         this.tools.push(devxTool);
+        this.meta.set(namespacedName, { server: name, bare: mt.name });
       }
+      // What the schemas of this server cost in every request (decides whether it is sent or waits to be loaded).
+      this.weights.set(name, toolSchemaTokens(this.tools.filter((t) => this.meta.get(t.name)?.server === name).map((t) => t.definition)));
     } catch (err: any) {
       this.clients.delete(name);
       this.serverStatuses.set(name, { ...base, status: 'failed', error: err.message });
@@ -348,19 +372,178 @@ export class MCPManager {
       this.clients.get(name)?.close();
     } catch {}
     this.clients.delete(name);
-    this.tools = this.tools.filter((t) => !t.name.startsWith(mcpToolName(name, '')));
+    for (const t of this.tools) if (this.meta.get(t.name)?.server === name) this.meta.delete(t.name);
+    this.tools = this.tools.filter((t) => this.meta.has(t.name));
+    this.weights.delete(name);
   }
 
+  /**
+   * The servers whose tools are not sent until the agent loads them. A server says so itself
+   * (`"lazy": true|false`); otherwise the small ones are sent (loading them would only cost a step) and
+   * the big ones wait, so that all the tools sent together stay within EAGER_BUDGET_TOKENS.
+   */
+  private lazyServers(): Set<string> {
+    const lazy = new Set<string>();
+    const withTools = Array.from(this.serverStatuses.values()).filter((s) => s.status === 'connected' && s.toolsCount > 0);
+    const weight = (n: string) => this.weights.get(n) ?? 0;
+    let budget = EAGER_BUDGET_TOKENS;
+    const auto: string[] = [];
+    for (const s of withTools) {
+      const explicit = this.entries.get(s.name)?.config.lazy;
+      if (explicit === true) lazy.add(s.name);
+      else if (explicit === false) budget -= weight(s.name);
+      else auto.push(s.name);
+    }
+    auto.sort((a, b) => weight(a) - weight(b) || a.localeCompare(b));
+    for (const n of auto) {
+      if (weight(n) <= budget) budget -= weight(n);
+      else lazy.add(n);
+    }
+    return lazy;
+  }
+
+  /** The tools the agent gets in its requests: those of the servers that are not lazy, then the ones it loaded. */
   getTools(): Tool[] {
+    const lazy = this.lazyServers();
+    if (lazy.size === 0) return this.tools;
+    const inLazy = (t: Tool) => lazy.has(this.meta.get(t.name)?.server ?? '');
+    const byName = new Map(this.tools.map((t) => [t.name, t]));
+    const loaded = Array.from(this.loaded).map((n) => byName.get(n)).filter((t): t is Tool => !!t && inLazy(t));
+    return [...this.tools.filter((t) => !inLazy(t)), ...loaded];
+  }
+
+  /** Every tool of every connected server, loaded or not. */
+  getAllTools(): Tool[] {
     return this.tools;
   }
 
+  /** The tools of one server (case does not matter in the name), loaded or not. */
+  toolsOf(server: string): Tool[] {
+    const want = server.toLowerCase();
+    return this.tools.filter((t) => this.meta.get(t.name)?.server.toLowerCase() === want);
+  }
+
+  /** True when some server keeps its tools back: the agent then needs `mcp_search`. */
+  hasLazy(): boolean {
+    return this.lazyServers().size > 0;
+  }
+
+  /** The servers with what the agent needs to know about them to decide whether to look inside. */
+  catalog(): Array<{ name: string; lazy: boolean; total: number; loaded: number; tools: string[] }> {
+    const lazy = this.lazyServers();
+    return Array.from(this.serverStatuses.values())
+      .filter((s) => s.status === 'connected' && s.toolsCount > 0)
+      .map((s) => {
+        const mine = this.tools.filter((t) => this.meta.get(t.name)?.server === s.name);
+        const isLazy = lazy.has(s.name);
+        return {
+          name: s.name,
+          lazy: isLazy,
+          total: mine.length,
+          loaded: isLazy ? mine.filter((t) => this.loaded.has(t.name)).length : mine.length,
+          tools: mine.map((t) => this.meta.get(t.name)!.bare),
+        };
+      });
+  }
+
+  /** The tool a reference points to: the full name, `server/tool`, or the tool's own name when only one has it. */
+  findTool(ref: string): Tool | undefined {
+    const r = ref.trim();
+    const exact = this.tools.find((t) => t.name === r);
+    if (exact) return exact;
+    const lower = r.toLowerCase();
+    const whole = this.tools.filter((t) => this.meta.get(t.name)!.bare.toLowerCase() === lower || t.name.toLowerCase() === lower);
+    if (whole.length > 0) return whole.length === 1 ? whole[0] : undefined;
+    // `server/tool` or `server:tool`: the first separator ends the server's name (the tool's own name may have one too).
+    const cut = lower.search(/[/:]/);
+    if (cut < 0) return undefined;
+    const server = lower.slice(0, cut);
+    const bare = lower.slice(cut + 1);
+    const hits = this.tools.filter((t) => {
+      const m = this.meta.get(t.name)!;
+      return m.server.toLowerCase() === server && m.bare.toLowerCase() === bare;
+    });
+    return hits.length === 1 ? hits[0] : undefined;
+  }
+
+  /** Puts tools into the agent's requests (from its next step). Tools of servers that are not lazy are there anyway. */
+  load(tools: Tool[]): void {
+    for (const t of tools) if (this.meta.has(t.name)) this.loaded.add(t.name);
+  }
+
+  isLoaded(tool: Tool): boolean {
+    const server = this.meta.get(tool.name)?.server ?? '';
+    return !this.lazyServers().has(server) || this.loaded.has(tool.name);
+  }
+
+  /** Ranks the tools of the connected servers for a few keywords (best first). Only tools that match at all. */
+  search(query: string, server?: string): Tool[] {
+    const stem = (w: string) => (w.length > 3 ? w.replace(/(es|s)$/, '') : w);
+    const words = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean).map(stem);
+    if (words.length === 0) return [];
+    const scored: Array<{ tool: Tool; score: number; order: number }> = [];
+    this.tools.forEach((tool, order) => {
+      const m = this.meta.get(tool.name)!;
+      if (server && m.server.toLowerCase() !== server.toLowerCase()) return;
+      const name = m.bare.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ');
+      const nameWords = name.split(' ').map(stem);
+      const desc = tool.definition.description.replace(/^\[MCP: [^\]]*\]\s*/, '').toLowerCase();
+      const srv = m.server.toLowerCase();
+      let score = 0;
+      let hits = 0;
+      for (const w of words) {
+        let hit = 0;
+        if (nameWords.includes(w)) hit = 4;
+        else if (name.includes(w)) hit = 3;
+        if (desc.includes(w)) hit += 1;
+        if (srv.includes(w)) hit += 1;
+        if (hit > 0) hits++;
+        score += hit;
+      }
+      if (score > 0) scored.push({ tool, score: score + (hits === words.length ? 3 : 0), order });
+    });
+    return scored.sort((a, b) => b.score - a.score || a.order - b.order).map((x) => x.tool);
+  }
+
+  /**
+   * The agent called a tool that exists but was never loaded (it knew the name from the list, but has
+   * not seen the schema). It is loaded now and the agent is told to call it again with the right arguments.
+   */
+  loadOnMiss(name: string): string | undefined {
+    const tool = this.tools.find((t) => t.name === name);
+    if (!tool || this.isLoaded(tool)) return undefined;
+    this.load([tool]);
+    return `Tool '${name}' was not loaded, so its arguments were unknown. It is loaded now: call it again.\n${describeTool(tool)}`;
+  }
+
+  /** A new chat starts from nothing: what was loaded in the old one is not carried over. */
+  resetLoaded(): void {
+    this.loaded.clear();
+  }
+
+  /** A resumed chat keeps working with the MCP tools it used before. */
+  restoreLoaded(messages: Message[]): void {
+    for (const m of messages) {
+      for (const call of m.tool_calls ?? []) {
+        const tool = this.tools.find((t) => t.name === call.name);
+        if (tool) this.loaded.add(tool.name);
+      }
+    }
+  }
+
   getStatuses(): MCPServerStatus[] {
-    return Array.from(this.serverStatuses.values());
+    return Array.from(this.serverStatuses.values()).map((s) => this.withLoad(s));
   }
 
   getStatus(name: string): MCPServerStatus | undefined {
-    return this.serverStatuses.get(name);
+    const s = this.serverStatuses.get(name);
+    return s ? this.withLoad(s) : undefined;
+  }
+
+  private withLoad(s: MCPServerStatus): MCPServerStatus {
+    if (s.status !== 'connected') return s;
+    const entry = this.catalog().find((c) => c.name === s.name);
+    return entry ? { ...s, lazy: entry.lazy, loadedCount: entry.loaded, schemaTokens: this.weights.get(s.name) } : s;
   }
 
   /** Starts a server again (also after it failed). The tools of the agent follow at once. */
@@ -388,6 +571,8 @@ export class MCPManager {
     this.isInitialized = false;
     this.clients.clear();
     this.tools = [];
+    this.meta.clear();
+    this.weights.clear();
     this.serverStatuses.clear();
     return await this.init(undefined, this.trustProject);
   }
@@ -437,7 +622,8 @@ export class MCPManager {
       if (s.status === 'disabled') statusBadge = pc.dim('○ Disabled');
 
       lines.push(padRow(pc.bold(pc.white(`Server: ${s.name}`)), statusBadge));
-      lines.push(padRow(pc.dim(`  Command: ${s.command.slice(0, 36)}${s.command.length > 36 ? '...' : ''}`), pc.cyan(`${s.toolsCount} tools`)));
+      const load = s.lazy ? `${s.toolsCount} tools · ${s.loadedCount ?? 0} loaded` : `${s.toolsCount} tools`;
+      lines.push(padRow(pc.dim(`  Command: ${s.command.slice(0, 36)}${s.command.length > 36 ? '...' : ''}`), pc.cyan(load)));
 
       if (s.tools.length > 0) {
         const toolsListStr = s.tools.slice(0, 3).map(t => pc.dim(`• ${t}`)).join(' ');

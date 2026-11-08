@@ -374,6 +374,7 @@ Colours are exact on terminals with truecolor support (`COLORTERM=truecolor`); o
 - **Undo for everything.** With git, `/undo` puts the whole folder back to how it was before the last turn, including what shell commands did (files in `.gitignore` are not touched).
 - **The approved plan** is saved in `.devx/plan.md` and given to the agent for 24 hours. **Project memory** longer than ~4000 characters is cut to the newest facts for the model.
 - **MCP.** `/mcp add <name> <command> [args]` or `/mcp add <name> <https-url>` (a remote server over HTTP; put a token in `headers` as `"Bearer ${TOKEN}"`), `/mcp remove <name>`, `/mcp import` (from Claude Code).
+- **MCP tools on demand.** Every MCP tool schema is sent with every request, and a big server (Notion has ~80 tools) can cost 100k tokens before you type anything. So devx sends the tools of small servers at once and keeps the big ones back: the agent sees the list of servers in its `mcp_search` tool, finds and loads only the tools a task needs (`mcp_search` with keywords, tool names, or just a server name), and calls them from its next step. Loaded tools stay for the chat (a resumed chat gets back the ones it used). Which servers wait is decided by size (all tools sent together stay within ~4k tokens); force it per server with `"lazy": true` or `"lazy": false` in `mcp.json`.
 
 ## Security Model
 

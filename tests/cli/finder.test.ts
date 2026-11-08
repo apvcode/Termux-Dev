@@ -50,7 +50,7 @@ describe('the cards', () => {
       ...renderFinder({ title: 'provider', items }, 'op', filterItems(items, 'op'), 1, cols),
       ...renderFinder({ title: 'provider', items }, 'zzz', filterItems(items, 'zzz'), 0, cols),
       ...renderTextInput({ title: 'api key', label: 'Paste your API key for OpenAI', secret: true, notes: ['What you type is hidden.'] }, 'sk-secret', cols),
-      ...renderWelcome('1.9.3', cols, 1),
+      ...renderWelcome('1.9.4', cols, 1),
     ];
     for (const line of lines) expect(displayWidth(stripAnsi(line))).toBeLessThanOrEqual(cols);
   });
@@ -67,8 +67,8 @@ describe('the cards', () => {
   });
 
   it('the welcome names the five steps and ticks the finished ones', () => {
-    const text = stripAnsi(renderWelcome('1.9.3', 80, 2).join('\n'));
-    for (const word of ['Language', 'Theme', 'Provider', 'API key', 'Model', 'v1.9.3']) expect(text).toContain(word);
+    const text = stripAnsi(renderWelcome('1.9.4', 80, 2).join('\n'));
+    for (const word of ['Language', 'Theme', 'Provider', 'API key', 'Model', 'v1.9.4']) expect(text).toContain(word);
     expect(text.match(/✓/g)).toHaveLength(2);
   });
 });

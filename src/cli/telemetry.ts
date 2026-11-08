@@ -87,6 +87,18 @@ export class LiveTelemetryTracker {
     return `${Math.round(n)}`;
   }
 
+  /**
+   * ` · 812 tok · 74 tok/s` for a finished thought: its own tokens and the speed it ran at, from the
+   * first to the last piece (not the whole wait). The speed is left out when the thought was so short
+   * that it would mean nothing (a few tokens in a fraction of a second).
+   */
+  public static thoughtStats(tokens: number, spanMs: number): string {
+    if (tokens <= 0) return '';
+    const count = ` · ${LiveTelemetryTracker.formatTokenCount(tokens)} tok`;
+    if (tokens < 20 || spanMs < 1000) return count;
+    return `${count} · ${Math.round(tokens / (spanMs / 1000))} tok/s`;
+  }
+
   public formatLabel(): string {
     const secs = `${this.getElapsedSeconds()}s`;
     const tokens = LiveTelemetryTracker.formatTokenCount(this.totalTokens);

@@ -14,7 +14,7 @@ export const mcpManageTool: Tool = {
       "Manage MCP servers of devx. action 'list': the servers with their state, tools and errors. " +
       "action 'add': save a server (name, command, args, env) to ~/.devx/mcp.json and start it; the user is asked to approve. " +
       "action 'import_claude': take the servers the user already has in Claude Code (~/.claude.json). " +
-      "The tools of a newly added server can be called from the user's next message on.",
+      "The tools of a newly added server can be used at once; if the server keeps them unloaded, mcp_search loads them.",
     parameters: {
       type: 'object',
       properties: {
@@ -63,6 +63,6 @@ export const mcpManageTool: Tool = {
       ...(s.error ? { error: s.error } : {}),
       ...(s.status === 'connected' ? { sample_tools: s.tools.slice(0, 8) } : {}),
     }));
-    return JSON.stringify({ servers: rows, note: rows.length === 0 ? 'No MCP servers configured yet.' : 'New tools can be called from the next user message.' });
+    return JSON.stringify({ servers: rows, note: rows.length === 0 ? 'No MCP servers configured yet.' : "New tools can be used at once; if a server's tools are not loaded, load them with mcp_search." });
   },
 };

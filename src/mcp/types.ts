@@ -7,6 +7,11 @@ export interface MCPServerConfig {
   url?: string;
   headers?: Record<string, string>;
   disabled?: boolean;
+  /**
+   * true: the tools of this server are not sent to the model until it loads them (`mcp_search`);
+   * false: always sent. Without it devx decides by size: small servers are sent, big ones are loaded on demand.
+   */
+  lazy?: boolean;
 }
 
 export interface MCPServersConfig {
@@ -90,4 +95,10 @@ export interface MCPServerStatus {
   /** What the server says it can do: tools, resources, prompts, ... */
   capabilities?: string[];
   toolInfo?: MCPToolInfo[];
+  /** The tools wait until the agent loads them (they are not in every request). */
+  lazy?: boolean;
+  /** How many of the tools are in the requests now (all of them unless the server is lazy). */
+  loadedCount?: number;
+  /** What the tool schemas of this server weigh (estimated tokens). */
+  schemaTokens?: number;
 }

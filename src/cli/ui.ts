@@ -890,7 +890,7 @@ export function summarizeToolResult(name: string, result: string, cols = 80, exp
 
   if (expanded && t !== 'bash' && !(t === 'edit_file' || t === 'write_file')) {
     // For these the first line is part of the output, not a summary of it.
-    const own = t.startsWith('mcp__') || t === 'web_search' || t === 'fetch_url' || t === 'background';
+    const own = t.startsWith('mcp__') || t === 'mcp_search' || t === 'web_search' || t === 'fetch_url' || t === 'background';
     const first = own ? [] : summarizeToolResult(name, result, cols, false);
     return [...first, ...fullRows(text, cols)];
   }
@@ -937,7 +937,7 @@ export function summarizeToolResult(name: string, result: string, cols = 80, exp
   }
 
   // Output of an MCP tool or a web fetch: the first line and how many more there are.
-  if (t.startsWith('mcp__') || t === 'web_search' || t === 'fetch_url') {
+  if (t.startsWith('mcp__') || t === 'mcp_search' || t === 'web_search' || t === 'fetch_url') {
     const nonEmpty = outputRows(text).filter((l) => l.trim());
     if (nonEmpty.length === 0) return [renderResultLine('(no output)', 'muted', cols)];
     const rest = nonEmpty.length - 1;

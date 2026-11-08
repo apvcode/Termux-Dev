@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { MemoryManager, memoryForPrompt } from '../core/memory.js';
 import { loadPlanForPrompt } from '../core/planfile.js';
+import { MCPManager } from '../mcp/manager.js';
 
 export async function buildSystemPrompt(planMode: boolean): Promise<string> {
   const isTermux = process.env.PREFIX?.includes('com.termux') || false;
@@ -49,7 +50,10 @@ export async function buildSystemPrompt(planMode: boolean): Promise<string> {
 
   prompt += `\nMCP (external tools)\n`;
   prompt += `- Servers live in ~/.devx/mcp.json (the user's, started at once) and .devx/mcp.json (this project, only after the user approved it). Their tools are named mcp__<server>__<tool>. Local programs only (command + args); a server that has just an address is reached with command 'npx', args ['-y','mcp-remote','<url>'].\n`;
-  if (!planMode) prompt += `- If the user asks to connect a service over MCP, use 'mcp_manage': 'list' first, then 'add' with the real command (find it in the service's docs or with the web search tool, do not guess; ask with 'ask_questions' if you need a path or a choice). Secrets go into env, not args. Check the result: if the server did not connect, tell the user the error. 'import_claude' takes the servers from Claude Code if the user has it. The new tools work from the user's next message.\n`;
+  if (MCPManager.getInstance().hasLazy()) {
+    prompt += `- The tools of some MCP servers are not loaded, to save context. When a task needs an external service (the servers are listed in the 'mcp_search' tool), load its tools first with 'mcp_search' (keywords in 'query'), then call them. Never guess a tool name or its arguments. Tools you loaded stay available.\n`;
+  }
+  if (!planMode) prompt += `- If the user asks to connect a service over MCP, use 'mcp_manage': 'list' first, then 'add' with the real command (find it in the service's docs or with the web search tool, do not guess; ask with 'ask_questions' if you need a path or a choice). Secrets go into env, not args. Check the result: if the server did not connect, tell the user the error. 'import_claude' takes the servers from Claude Code if the user has it. The new tools work at once.\n`;
 
   // Load Project Memory Bank
   try {

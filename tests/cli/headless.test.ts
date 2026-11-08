@@ -5,7 +5,7 @@ import { MCPManager } from '../../src/mcp/manager.js';
 
 vi.mock('../../src/prompts/builder.js', () => ({ buildSystemPrompt: async () => 'System prompt' }));
 vi.mock('../../src/providers/index.js', () => ({ createProvider: vi.fn() }));
-vi.mock('../../src/tools/index.js', () => ({ getTools: () => [] }));
+vi.mock('../../src/tools/index.js', () => ({ getToolSource: () => ({ current: () => [] }) }));
 vi.mock('../../src/mcp/manager.js', () => {
   const manager = { init: vi.fn(async () => []), stopAll: vi.fn() };
   return { MCPManager: { getInstance: () => manager } };

@@ -1,6 +1,6 @@
 import type { CostParts, CostSource } from './cost.js';
 
-export const DEVX_VERSION = '1.9.3';
+export const DEVX_VERSION = '1.9.4';
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -56,6 +56,17 @@ export interface ToolDefinition {
     properties: Record<string, any>;
     required?: string[];
   };
+}
+
+/**
+ * Where the agent gets its tools. A plain list is fixed for the whole run; a source is asked again
+ * before every request, so tools that appear while the agent works (MCP tools it loads on demand) are
+ * seen at once.
+ */
+export interface ToolSource {
+  current(): Tool[];
+  /** A tool the agent called that is not in the list: a hint for the model (and the chance to load it), or undefined. */
+  explainMissing?(name: string): string | undefined;
 }
 
 export interface ToolExecutionContext {

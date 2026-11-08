@@ -1,4 +1,4 @@
-import { AgentConfig, AgentEvent, LLMProvider, Message, PermissionGuard, TokenUsage, Tool } from './types.js';
+import { AgentConfig, AgentEvent, LLMProvider, Message, PermissionGuard, TokenUsage, Tool, ToolSource } from './types.js';
 import { History } from './history.js';
 import { CONTEXT_USAGE_RATIO, toolSchemaTokens } from './context-stats.js';
 import { t } from './i18n.js';
@@ -48,6 +48,10 @@ export function getActionDescription(toolName: string, args: any): string {
   }
   if (t === 'todo_list' || t === 'update_todos') {
     return `→ Update Plan & Tasks`;
+  }
+  if (t === 'mcp_search') {
+    const what = Array.isArray(args?.names) && args.names.length ? `load ${args.names.join(', ')}` : args?.query ? `find "${args.query}"` : args?.server ? `tools of ${args.server}` : 'servers';
+    return `→ MCP: ${what.length > 120 ? what.slice(0, 117) + '...' : what}`;
   }
   if (t.startsWith('mcp__')) {
     const [, server = 'mcp', ...rest] = toolName.split('__');
@@ -99,19 +103,21 @@ export class Agent {
   private config: AgentConfig;
   private provider: LLMProvider;
   private tools: Map<string, Tool>;
+  private source?: ToolSource;
   private history: History;
   private guard: PermissionGuard;
 
   constructor(
     config: AgentConfig,
     provider: LLMProvider,
-    tools: Tool[],
+    tools: Tool[] | ToolSource,
     history: History,
     guard: PermissionGuard
   ) {
     this.config = config;
     this.provider = provider;
-    this.tools = new Map(tools.map((t) => [t.name, t]));
+    this.source = Array.isArray(tools) ? undefined : tools;
+    this.tools = new Map((Array.isArray(tools) ? tools : tools.current()).map((t) => [t.name, t]));
     this.history = history;
     this.guard = guard;
   }
@@ -140,6 +146,8 @@ export class Agent {
         yield { type: 'background_note', content: news };
       }
 
+      // A tool source is asked again for every request: tools loaded in the previous step are there now.
+      if (this.source) this.tools = new Map(this.source.current().map((t) => [t.name, t]));
       const toolDefinitions = Array.from(this.tools.values()).map((t) => t.definition);
       // Tool schemas are sent with every request and count against the context window.
       const schemaTokens = toolSchemaTokens(toolDefinitions);
@@ -315,10 +323,15 @@ export class Agent {
           let result = '';
           // Pictures a tool wants the model to see (read_file on an image) travel with its result.
           const pictures: NonNullable<Message['images']> = [];
-          const tool = this.tools.get(call.name);
+          let tool = this.tools.get(call.name);
+          // An earlier call of this same reply (mcp_search) may have just loaded it.
+          if (!tool && this.source) {
+            this.tools = new Map(this.source.current().map((t) => [t.name, t]));
+            tool = this.tools.get(call.name);
+          }
 
           if (!tool) {
-            result = `Error: Tool '${call.name}' not found.`;
+            result = this.source?.explainMissing?.(call.name) ?? `Error: Tool '${call.name}' not found.`;
           } else if (call.argsError) {
             // Never run a tool with arguments we could not parse ({} could mean something else).
             result = `Error: ${call.argsError}`;

@@ -6,16 +6,29 @@ on:
   pull_request:
     branches: [ main ]
 
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build & Test (Node ${{ matrix.node-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         node-version: [20.x, 22.x]
+        include:
+          # The newest Node is checked once, on the fastest runner.
+          - os: ubuntu-latest
+            node-version: 24.x
 
     steps:
       - name: Checkout Repository
@@ -25,6 +38,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
 
       - name: Install Dependencies
         run: npm ci
@@ -35,5 +49,72 @@ jobs:
       - name: Run Unit Tests (Vitest)
         run: npm test
 
+      # devx recognises Termux by its environment (PREFIX, TERMUX_VERSION). The same tests run once
+      # more with those set, so the Termux-only paths (notifications, packages, prompt) are covered.
+      - name: Run Unit Tests (Termux-like environment)
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22.x'
+        env:
+          PREFIX: /data/data/com.termux/files/usr
+          TERMUX_VERSION: '0.118.1'
+        run: npm test
+
       - name: Test CLI Binary
         run: node ./bin/devx.js --help
+
+      - name: Test CLI Version
+        run: node ./bin/devx.js --version
+
+      # The version is written in several files, and the npm package must hold the built program.
+      - name: Check release (version everywhere, package contents)
+        run: node ./scripts/check-release.js
+
+  # The real thing: Termux's own Android userland (bionic libc, its own Node) in Docker.
+  # GitHub has no Android runners, so this is the x86_64 build of the official image.
+  termux:
+    name: Termux (official Docker image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Not a gate yet: it depends on Termux's package mirrors and on the image. Make it required once it has run clean.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install, build and run devx inside Termux
+        run: |
+          docker run --rm -v "$PWD:/src:ro" termux/termux-docker:x86_64 bash -c '
+            set -e
+            pkg update -y
+            pkg install -y nodejs-lts
+            echo "node $(node --version) on $(node -p process.platform)/$(node -p process.arch), PREFIX=$PREFIX"
+            mkdir -p ~/devx && cd ~/devx
+            cp -r /src/. .
+            rm -rf node_modules dist
+            npm ci
+            npm run build
+            node bin/devx.js --version
+            node bin/devx.js --help > /dev/null
+            node scripts/check-release.js
+            # Vitest needs native binaries that Android/x64 may not have: a failure here is a warning, not a failed job.
+            npm test || echo "::warning::unit tests did not pass inside the Termux image"
+          '
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # An advisory in a dependency is worth seeing, but it is not a reason to block a change.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

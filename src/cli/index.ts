@@ -11,7 +11,7 @@ import { History } from '../core/history.js';
 import { Agent } from '../core/loop.js';
 import { buildSystemPrompt } from '../prompts/builder.js';
 import { createProvider } from '../providers/index.js';
-import { getTools, lastPlanReady, resetPlanReady } from '../tools/index.js';
+import { getTools, getToolSource, lastPlanReady, resetPlanReady } from '../tools/index.js';
 import { CLIConsoleGuard, newPermissionMemory } from '../permissions/guard.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
 import { MemoryManager, memoryForPrompt } from '../core/memory.js';
@@ -977,14 +977,13 @@ export async function main() {
   let history = new History();
   
   MemoryManager.enabled = config.enableMemory !== false;
-  const sysPrompt = await buildSystemPrompt(planMode);
-  history.addMessage({ role: 'system', content: sysPrompt });
-
   const sessionManager = new SessionManager(config.model, planMode);
 
   drawLogo(config.banner || 'full');
   await runStartupUpdateCheck(config, { save: saveConfig });
   await MCPManager.getInstance().init(undefined, config.projectMcpTrusted === true);
+  // After the servers are up: the prompt says how the agent reaches the tools it has to load.
+  history.addMessage({ role: 'system', content: await buildSystemPrompt(planMode) });
   // Ask a custom endpoint what the current model can do (cached for a day; never blocks the prompt).
   void refreshEndpoint(config).catch(() => null);
 
@@ -1062,6 +1061,7 @@ export async function main() {
     titleAttempts = 0;
     if (process.stdout.isTTY) process.stdout.write(RESTORE_TERMINAL_TITLE + SAVE_TERMINAL_TITLE);
     history = new History();
+    MCPManager.getInstance().resetLoaded();
     history.addMessage({ role: 'system', content: await buildSystemPrompt(planMode) });
     sessionCost.reset();
     costLimitRaised = null;
@@ -1387,6 +1387,8 @@ export async function main() {
           for (const m of loaded.messages) {
             history.addMessage(m);
           }
+          MCPManager.getInstance().resetLoaded();
+          MCPManager.getInstance().restoreLoaded(loaded.messages);
           if (loaded.model) {
             config.model = loaded.model;
             config.maxContextTokens = resolveContextLimit({ ...config, maxContextTokens: 0 }).limit;
@@ -2108,7 +2110,7 @@ export async function main() {
     // The format of the gateway is learned once (cached); the first request waits for it.
     await refreshFormats(config).catch(() => null);
     const provider = createProvider(config);
-    const tools = getTools(planMode);
+    const tools = getToolSource(planMode);
     const guard = new CLIConsoleGuard(config.autoApprove, [...(config.bashAllowlist || [])], {
       extra: !!config.autoApproveAll,
       memory: permissionMemory,
@@ -2135,6 +2137,10 @@ export async function main() {
     let spinnerActive = false;
     let thinkingActive = false;
     let thinkingStartTime = 0;
+    // What one thought amounts to (estimated tokens, first and last piece), for the speed on its line.
+    let thoughtTokens = 0;
+    let thoughtFirstAt = 0;
+    let thoughtLastAt = 0;
     // Thinking is collapsed by default: only a live line shows the newest words. ctrl+p shows it in full.
     let thinkingStreaming = false;
     let thoughtBuffer = '';
@@ -2246,9 +2252,7 @@ export async function main() {
         thoughtGutter.flush();
       }
       const elapsedSec = thinkingStartTime > 0 ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : '0.0';
-      const teleStats = config.ui?.liveTelemetry && telemetry.getTotalTokens() > 0
-        ? ` · ${LiveTelemetryTracker.formatTokenCount(telemetry.getTotalTokens())} tok · ${telemetry.getTokensPerSecond()} tok/s`
-        : '';
+      const teleStats = LiveTelemetryTracker.thoughtStats(thoughtTokens, thoughtLastAt - thoughtFirstAt);
       if (cleanUi && !thinkingActive) {
         // Folded: one quiet line instead of the whole reasoning.
         if (spacerBeforeText) process.stdout.write('\n');
@@ -2275,6 +2279,8 @@ export async function main() {
       thinkingActive = false;
       thinkingStreaming = false;
       thinkingStartTime = 0;
+      thoughtTokens = 0;
+      thoughtFirstAt = thoughtLastAt = 0;
       runPendingRedraw();
     };
 
@@ -2488,12 +2494,16 @@ export async function main() {
           if (!thinkingStreaming) {
             thinkingStreaming = true;
             thinkingStartTime = Date.now();
+            thoughtTokens = 0;
+            thoughtFirstAt = thinkingStartTime;
             thoughtBuffer = '';
             thoughtPrinted = 0;
             liveShown = 0;
             liveAt = Date.now();
           }
           thoughtBuffer += event.delta;
+          thoughtTokens += telemetry.estimateTokensFromText(event.delta);
+          thoughtLastAt = Date.now();
           if (!cleanUi || thinkingExpanded) showThought();
         } else if (event.type === 'text_delta') {
           isConnecting = false;
