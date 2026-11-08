@@ -86,6 +86,33 @@ Android では、まず Termux で `pkg install nodejs-lts` を実行してく�
 - **Node.js**：`v20.0.0` 以上
 - **npm**、**pnpm**、または **yarn**
 
+### Node.js と npm のインストール
+
+devx には Node.js 20 以降が必要です（npm は同梱）。お使いのシステムを選んでください：
+
+```bash
+# Windows (PowerShell)
+winget install OpenJS.NodeJS.LTS
+
+# macOS (Homebrew)
+brew install node
+
+# Ubuntu / Debian（NodeSource：ディストリビューション標準リポジトリのバージョンは 20 より古いことが多いため）
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Fedora
+sudo dnf install -y nodejs
+
+# Arch Linux
+sudo pacman -S nodejs npm
+
+# Android (Termux)
+pkg update && pkg install -y nodejs-lts
+```
+
+ターミナルを開き直して確認します：`node -v`（`v20` 以上であること）と `npm -v`。どのシステムでも：[nodejs.org](https://nodejs.org/en/download) のインストーラーまたは [nvm](https://github.com/nvm-sh/nvm)。
+
 ### グローバルへの簡単インストール（推奨）
 
 ```bash

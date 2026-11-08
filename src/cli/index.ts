@@ -17,6 +17,7 @@ import { globalSnapshotManager } from '../core/snapshot.js';
 import { MemoryManager, memoryForPrompt } from '../core/memory.js';
 import { startServer, stopServer, displayServerBanner } from './server.js';
 import { notifyDevice, acquireWakeLock, isTermux, notificationBody, sendDesktopNotification } from '../core/notify.js';
+import { isTerminalFocused, setFocusTracking, setTerminalFocused } from '../core/attention.js';
 import { copyToClipboard } from './clipboard-write.js';
 import { REWIND_CURRENT, messageDraft, rewindItems, userEntries } from './rewind.js';
 import { runPicker } from './picker.js';
@@ -1039,7 +1040,6 @@ export async function main() {
   // The name of the chat: in the title of the terminal window (`◈ Short title`) and in the list of sessions.
   let windowTitle = '';
   let titleAttempts = 0;
-  let terminalFocused = true;   // updated by the terminal's focus reports while a task runs
   const setWindowTitle = (title: string) => {
     windowTitle = title;
     if (process.stdout.isTTY) process.stdout.write(terminalTitleSequence(title));
@@ -2419,7 +2419,7 @@ export async function main() {
       let text = (Buffer.isBuffer(data) ? data : Buffer.from(String(data))).toString('utf8');
       // Focus reports: ESC [ I (got the focus) and ESC [ O (lost it). They are not keys.
       if (text.includes('\x1b[I') || text.includes('\x1b[O')) {
-        terminalFocused = text.lastIndexOf('\x1b[I') > text.lastIndexOf('\x1b[O');
+        setTerminalFocused(text.lastIndexOf('\x1b[I') > text.lastIndexOf('\x1b[O'));
         text = text.replace(/\x1b\[[IO]/g, '');
         if (!text) return;
       }
@@ -2464,6 +2464,7 @@ export async function main() {
           process.stdout.on('resize', onResize);
           uiSpinner?.mute(true);
           process.stdout.write('\x1b[?1004h');   // the terminal tells when it loses or gets the focus
+          setFocusTracking(true);                 // approval cards and questions notify when it is not in front
         }
       } catch {}
     }
@@ -2791,7 +2792,7 @@ export async function main() {
         const heading = windowTitle || BASE_TITLE;
         if (isTermux()) {
           if (shouldNotify) notifyDevice(heading, preview || `Task completed in ${secs}s!`);
-        } else if (!terminalFocused) {
+        } else if (!isTerminalFocused()) {
           // The terminal is not in front: a notification with the start of the answer.
           if (sendDesktopNotification(heading, preview || `Task completed in ${secs}s`) === 'none' && shouldNotify) notifyDevice(heading, preview || `Task completed in ${secs}s!`);
         } else if (shouldNotify) {
@@ -2876,6 +2877,7 @@ export async function main() {
       bg.off('change', onBgChange);
       const unsent = composer.stop();
       if (process.stdout.isTTY) process.stdout.write('\x1b[?1004l');
+      setFocusTracking(false);
       releasePauseHook();
       process.stdout.removeListener('resize', onResize);
       if (!currentDraft && (unsent.draft || unsent.queued.length > 0)) {

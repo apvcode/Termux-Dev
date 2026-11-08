@@ -86,6 +86,33 @@ A interface do terminal gira em torno de um prompt com moldura que carrega o sta
 - **Node.js**: `v20.0.0` ou superior
 - **npm**, **pnpm** ou **yarn**
 
+### Instalar o Node.js e o npm
+
+O devx precisa do Node.js 20 ou mais recente (o npm vem junto). Escolha o seu sistema:
+
+```bash
+# Windows (PowerShell)
+winget install OpenJS.NodeJS.LTS
+
+# macOS (Homebrew)
+brew install node
+
+# Ubuntu / Debian (NodeSource: a versão do repositório da própria distribuição costuma ser anterior à 20)
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Fedora
+sudo dnf install -y nodejs
+
+# Arch Linux
+sudo pacman -S nodejs npm
+
+# Android (Termux)
+pkg update && pkg install -y nodejs-lts
+```
+
+Abra o terminal de novo e confira: `node -v` (deve ser `v20` ou superior) e `npm -v`. Qualquer sistema: o instalador em [nodejs.org](https://nodejs.org/en/download) ou o [nvm](https://github.com/nvm-sh/nvm).
+
 ### Instalação global rápida (recomendada)
 
 ```bash

@@ -70,8 +70,10 @@ export interface Sandbox {
 
 /** A throw-away HOME with a config for the fake provider, and a trusted working folder. */
 export async function makeSandbox(provider: FakeProvider, extraConfig: Record<string, unknown> = {}): Promise<Sandbox> {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'devx-e2e-home-'));
-  const work = await fs.mkdtemp(path.join(os.tmpdir(), 'devx-e2e-work-'));
+  // The real paths: on macOS os.tmpdir() is /var/..., a link to /private/var/..., and the program
+  // (started in the folder) sees the real one, so a "trusted" folder under the linked name would not match.
+  const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'devx-e2e-home-')));
+  const work = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'devx-e2e-work-')));
   const config = {
     provider: 'custom', baseUrl: provider.baseUrl, apiKey: 'k', apiKeys: { custom: 'k' }, baseUrls: { custom: provider.baseUrl },
     model: 'fake', maxContextTokens: 32000, maxIterations: 5, checkUpdates: false, probeEndpoints: false,
@@ -114,10 +116,12 @@ export function runDevx(sandbox: Sandbox, steps: Step[], opts: { exitWait?: numb
   return new Promise((resolve, reject) => {
     const child = spawn('python3', ['-I', path.join(here, 'pty-driver.py'), JSON.stringify(cfg)], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
+    let err = '';
     child.stdout.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => (err += d));
     child.on('error', reject);
     child.on('close', () => {
-      try { resolve(JSON.parse(out)); } catch (e) { reject(new Error('pty driver gave no result: ' + out.slice(0, 300))); }
+      try { resolve(JSON.parse(out)); } catch (e) { reject(new Error('pty driver gave no result: ' + out.slice(0, 300) + (err ? `\npython stderr: ${err.slice(0, 600)}` : ''))); }
     });
   });
 }

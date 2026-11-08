@@ -3,6 +3,7 @@ import { runPicker, PickerItem } from '../cli/picker.js';
 import { palette } from '../cli/ui.js';
 import { wrapWords } from '../cli/width.js';
 import { t } from '../core/i18n.js';
+import { notifyAttention, questionNotice } from '../core/attention.js';
 import { Tool } from '../core/types.js';
 
 interface QuestionItem {
@@ -55,6 +56,10 @@ export const askQuestionsTool: Tool = {
     if (!args.questions || !Array.isArray(args.questions) || args.questions.length === 0) {
       return 'No questions provided.';
     }
+
+    // The agent waits for the answer: if the terminal is not in front, a notification says so.
+    const notice = questionNotice(args.questions);
+    notifyAttention(notice.title, notice.body);
 
     const results: Array<{ question: string; answer: string }> = [];
     const total = args.questions.length;

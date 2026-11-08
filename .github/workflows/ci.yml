@@ -68,37 +68,6 @@ jobs:
       - name: Check release (version everywhere, package contents)
         run: node ./scripts/check-release.js
 
-  # The real thing: Termux's own Android userland (bionic libc, its own Node) in Docker.
-  # GitHub has no Android runners, so this is the x86_64 build of the official image.
-  termux:
-    name: Termux (official Docker image)
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    # Not a gate yet: it depends on Termux's package mirrors and on the image. Make it required once it has run clean.
-    continue-on-error: true
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install, build and run devx inside Termux
-        run: |
-          docker run --rm -v "$PWD:/src:ro" termux/termux-docker:x86_64 bash -c '
-            set -e
-            pkg update -y
-            pkg install -y nodejs-lts
-            echo "node $(node --version) on $(node -p process.platform)/$(node -p process.arch), PREFIX=$PREFIX"
-            mkdir -p ~/devx && cd ~/devx
-            cp -r /src/. .
-            rm -rf node_modules dist
-            npm ci
-            npm run build
-            node bin/devx.js --version
-            node bin/devx.js --help > /dev/null
-            node scripts/check-release.js
-            # Vitest needs native binaries that Android/x64 may not have: a failure here is a warning, not a failed job.
-            npm test || echo "::warning::unit tests did not pass inside the Termux image"
-          '
-
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest

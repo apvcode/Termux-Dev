@@ -1,3 +1,4 @@
+import { approvalNotice, notifyAttention } from '../core/attention.js';
 import { PermissionGuard } from '../core/types.js';
 import pc from 'picocolors';
 import path from 'path';
@@ -405,6 +406,9 @@ export class CLIConsoleGuard implements PermissionGuard {
     }
 
     const request = buildPermissionRequest(toolName, args);
+    // The work stops here until somebody answers: if the terminal is not in front, a notification says so.
+    const notice = approvalNotice(request.title, request.lines, request.danger);
+    notifyAttention(notice.title, notice.body);
     // Only requests that are safe to remember offer "Session" and "Always".
     const remember = request.danger ? null : rememberKeyFor(toolName, args);
     const offer: PermissionOffer = remember ? { session: true, always: true } : {};

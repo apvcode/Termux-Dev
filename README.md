@@ -67,6 +67,8 @@ The terminal interface is built around a framed prompt that carries the status i
   Built-in support for TypeScript (`tsc`), JavaScript (`node --check`), Python (`py_compile`), and Rust (`cargo check`). The AI automatically finds and fixes errors before finishing turns.
 - **Project Memory Bank (`.devx/memory.md`):**  
   Persistent project context across sessions with `/memory add <rule>`.
+- **Notifications when devx waits for you:**  
+  When the agent needs an approval or asks you a question (`◆ Clarify`) and the terminal is not in front, you get a notification (kitty's own protocol, `notify-send` on Linux, `osascript` on macOS; on Termux an Android notification with a short vibration). A finished task is announced too, with the start of the answer. The terminal has to report focus changes (most modern ones do); when devx cannot tell whether you are looking, it stays quiet instead of popping up in front of you.
 - **Past chats (`search_chats`):**  
   When you say "as we decided last time" or "in that chat about the parser", the agent can look through your saved chats by keywords (any language, other word forms match: page / pages) and read the one it needs, a few messages at a time. It is read-only and local, so it asks nothing; the chat that is open is not searched; tool output is not indexed; and what it reads is handed to the model as data, not as instructions. The agent does not use it on a normal task.
 - **18 Colour Themes on a Pure Black Background (`#0a0a0c`):**  
@@ -91,6 +93,33 @@ The terminal interface is built around a framed prompt that carries the status i
 ### Prerequisites
 - **Node.js**: `v20.0.0` or higher
 - **npm**, **pnpm**, or **yarn**
+
+### Installing Node.js and npm
+
+devx needs Node.js 20 or newer (npm comes with it). Pick your system:
+
+```bash
+# Windows (PowerShell)
+winget install OpenJS.NodeJS.LTS
+
+# macOS (Homebrew)
+brew install node
+
+# Ubuntu / Debian (NodeSource: the version in the distribution's own repository is often older than 20)
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Fedora
+sudo dnf install -y nodejs
+
+# Arch Linux
+sudo pacman -S nodejs npm
+
+# Android (Termux)
+pkg update && pkg install -y nodejs-lts
+```
+
+Reopen the terminal and check: `node -v` (should be `v20` or higher) and `npm -v`. Any system: the installer at [nodejs.org](https://nodejs.org/en/download) or [nvm](https://github.com/nvm-sh/nvm).
 
 ### Fast Global Install (Recommended)
 

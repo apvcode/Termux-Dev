@@ -86,6 +86,33 @@ devx
 - **Node.js**: `v20.0.0` або новіший
 - **npm**, **pnpm** або **yarn**
 
+### Встановлення Node.js та npm
+
+devx потрібен Node.js 20 або новіший (npm іде разом із ним). Оберіть свою систему:
+
+```bash
+# Windows (PowerShell)
+winget install OpenJS.NodeJS.LTS
+
+# macOS (Homebrew)
+brew install node
+
+# Ubuntu / Debian (NodeSource: версія в репозиторії самого дистрибутива часто старша за 20)
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Fedora
+sudo dnf install -y nodejs
+
+# Arch Linux
+sudo pacman -S nodejs npm
+
+# Android (Termux)
+pkg update && pkg install -y nodejs-lts
+```
+
+Відкрийте термінал заново та перевірте: `node -v` (має бути `v20` або вище) і `npm -v`. Будь-яка система: інсталятор на [nodejs.org](https://nodejs.org/en/download) або [nvm](https://github.com/nvm-sh/nvm).
+
 ### Швидке глобальне встановлення (рекомендовано)
 
 ```bash

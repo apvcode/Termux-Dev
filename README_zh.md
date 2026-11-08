@@ -86,6 +86,33 @@ devx
 - **Node.js**：`v20.0.0` 或更高版本
 - **npm**、**pnpm** 或 **yarn**
 
+### 安装 Node.js 和 npm
+
+devx 需要 Node.js 20 或更高版本（npm 随之一起安装）。请选择你的系统：
+
+```bash
+# Windows (PowerShell)
+winget install OpenJS.NodeJS.LTS
+
+# macOS (Homebrew)
+brew install node
+
+# Ubuntu / Debian（NodeSource：发行版自带仓库中的版本往往低于 20）
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Fedora
+sudo dnf install -y nodejs
+
+# Arch Linux
+sudo pacman -S nodejs npm
+
+# Android (Termux)
+pkg update && pkg install -y nodejs-lts
+```
+
+重新打开终端并检查：`node -v`（应为 `v20` 或更高）和 `npm -v`。任何系统：可使用 [nodejs.org](https://nodejs.org/en/download) 上的安装程序或 [nvm](https://github.com/nvm-sh/nvm)。
+
 ### 快速全局安装（推荐）
 
 ```bash
