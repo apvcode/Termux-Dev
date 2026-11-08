@@ -16,7 +16,7 @@
     <rect width="1000" height="280" fill="url(#bg)"/>
   </g>
   <rect x="1.5" y="1.5" width="997" height="277" rx="18" fill="none" stroke="#23252c" stroke-width="1.5"/>
-  <text x="500.0" y="70" text-anchor="middle" font-family="'Inter',system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif" font-size="13" font-weight="600" letter-spacing="5" fill="#7d8896">THE TERMINAL-NATIVE AI CODING AGENT<tspan dx="16" fill="#2fe3ee" font-weight="700">v1.9.5</tspan></text>
+  <text x="500.0" y="70" text-anchor="middle" font-family="'Inter',system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif" font-size="13" font-weight="600" letter-spacing="5" fill="#7d8896">THE TERMINAL-NATIVE AI CODING AGENT<tspan dx="16" fill="#2fe3ee" font-weight="700">v1.9.6</tspan></text>
   <g>
     <text x="500.0" y="178" text-anchor="middle" font-family="'JetBrains Mono','Fira Code','SF Mono',ui-monospace,Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="112" font-weight="800" letter-spacing="14" fill="#2fe3ee">DEVX</text>
   </g>

@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import os from 'os';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 
@@ -53,6 +54,13 @@ export async function checkForUpdates(timeoutMs = 10000): Promise<UpdateCheckRes
   const signal = AbortSignal.timeout(timeoutMs);
 
   try {
+    // The release is asked at the same time as the package.json, not after it: the check takes as long
+    // as the slower of the two, not both. A failure of the release request is not an error of the check.
+    const releaseRequest = fetch(`${REMOTE_RELEASE_URL}?t=${Date.now()}`, {
+      signal,
+      headers: { 'User-Agent': 'devx-updater' }
+    }).catch(() => null);
+
     // 1. Try fetching latest package.json with cache-busting timestamp
     const cacheBusterUrl = `${REMOTE_PKG_URL}?t=${Date.now()}`;
     const res = await fetch(cacheBusterUrl, {
@@ -75,11 +83,8 @@ export async function checkForUpdates(timeoutMs = 10000): Promise<UpdateCheckRes
 
     // 2. Also check latest GitHub release tag
     try {
-      const relRes = await fetch(`${REMOTE_RELEASE_URL}?t=${Date.now()}`, {
-        signal,
-        headers: { 'User-Agent': 'devx-updater' }
-      });
-      if (relRes.ok) {
+      const relRes = await releaseRequest;
+      if (relRes?.ok) {
         const relData = await relRes.json();
         const relTag = (relData.tag_name || relData.name || '').replace(/^v/, '').trim();
         if (relTag && (!latestVersion || isNewerVersion(relTag, latestVersion))) {
@@ -114,6 +119,66 @@ export async function checkForUpdates(timeoutMs = 10000): Promise<UpdateCheckRes
       error: timedOut ? `Timeout (${Math.round(timeoutMs / 1000)}s)` : err.message
     };
   }
+}
+
+// ───────────────────────── remembering the check ─────────────────────────
+
+/** An answer is good for this long; after it devx asks again. */
+const CHECK_FRESH_MS = 6 * 60 * 60 * 1000;
+/** A failed check (offline, a stalled connection) is not repeated at every start: that would stall every start. */
+const CHECK_FAILED_MS = 30 * 60 * 1000;
+
+const checkFile = () => path.join(os.homedir(), '.devx', 'update-check.json');
+
+interface RememberedCheck {
+  checkedAt: number;
+  latestVersion?: string;
+  releaseNotes?: string;
+  publishedAt?: string;
+  error?: string;
+}
+
+/** The last check, when it is recent enough to be trusted at start-up; undefined when devx has to ask again. */
+export async function readCachedCheck(now: number = Date.now()): Promise<UpdateCheckResult | undefined> {
+  try {
+    const saved: RememberedCheck = JSON.parse(await fs.readFile(checkFile(), 'utf8'));
+    const age = now - Number(saved.checkedAt);
+    // A clock that went backwards makes the age negative: such an answer is not trusted.
+    if (!Number.isFinite(age) || age < 0) return undefined;
+    const currentVersion = await getCurrentVersion();
+    if (saved.error) {
+      return age < CHECK_FAILED_MS ? { updateAvailable: false, currentVersion, latestVersion: currentVersion, error: saved.error } : undefined;
+    }
+    if (age >= CHECK_FRESH_MS || !saved.latestVersion) return undefined;
+    // Judged against the version that runs now: after an update the old answer no longer says "update".
+    return {
+      updateAvailable: isNewerVersion(saved.latestVersion, currentVersion),
+      currentVersion,
+      latestVersion: saved.latestVersion,
+      releaseNotes: saved.releaseNotes || undefined,
+      publishedAt: saved.publishedAt || undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Keeps the answer of a check for the next start-ups. Never throws: this is only a shortcut. */
+export async function rememberCheck(result: UpdateCheckResult, now: number = Date.now()): Promise<void> {
+  try {
+    const saved: RememberedCheck = result.error
+      ? { checkedAt: now, error: result.error }
+      : { checkedAt: now, latestVersion: result.latestVersion, releaseNotes: result.releaseNotes, publishedAt: result.publishedAt };
+    await fs.mkdir(path.dirname(checkFile()), { recursive: true, mode: 0o700 });
+    await fs.writeFile(checkFile(), JSON.stringify(saved));
+  } catch {}
+}
+
+/** `checkForUpdates`, and the answer is kept for the next start-ups (the start-up check reads it, see readCachedCheck). */
+export async function checkForUpdatesRemembered(timeoutMs = 10000): Promise<UpdateCheckResult> {
+  const result = await checkForUpdates(timeoutMs);
+  await rememberCheck(result);
+  return result;
 }
 
 // ───────────────────────── installing ─────────────────────────

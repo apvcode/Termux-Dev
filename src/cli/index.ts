@@ -981,9 +981,14 @@ export async function main() {
 
   drawLogo(config.banner || 'full');
   await runStartupUpdateCheck(config, { save: saveConfig });
-  await MCPManager.getInstance().init(undefined, config.projectMcpTrusted === true);
-  // After the servers are up: the prompt says how the agent reaches the tools it has to load.
   history.addMessage({ role: 'system', content: await buildSystemPrompt(planMode) });
+  // The servers start while the prompt is already there (starting them takes seconds: `npx` and the
+  // network). What needs them waits for `mcpReady`: the first request, and /mcp. When they are up the
+  // prompt is written again, so that it says how the agent reaches the tools that wait to be loaded.
+  const mcpReady = MCPManager.getInstance()
+    .init(undefined, config.projectMcpTrusted === true)
+    .then(async () => { history.updateSystemPrompt(await buildSystemPrompt(planMode)); })
+    .catch(() => undefined);
   // Ask a custom endpoint what the current model can do (cached for a day; never blocks the prompt).
   void refreshEndpoint(config).catch(() => null);
 
@@ -1866,6 +1871,7 @@ export async function main() {
         continue;
       }
       if (cmd === '/mcp') {
+        await mcpReady;
         const sub = (parts[1] || '').toLowerCase();
         if (sub === 'reload' || sub === 'restart' || sub === 'r') {
           const s = new UiSpinner();
@@ -2109,6 +2115,8 @@ export async function main() {
 
     // The format of the gateway is learned once (cached); the first request waits for it.
     await refreshFormats(config).catch(() => null);
+    // The MCP servers may still be starting (see mcpReady): the request goes out with their tools.
+    await mcpReady;
     const provider = createProvider(config);
     const tools = getToolSource(planMode);
     const guard = new CLIConsoleGuard(config.autoApprove, [...(config.bashAllowlist || [])], {

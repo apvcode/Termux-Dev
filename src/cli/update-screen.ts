@@ -12,7 +12,9 @@ import {
   UpdateError,
   buildUpdateSteps,
   checkForUpdates,
+  checkForUpdatesRemembered,
   detectInstallMethod,
+  readCachedCheck,
   getCurrentVersion,
   restartDevx,
   runUpdateSteps,
@@ -460,7 +462,9 @@ export async function runStartupUpdateCheck(config: any, deps: CheckDeps = {}): 
   const out = deps.output ?? process.stdout;
   if (!out.isTTY) return;
   const current = await getCurrentVersion();
-  const result = await withCheckingLine(out, current, () => (deps.check ?? checkForUpdates)(6000));
+  // A recent answer is used as it is: no network, no "checking" line, no wait before the prompt.
+  const cached = deps.check ? undefined : await readCachedCheck();
+  const result = cached ?? await withCheckingLine(out, current, () => (deps.check ?? checkForUpdatesRemembered)(6000));
 
   if (result.updateAvailable) {
     if (config.skippedUpdate === result.latestVersion) return;
@@ -478,6 +482,7 @@ export async function runStartupUpdateCheck(config: any, deps: CheckDeps = {}): 
     return;
   }
   if (result.error) return;   // offline at start-up is not worth a word
+  if (cached) return;         // up to date, as the last check said: nothing to show
   // Up to date: a short line that goes away by itself.
   out.write(`  ${palette.ok('✓')} ${palette.muted(t('update.upToDate', { version: result.currentVersion }))}\n`);
   await sleep(deps.tickMs !== undefined ? 0 : 450);
