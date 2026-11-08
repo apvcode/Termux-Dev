@@ -8,6 +8,8 @@ import { PromptHistoryNavigator, historyFile } from './history_search.js';
  */
 const lines: string[] = [];
 let loading: Promise<void> | null = null;
+/** The writes to the file go one after another: the lines stay in the order they were sent. */
+let writing: Promise<void> = Promise.resolve();
 
 const MAX_LINES = 500;
 /** A huge paste is sent but not kept: the file is for lines a person would want to bring back. */
@@ -39,7 +41,12 @@ export function recordPrompt(text: string): void {
   if (lines[lines.length - 1] === line) return;
   lines.push(line);
   if (lines.length > MAX_LINES) lines.shift();
-  if (line.length <= MAX_KEPT_CHARS) void PromptHistoryNavigator.appendPersistent(line).catch(() => {});
+  if (line.length <= MAX_KEPT_CHARS) writing = writing.then(() => PromptHistoryNavigator.appendPersistent(line)).catch(() => undefined);
+}
+
+/** Resolves when every line sent so far is in the file. */
+export function flushPromptHistory(): Promise<void> {
+  return writing;
 }
 
 /** The file keeps the last 500 lines at most: it is cut when devx starts (not on every line). */
@@ -55,4 +62,5 @@ export async function trimPromptHistoryFile(): Promise<void> {
 export function resetPromptHistory(): void {
   lines.length = 0;
   loading = null;
+  writing = Promise.resolve();
 }

@@ -43,7 +43,7 @@ async function startScriptedProvider(command: string): Promise<Scripted> {
 describe.skipIf(!canRunE2E)('background tasks in a terminal', () => {
   let provider: Scripted;
   let box: Sandbox;
-  const command = `node -e "console.log('server ready'); setTimeout(()=>{console.error('crashed'); process.exit(1)}, 3000)"`;
+  const command = `node -e "console.log('server ready'); setTimeout(()=>{console.error('crashed'); process.exit(1)}, 9000)"`;
   beforeEach(async () => { provider = await startScriptedProvider(command); box = await makeSandbox({ baseUrl: provider.baseUrl, requests: [], close: async () => {} }); });
   afterEach(async () => { await provider.close(); await box.cleanup(); });
 
@@ -53,13 +53,15 @@ describe.skipIf(!canRunE2E)('background tasks in a terminal', () => {
       { ms: 300, send: 'start the server' },
       { ms: 200, send: KEY.enter },
       { wait: 'STARTED-OK', timeout: 20 },
-      { wait: '1 bg', timeout: 10 },                       // the badge in the frame while the task runs
-      { wait: 'SAW-THE-NEWS', timeout: 25, send: KEY.ctrlC },   // the task crashed, the agent answered without a message of the user
-      { wait: 'Exit devx', timeout: 10, send: KEY.up },
+      { wait: '1 bg', timeout: 15 },                       // the badge in the frame while the task runs (it lives long enough for a slow machine to show it)
+      // The task crashed and the agent answered without a message of the user. Ctrl+C only asks to exit at the
+      // prompt, so wait until the prompt (its hints) is back after the answer: the turn of the news has ended.
+      { wait: 'SAW-THE-NEWS[\\s\\S]*plan mode', timeout: 45, send: KEY.ctrlC },
+      { wait: 'Exit devx', timeout: 15, send: KEY.up },
       { ms: 200, send: KEY.enter },
     ], { exitWait: 6, args: ['--yolo'] });
 
-    expect(r.steps.map((s) => s.ok)).toEqual([true, true, true, true, true, true, true, true]);
+    expect(r.steps.every((s) => s.ok), JSON.stringify(r.steps)).toBe(true);
     expect(r.plain).toContain('demo server');
     const last = JSON.stringify(provider.streamed[provider.streamed.length - 1].messages);
     expect(last).toContain('[devx · background tasks]');

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { loadPromptHistory, promptHistory, recordPrompt, resetPromptHistory } from '../../src/cli/prompt_history.js';
+import { flushPromptHistory, loadPromptHistory, promptHistory, recordPrompt, resetPromptHistory } from '../../src/cli/prompt_history.js';
 
 describe('the history of sent lines', () => {
   let file: string;
@@ -19,7 +19,7 @@ describe('the history of sent lines', () => {
     resetPromptHistory();
   });
 
-  const settle = () => new Promise((r) => setTimeout(r, 50));
+  const settle = () => flushPromptHistory();
 
   it('remembers a line, not twice in a row, and writes it to the file', async () => {
     recordPrompt('first');
