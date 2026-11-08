@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { extendedKeysOff, extendedKeysOn, isNewlineKey, normalizeKey, splitKeys } from './keys.js';
 import { FrameInput, buildPromptFrame, palette } from './ui.js';
-import { displayWidth, truncateWidth } from './width.js';
+import { columnAfter, displayWidth, truncateWidth } from './width.js';
 import { t } from '../core/i18n.js';
 
 /**
@@ -197,6 +197,8 @@ export class TurnComposer {
   private state: DraftState = { text: '', cursor: 0 };
   private queue: string[] = [];
   private lines: string[] = [];
+  /** The column the output cursor is in: the frame is drawn under it and the cursor comes back to this column. */
+  private col = 0;
   private original: ComposerOut['write'] | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -259,6 +261,7 @@ export class TurnComposer {
     this.active = true;
     this.suspended = false;
     this.shown = false;
+    this.col = 0;
     this.original = this.out.write.bind(this.out);
     this.out.write = ((chunk: any, encoding?: any, cb?: any) => this.through(chunk, encoding, cb)) as ComposerOut['write'];
     this.write(extendedKeysOn() + this.drawSeq());
@@ -346,15 +349,27 @@ export class TurnComposer {
   /** The write that replaces the terminal's own for the length of the turn. */
   private through(chunk: any, encoding?: any, cb?: any): unknown {
     const raw = this.original!;
-    if (!this.active || this.suspended) return raw(chunk, encoding, cb);
+    const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+    if (!this.active || this.suspended) {
+      this.advanceColumn(text);
+      return raw(chunk, encoding, cb);
+    }
+    // The old frame is wiped from the column the cursor is in now; the new one comes back to the column the text ends in.
+    const erase = this.eraseSeq();
+    this.advanceColumn(text);
     if (typeof chunk === 'string') {
       // The callback form `write(chunk, cb)` has the callback in the second place.
-      return raw(this.eraseSeq() + chunk + this.drawSeq(), encoding, cb);
+      return raw(erase + chunk + this.drawSeq(), encoding, cb);
     }
-    raw(this.eraseSeq());
+    raw(erase);
     const result = raw(chunk, encoding, cb);
     raw(this.drawSeq());
     return result;
+  }
+
+  /** Where the cursor is after this text (also while a card has the screen, so that the frame comes back to the right column). */
+  private advanceColumn(text: string): void {
+    this.col = columnAfter(this.col, text, this.out.columns ?? 80);
   }
 
   private write(text: string): void {
@@ -389,13 +404,25 @@ export class TurnComposer {
     return line.replace(/[\r\n\x00-\x08\x0b-\x1a\x1c-\x1f]+/g, ' ');
   }
 
-  /** Wipes the frame: everything under the cursor row. The cursor stays on its text. */
+  /** Puts the cursor back in the column of the output, on the row it is on. */
+  private backToColumn(): string {
+    const cols = Math.max(1, this.out.columns ?? 80);
+    return `\x1b[${Math.min(this.col, cols - 1) + 1}G`;
+  }
+
+  /**
+   * Wipes the frame: everything under the cursor row. The cursor stays on its text.
+   *
+   * Only relative moves are used, no saved cursor (ESC 7 / ESC 8): the saved position is a screen row,
+   * and when the window changes size in the middle of a write (the keyboard of a phone comes and goes)
+   * some terminals do not move it with the text, and the cursor comes back to the wrong row.
+   */
   private eraseSeq(): string {
     if (!this.shown) return '';
     this.shown = false;
     // The erase starts from plain attributes: a style left on by the text above (an underline, a
     // background) would be painted into every row it wipes (stripes across the screen).
-    return '\x1b7\x1b[0m\x1b[1B\r\x1b[J\x1b8';
+    return '\x1b[0m\x1b[1B\r\x1b[J\x1b[1A' + this.backToColumn();
   }
 
   /** Draws the frame under the cursor row and puts the cursor back where the text goes on. */
@@ -407,8 +434,8 @@ export class TurnComposer {
     // The real cursor only marks where the output goes on. Whatever showed it in the meantime
     // (an approval card, a spinner that stopped) must not leave it blinking under the output.
     // ESC D moves down (scrolling at the bottom edge) and keeps the column; then back up.
-    let seq = '\x1b[?25l' + '\x1bD'.repeat(n) + `\x1b[${n}A` + '\x1b7';
+    let seq = '\x1b[?25l' + '\x1bD'.repeat(n) + `\x1b[${n}A`;
     for (const line of lines) seq += `\x1b[0m\x1b[1B\r\x1b[2K${line}\x1b[0m`;
-    return seq + '\x1b8';
+    return seq + `\x1b[${n}A` + this.backToColumn();
   }
 }

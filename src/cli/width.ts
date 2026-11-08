@@ -285,3 +285,25 @@ export function rowsToTop(lineWidths: number[], cursorRow: number, cursorCol: nu
   for (let i = 0; i < cursorRow && i < lineWidths.length; i++) rows += Math.max(1, Math.ceil(lineWidths[i] / width));
   return rows + Math.floor(Math.max(0, cursorCol) / width);
 }
+
+/**
+ * The column (0-based, in cells) the cursor is in after `text` is written starting at column `col`
+ * of a terminal `cols` wide. Escape sequences take no room; a line break and a carriage return go
+ * to column 0; a character that does not fit wraps to the next row. A cursor that has just filled
+ * the last column is reported as `cols` (the terminal holds it there until the next character).
+ */
+export function columnAfter(col: number, text: string, cols: number): number {
+  const width = Math.max(1, cols);
+  let at = Math.max(0, Math.min(col, width));
+  const plain = text.replace(ANSI, '').replace(/\x1b[0-9A-Za-z=>]/g, '');
+  for (const ch of plain) {
+    if (ch === '\n' || ch === '\r') { at = 0; continue; }
+    if (ch === '\b') { at = Math.max(0, at - 1); continue; }
+    if (ch === '\t') { at = Math.min(width - 1, (Math.floor(at / 8) + 1) * 8); continue; }
+    const w = codePointWidth(ch.codePointAt(0)!);
+    if (w === 0) continue;
+    if (at + w > width) at = 0;
+    at += w;
+  }
+  return at;
+}

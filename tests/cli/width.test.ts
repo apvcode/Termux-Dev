@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  columnAfter,
   rowsToTop,
   displayWidth,
   padEndWidth,
@@ -150,5 +151,30 @@ describe('wrapKeepSpaces', () => {
     const rows = wrapKeepSpaces(text, 9);
     expect(rows.every((r) => displayWidth(r) <= 9)).toBe(true);
     expect(rows.join('').replace(/\s/g, '')).toBe(text.replace(/\s/g, ''));
+  });
+});
+
+describe('columnAfter', () => {
+  it('counts cells after the text, ignoring escape sequences', () => {
+    expect(columnAfter(0, 'abc', 80)).toBe(3);
+    expect(columnAfter(3, '\x1b[31mde\x1b[0m', 80)).toBe(5);
+    expect(columnAfter(0, '\x1b]0;title\x07abc', 80)).toBe(3);
+  });
+
+  it('goes to column 0 on a line break or a carriage return', () => {
+    expect(columnAfter(10, 'abc\nde', 80)).toBe(2);
+    expect(columnAfter(10, 'abc\r', 80)).toBe(0);
+  });
+
+  it('counts a wide character as two cells and a combining mark as none', () => {
+    expect(columnAfter(0, '日本', 80)).toBe(4);
+    expect(columnAfter(0, 'e\u0301', 80)).toBe(1);
+  });
+
+  it('wraps at the right edge, and holds the cursor in the last column until the next character', () => {
+    expect(columnAfter(0, 'a'.repeat(10), 10)).toBe(10);     // the last column is full: the cursor waits there
+    expect(columnAfter(10, 'b', 10)).toBe(1);                // the next character starts a new row
+    expect(columnAfter(0, 'a'.repeat(13), 10)).toBe(3);
+    expect(columnAfter(9, '日', 10)).toBe(2);                // a wide character that does not fit moves to the next row
   });
 });

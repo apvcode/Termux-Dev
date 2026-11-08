@@ -310,7 +310,7 @@ describe('TurnComposer', () => {
     out.write('\x1b[4munderlined text left open\n');
     const seq = all();
     // The erase of the old frame and each row of the new one start with a reset.
-    expect(seq).toContain('\x1b7\x1b[0m\x1b[1B\r\x1b[J\x1b8');
+    expect(seq).toContain('\x1b[0m\x1b[1B\r\x1b[J\x1b[1A');
     expect(seq).toMatch(/\x1b\[0m\x1b\[1B\r\x1b\[2K/);
     composer.stop();
   });
@@ -352,7 +352,7 @@ describe('TurnComposer', () => {
     const composer = new TurnComposer(out, () => BASE, undefined, () => 'Run: python3 - <<PY\np=1\r\nfor x in y');
     composer.start();
     composer.handleData('a');
-    const drawn = all().split('\x1b7').slice(-1)[0];
+    const drawn = all().split('\x1b[?25l').slice(-1)[0];
     // The three lines of the command are one row of the frame.
     expect(stripAnsi(drawn)).toContain('Run: python3 - <<PY p=1 for x in y');
     composer.stop();
@@ -486,11 +486,63 @@ describe('TurnComposer', () => {
     composer.stop();
   });
 
+  it('uses no saved cursor: a window that changes size in the middle of a write cannot send the cursor to a wrong row', () => {
+    // ESC 7 / ESC 8 save a screen row; some terminals (Termux) do not move it with the text when the
+    // soft keyboard opens or closes, and the text then lands on the rows of the old frame.
+    const composer = new TurnComposer(out, () => BASE, undefined, () => 'Waiting for the model');
+    composer.start();
+    out.write('some output\n');
+    composer.handleData('abc');
+    composer.suspend();
+    composer.resume();
+    composer.stop();
+    expect(all()).not.toMatch(/\x1b[78]/);
+  });
+
+  it('brings the cursor back to the column the output ended in, not to column 0', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.start();
+    written.length = 0;
+    out.write('half a line');            // 11 cells, no line break
+    expect(written[0].endsWith('\x1b[12G')).toBe(true);
+    written.length = 0;
+    out.write(' and more\x1b[1m');        // escape sequences take no room
+    expect(written[0].endsWith('\x1b[21G')).toBe(true);
+    written.length = 0;
+    out.write('\n');
+    expect(written[0].endsWith('\x1b[1G')).toBe(true);
+    composer.stop();
+  });
+
+  it('wipes the old frame from the column the cursor is in now, and draws the new one back at the column the text ends in', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.start();
+    out.write('abc');                  // the cursor is in column 3
+    written.length = 0;
+    out.write('de\nfgh');              // ... and ends in column 3 again, on the next row
+    const seq = written[0];
+    expect(seq.startsWith('\x1b[0m\x1b[1B\r\x1b[J\x1b[1A\x1b[4G')).toBe(true);   // back to column 3 (CHA is 1-based) after the wipe
+    expect(seq).toContain('de\nfgh');
+    expect(seq.endsWith('\x1b[4G')).toBe(true);
+    composer.stop();
+  });
+
+  it('keeps counting the column while a card has the screen', () => {
+    const composer = new TurnComposer(out, () => BASE);
+    composer.start();
+    composer.suspend();
+    out.write('card text');
+    written.length = 0;
+    composer.resume();
+    expect(written.join('').endsWith('\x1b[10G')).toBe(true);
+    composer.stop();
+  });
+
   it('survives any amount of output and ends with the frame under the last line', () => {
     const composer = new TurnComposer(out, () => BASE);
     composer.start();
     for (let i = 0; i < 200; i++) out.write(`line ${i}\n`);
-    expect(written[written.length - 1]).toContain('\x1b8');   // the cursor goes back to the text
+    expect(written[written.length - 1]).toMatch(/\x1b\[\d+G$/);   // the cursor goes back to the column of the text
     expect(stripAnsi(written[written.length - 1])).toContain('Ask or describe a task');
     composer.stop();
   });
