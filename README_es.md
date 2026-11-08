@@ -22,13 +22,13 @@ Creado especialmente para **Android Termux**, **Windows**, **macOS** y **Linux**
 
 <br/><br/>
 
-<img src="assets/preview.svg" alt="La interfaz de terminal de devx" width="880" />
-
-<br/>
-
 <a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="Demo de devx: plan, construcción, pruebas, vista previa con código QR" width="880" /></a>
 
 <sub>▶ <a href="assets/demo.mp4">Ver la demo (43 segundos)</a></sub>
+
+<br/>
+
+<img src="assets/preview.svg" alt="La interfaz de terminal de devx" width="880" />
 
 </div>
 

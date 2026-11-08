@@ -22,13 +22,13 @@
 
 <br/><br/>
 
-<img src="assets/preview.svg" alt="Терминальный интерфейс devx" width="880" />
-
-<br/>
-
 <a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="Демо devx: план, сборка, тесты, предпросмотр с QR-кодом" width="880" /></a>
 
 <sub>▶ <a href="assets/demo.mp4">Смотреть демо (43 секунды)</a></sub>
+
+<br/>
+
+<img src="assets/preview.svg" alt="Терминальный интерфейс devx" width="880" />
 
 </div>
 

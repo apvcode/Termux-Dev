@@ -22,13 +22,13 @@
 
 <br/><br/>
 
-<img src="assets/preview.svg" alt="devx 终端界面" width="880" />
-
-<br/>
-
 <a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="devx 演示：规划、构建、测试、带二维码的预览" width="880" /></a>
 
 <sub>▶ <a href="assets/demo.mp4">观看演示视频（43 秒）</a></sub>
+
+<br/>
+
+<img src="assets/preview.svg" alt="devx 终端界面" width="880" />
 
 </div>
 

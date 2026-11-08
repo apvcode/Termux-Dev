@@ -22,13 +22,13 @@ Speziell entwickelt für **Android Termux**, **Windows**, **macOS** und **Linux*
 
 <br/><br/>
 
-<img src="assets/preview.svg" alt="Die devx-Terminaloberfläche" width="880" />
-
-<br/>
-
 <a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="devx-Demo: Plan, Bau, Tests, Vorschau mit QR-Code" width="880" /></a>
 
 <sub>▶ <a href="assets/demo.mp4">Demo ansehen (43 Sekunden)</a></sub>
+
+<br/>
+
+<img src="assets/preview.svg" alt="Die devx-Terminaloberfläche" width="880" />
 
 </div>
 

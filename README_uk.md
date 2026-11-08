@@ -22,13 +22,13 @@
 
 <br/><br/>
 
-<img src="assets/preview.svg" alt="Терміналний інтерфейс devx" width="880" />
-
-<br/>
-
 <a href="assets/demo.mp4"><img src="assets/demo-poster.png" alt="Демо devx: план, збирання, тести, попередній перегляд із QR-кодом" width="880" /></a>
 
 <sub>▶ <a href="assets/demo.mp4">Дивитися демо (43 секунди)</a></sub>
+
+<br/>
+
+<img src="assets/preview.svg" alt="Терміналний інтерфейс devx" width="880" />
 
 </div>
 
