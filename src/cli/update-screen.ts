@@ -457,7 +457,7 @@ export interface CheckDeps extends UpdateFlowDeps {
 }
 
 /** At start-up: look for a new version; say so only when there is one (and it was not skipped). */
-export async function runStartupUpdateCheck(config: any, deps: CheckDeps = {}): Promise<void> {
+export async function runStartupUpdateCheck(config: any, deps: CheckDeps = {}): Promise<UpdateResult | undefined> {
   if (config.checkUpdates === false) return;
   const out = deps.output ?? process.stdout;
   if (!out.isTTY) return;
@@ -468,7 +468,7 @@ export async function runStartupUpdateCheck(config: any, deps: CheckDeps = {}): 
 
   if (result.updateAvailable) {
     if (config.skippedUpdate === result.latestVersion) return;
-    await presentUpdate(
+    return presentUpdate(
       result,
       {
         offerSkip: true,
@@ -479,7 +479,6 @@ export async function runStartupUpdateCheck(config: any, deps: CheckDeps = {}): 
       },
       deps
     );
-    return;
   }
   if (result.error) return;   // offline at start-up is not worth a word
   if (cached) return;         // up to date, as the last check said: nothing to show
@@ -490,13 +489,13 @@ export async function runStartupUpdateCheck(config: any, deps: CheckDeps = {}): 
 }
 
 /** `/update`: the same, but it always answers (also "up to date" and "could not check"). */
-export async function runManualUpdate(deps: CheckDeps = {}): Promise<void> {
+export async function runManualUpdate(deps: CheckDeps = {}): Promise<UpdateResult | undefined> {
   const out = deps.output ?? process.stdout;
   const current = await getCurrentVersion();
   const result = await withCheckingLine(out, current, () => (deps.check ?? checkForUpdates)(10000));
   const cols = columnsOf(out);
   if (result.updateAvailable) {
-    await presentUpdate(result, { offerSkip: false }, deps);
+    return presentUpdate(result, { offerSkip: false }, deps);
   } else if (result.error) {
     out.write(renderNotice('warn', t('update.offline', { reason: result.error }), cols) + '\n');
   } else {

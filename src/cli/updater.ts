@@ -335,9 +335,20 @@ export async function runUpdateSteps(steps: UpdateStep[], events: StepEvents = {
   return { ok: true };
 }
 
-/** Starts devx again, with the same arguments, and ends this process when the new one ends. */
+/**
+ * Starts devx again, with the same arguments, and ends this process when the new one ends.
+ *
+ * From here on this process only waits: the terminal belongs to the new one. It stops reading the
+ * keyboard (two programs reading one terminal take the keys from each other, and a typed line
+ * can end up in the shell) and no longer reacts to Ctrl+C itself (the new devx gets it).
+ */
 export function restartDevx(): void {
+  try { process.stdin.pause(); } catch {}
   const child = spawn(process.argv[0], process.argv.slice(1), { stdio: 'inherit' });
+  process.removeAllListeners('SIGINT');
+  process.on('SIGINT', () => {});
+  process.removeAllListeners('SIGTERM');
+  process.on('SIGTERM', () => { try { child.kill('SIGTERM'); } catch {} });
   child.on('exit', (code) => process.exit(code ?? 0));
   child.on('error', () => process.exit(0));
 }

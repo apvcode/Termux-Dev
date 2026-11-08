@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CommandRunner, UpdateError, buildUpdateSteps, isNewerVersion, runUpdateSteps, tail } from '../../src/cli/updater.js';
 
 describe('versions', () => {
@@ -79,5 +84,31 @@ describe('the steps of an update', () => {
     const run: CommandRunner = async (_c, args) =>
       args[0] === 'ls' ? { code: 0, output: JSON.stringify({ dependencies: { 'termux-dev': { version: '1.9.1' } } }) } : { code: 0, output: '1.9.1' };
     expect(await runUpdateSteps(buildUpdateSteps('npm', '/r', '1.9.1', run))).toEqual({ ok: true });
+  });
+});
+
+describe('restartDevx', () => {
+  const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', 'cli', 'updater.js');
+
+  it.skipIf(!existsSync(dist))('starts the new devx, stops reading the keyboard itself and ends with the code of the new one', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'devx-restart-'));
+    try {
+      const child = path.join(dir, 'child.mjs');
+      writeFileSync(child, "console.log('NEW-DEVX-RAN'); process.exit(7);");
+      const parent = path.join(dir, 'parent.mjs');
+      writeFileSync(parent, `
+        import { restartDevx } from ${JSON.stringify(pathToFileURL(dist).href)};
+        process.stdin.resume();
+        process.argv = [process.argv[0], ${JSON.stringify(child)}];
+        restartDevx();
+        console.log('PARENT-PAUSED:' + process.stdin.isPaused() + ' SIGINT-HANDLERS:' + process.listenerCount('SIGINT'));
+      `);
+      const run = spawnSync(process.execPath, [parent], { encoding: 'utf8', input: '' });
+      expect(run.stdout).toContain('NEW-DEVX-RAN');
+      expect(run.stdout).toContain('PARENT-PAUSED:true');
+      expect(run.status).toBe(7);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

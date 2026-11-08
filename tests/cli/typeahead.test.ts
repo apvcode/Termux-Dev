@@ -267,18 +267,52 @@ describe('TurnComposer', () => {
   });
 
   it('asks the terminal for Ctrl+Enter while it runs and gives plain keys back for cards and on stop', () => {
+    vi.stubEnv('DEVX_EXTENDED_KEYS', '1');
+    try {
+      const composer = new TurnComposer(out, () => BASE);
+      composer.start();
+      expect(all()).toContain('\x1b[>1u');
+      written.length = 0;
+      composer.suspend();
+      expect(all()).toContain('\x1b[<u');
+      written.length = 0;
+      composer.resume();
+      expect(all()).toContain('\x1b[>1u');
+      written.length = 0;
+      composer.stop();
+      expect(all()).toContain('\x1b[<u');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('writes no extended-keyboard sequences on Termux and other terminals that read them as cursor / style codes', () => {
+    // `CSI > 1 u` is read as "restore the cursor" and `CSI > 4 ; 1 m` as "underline, bold" there.
+    vi.stubEnv('DEVX_EXTENDED_KEYS', '');
+    vi.stubEnv('PREFIX', '/data/data/com.termux/files/usr');
+    try {
+      const composer = new TurnComposer(out, () => BASE);
+      composer.start();
+      composer.suspend();
+      composer.resume();
+      out.write('text\n');
+      composer.stop();
+      expect(all()).not.toMatch(/\x1b\[[<>]/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('wipes and draws the frame from plain attributes, so a style left on above never paints stripes', () => {
     const composer = new TurnComposer(out, () => BASE);
     composer.start();
-    expect(all()).toContain('\x1b[>1u');
     written.length = 0;
-    composer.suspend();
-    expect(all()).toContain('\x1b[<u');
-    written.length = 0;
-    composer.resume();
-    expect(all()).toContain('\x1b[>1u');
-    written.length = 0;
+    out.write('\x1b[4munderlined text left open\n');
+    const seq = all();
+    // The erase of the old frame and each row of the new one start with a reset.
+    expect(seq).toContain('\x1b7\x1b[0m\x1b[1B\r\x1b[J\x1b8');
+    expect(seq).toMatch(/\x1b\[0m\x1b\[1B\r\x1b\[2K/);
     composer.stop();
-    expect(all()).toContain('\x1b[<u');
   });
 
   it('Ctrl+Enter writes a line break into the line that is being typed and queues nothing (kitty, modifyOtherKeys, Alt+Enter)', () => {

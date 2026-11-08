@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { EXTENDED_KEYS_OFF, EXTENDED_KEYS_ON, isNewlineKey, normalizeKey, splitKeys } from './keys.js';
+import { extendedKeysOff, extendedKeysOn, isNewlineKey, normalizeKey, splitKeys } from './keys.js';
 import { FrameInput, buildPromptFrame, palette } from './ui.js';
 import { displayWidth, truncateWidth } from './width.js';
 import { t } from '../core/i18n.js';
@@ -261,7 +261,7 @@ export class TurnComposer {
     this.shown = false;
     this.original = this.out.write.bind(this.out);
     this.out.write = ((chunk: any, encoding?: any, cb?: any) => this.through(chunk, encoding, cb)) as ComposerOut['write'];
-    this.write(EXTENDED_KEYS_ON + this.drawSeq());
+    this.write(extendedKeysOn() + this.drawSeq());
     // The working line animates: its time and counter are redrawn while the output is quiet.
     if (this.status) {
       this.timer = setInterval(() => this.tick(), 60);
@@ -278,7 +278,7 @@ export class TurnComposer {
       this.timer = null;
     }
     if (this.active) {
-      this.write(this.eraseSeq() + EXTENDED_KEYS_OFF + '\x1b[?25h');
+      this.write(this.eraseSeq() + extendedKeysOff() + '\x1b[?25h');
       if (this.original) this.out.write = this.original;
       this.original = null;
     }
@@ -293,14 +293,14 @@ export class TurnComposer {
   suspend(): void {
     if (!this.active || this.suspended) return;
     // The card or question that takes over reads plain keys: the extended encodings go off for it.
-    this.write(this.eraseSeq() + EXTENDED_KEYS_OFF);
+    this.write(this.eraseSeq() + extendedKeysOff());
     this.suspended = true;
   }
 
   resume(): void {
     if (!this.active || !this.suspended) return;
     this.suspended = false;
-    this.write(EXTENDED_KEYS_ON + this.drawSeq());
+    this.write(extendedKeysOn() + this.drawSeq());
   }
 
   /** Builds the frame again (the context percentage or the cost changed) and draws it. */
@@ -393,7 +393,9 @@ export class TurnComposer {
   private eraseSeq(): string {
     if (!this.shown) return '';
     this.shown = false;
-    return '\x1b7\x1b[1B\r\x1b[J\x1b8';
+    // The erase starts from plain attributes: a style left on by the text above (an underline, a
+    // background) would be painted into every row it wipes (stripes across the screen).
+    return '\x1b7\x1b[0m\x1b[1B\r\x1b[J\x1b8';
   }
 
   /** Draws the frame under the cursor row and puts the cursor back where the text goes on. */
@@ -406,7 +408,7 @@ export class TurnComposer {
     // (an approval card, a spinner that stopped) must not leave it blinking under the output.
     // ESC D moves down (scrolling at the bottom edge) and keeps the column; then back up.
     let seq = '\x1b[?25l' + '\x1bD'.repeat(n) + `\x1b[${n}A` + '\x1b7';
-    for (const line of lines) seq += `\x1b[1B\r\x1b[2K${line}\x1b[0m`;
+    for (const line of lines) seq += `\x1b[0m\x1b[1B\r\x1b[2K${line}\x1b[0m`;
     return seq + '\x1b8';
   }
 }

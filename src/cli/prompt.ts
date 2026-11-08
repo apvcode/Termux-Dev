@@ -9,7 +9,7 @@ import { filterCommandPalette, estimatePromptTokens, formatPromptTokenBadge } fr
 import { PromptHistoryNavigator } from './history_search.js';
 import { buildPromptFrame, moveCursorRow, palette, renderUserEcho, resolveMode } from './ui.js';
 import { displayWidth, padEndWidth, rowsToTop, truncateWidth } from './width.js';
-import { EXTENDED_KEYS_OFF, EXTENDED_KEYS_ON, isNewlineKey, normalizeKey } from './keys.js';
+import { extendedKeysOff, extendedKeysOn, isNewlineKey, normalizeKey } from './keys.js';
 
 import { UIConfig } from '../core/types.js';
 
@@ -159,7 +159,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       process.stdin.setRawMode(true);
       process.stdout.write('\x1b[?2004h'); // Enable bracketed paste mode
       // Lets the terminal tell Ctrl+Enter and Shift+Enter (a new paragraph) from Enter (send).
-      process.stdout.write(EXTENDED_KEYS_ON);
+      process.stdout.write(extendedKeysOn());
     }
 
     // ── framed prompt (clean layout) ──
@@ -643,7 +643,7 @@ export function askPrompt(opts: AskPromptOptions = {}): Promise<string> {
       disposed = true;
       unsubscribeOwner?.();
       if (process.stdout.isTTY) {
-        process.stdout.write('\x1b[?2004l' + EXTENDED_KEYS_OFF);
+        process.stdout.write('\x1b[?2004l' + extendedKeysOff());
       }
       process.stdout.removeListener('resize', onResize);
       process.stdin.removeListener('data', onData);

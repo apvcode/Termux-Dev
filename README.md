@@ -235,7 +235,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 - **`@filename`** — Fast fuzzy file autocomplete and full file embedding.
 - **`Backspace`** — Atomically deletes entire badges `[Pasted text #1]` and `[1.png 203kb]` in one press.
 - **`Ctrl+Backspace`** / **`Alt+Backspace`** — Erase the text word by word (also while the agent works).
-- **`Ctrl+Enter`** — While typing: start a new line (a new paragraph) instead of sending. `Alt+Enter` and `Shift+Enter` do the same where the terminal reports them; on a terminal that cannot tell them from `Enter` (a phone keyboard, for one) type `\` before `Enter`.
+- **`Ctrl+Enter`** — While typing: start a new line (a new paragraph) instead of sending. `Alt+Enter` and `Shift+Enter` do the same where the terminal reports them; on a terminal that cannot tell them from `Enter` (a phone keyboard, for one) type `\` before `Enter`. devx asks the terminal to tell them apart only where that is known to work (kitty, Ghostty, WezTerm, iTerm2, foot, Alacritty); Termux and other terminals that read that request as a cursor or style code never get it. `DEVX_EXTENDED_KEYS=1` (or `0`) forces it on (or off).
 - **`Ctrl+P`** / **`Ctrl+O`** — Unfold or fold the reasoning of the model (`Ctrl+P`) and the commands with their output (`Ctrl+O`) in the whole chat, also what is already above. Both are folded by default; works while the agent works and at the prompt.
 - **`Esc`** — Stop the current answer and whatever it started (a running command); what you typed waits in the next prompt. Esc also closes every list and card.
 - **`Ctrl+C`** — Stop current generation immediately or exit.

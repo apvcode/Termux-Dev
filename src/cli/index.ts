@@ -92,7 +92,7 @@ import { modelAcceptsImages } from '../core/vision.js';
 import { contextBreakdown } from '../core/context-stats.js';
 import { runUsagePanel } from './usage-panel.js';
 import { TurnComposer } from './typeahead.js';
-import { EXTENDED_KEYS_OFF, normalizeKey, splitKeys } from './keys.js';
+import { extendedKeysOff, normalizeKey, splitKeys } from './keys.js';
 import { LANGUAGES, getLanguage, setLanguage, t } from '../core/i18n.js';
 import { anthropicOnlyModels, formatFromBaseUrl, refreshFormats } from '../core/formats.js';
 import { providerFormat } from '../providers/index.js';
@@ -640,7 +640,7 @@ process.on('exit', () => {
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false);
   }
-  if (process.stdout.isTTY) process.stdout.write(EXTENDED_KEYS_OFF + '\x1B[?1004l' + RESTORE_TERMINAL_TITLE + '\x1B[?25h');
+  if (process.stdout.isTTY) process.stdout.write(extendedKeysOff() + '\x1B[?1004l' + RESTORE_TERMINAL_TITLE + '\x1B[?25h');
   resetTerminalTheme();
 });
 
@@ -652,11 +652,19 @@ process.on('SIGINT', () => {
       process.stdin.setRawMode(false);
       process.stdin.pause();
     }
-    process.stdout.write(EXTENDED_KEYS_OFF + '\x1B[?1004l' + RESTORE_TERMINAL_TITLE + '\x1B[?25h'); // restore cursor
+    process.stdout.write(extendedKeysOff() + '\x1B[?1004l' + RESTORE_TERMINAL_TITLE + '\x1B[?25h'); // restore cursor
     resetTerminalTheme();
     process.exit(0);
   }
 });
+
+/**
+ * The new version has been started (it owns the terminal now) and this process ends when it ends.
+ * Nothing else may run here: a second prompt on the same terminal takes keys from the first.
+ */
+function waitForRestartedDevx(): Promise<never> {
+  return new Promise<never>(() => {});
+}
 
 function clearTerminalScreen() {
   if (process.stdout.isTTY) {
@@ -981,7 +989,7 @@ export async function main() {
   const sessionManager = new SessionManager(config.model, planMode);
 
   drawLogo(config.banner || 'full');
-  await runStartupUpdateCheck(config, { save: saveConfig });
+  if ((await runStartupUpdateCheck(config, { save: saveConfig })) === 'updated') await waitForRestartedDevx();
   history.addMessage({ role: 'system', content: await buildSystemPrompt(planMode) });
   // The servers start while the prompt is already there (starting them takes seconds: `npx` and the
   // network). What needs them waits for `mcpReady`: the first request, and /mcp. When they are up the
@@ -1330,7 +1338,7 @@ export async function main() {
       }
 
       if (cmd === '/update') {
-        await runManualUpdate();
+        if ((await runManualUpdate()) === 'updated') await waitForRestartedDevx();
         continue;
       }
 

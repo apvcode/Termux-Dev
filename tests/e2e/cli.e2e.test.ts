@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -31,6 +32,21 @@ describe.skipIf(!canRunE2E)('devx in a terminal', () => {
     expect(r.exited, 'the process must end after the exit is confirmed').toBe(true);
     expect(r.code).toBe(0);
     expect(r.output).toContain('\x1b[23;0t');          // the title the terminal had is given back
+  }, 90000);
+
+  it('on Termux nothing is sent that its terminal reads as "restore the cursor" or "underline" (frame at the top, stripes on every row)', async () => {
+    const termux = { PREFIX: '/data/data/com.termux/files/usr', TERM: 'xterm-256color', KITTY_WINDOW_ID: '', TERM_PROGRAM: '' };
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      { ms: 300, send: 'hello there' },
+      { ms: 200, send: KEY.enter },
+      { wait: 'FAKE-ANSWER', timeout: 20, send: KEY.ctrlC },
+      { wait: 'Exit devx', timeout: 10, send: KEY.up },
+      { ms: 200, send: KEY.enter },
+    ], { exitWait: 6, env: termux });
+    expect(r.steps.map((s) => s.ok)).toEqual([true, true, true, true, true, true]);
+    expect(r.output).not.toMatch(/\x1b\[[<>][0-9;]*[a-zA-Z]/);
+    expect(r.exited).toBe(true);
   }, 90000);
 
   it('"No" keeps devx running', async () => {
@@ -373,6 +389,29 @@ describe.skipIf(!canRunE2E)('the update screens', () => {
     expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
     expect(r.plain).toContain('Keep devx open');
     expect(r.exited).toBe(false);
+  }, 120000);
+
+  it('after "Update now" the new devx owns the terminal: the old one draws no prompt of its own (two programs reading one terminal steal each other\'s keys)', async () => {
+    // A made-up npm that finds, installs and reports 99.0.0.
+    const bin = await fs.mkdtemp(path.join(os.tmpdir(), 'devx-e2e-npm-'));
+    await fs.writeFile(path.join(bin, 'npm'), '#!/bin/sh\ncase "$1" in\n  view) echo 99.0.0;;\n  ls) echo \'{"dependencies":{"termux-dev":{"version":"99.0.0"}}}\';;\n  *) exit 0;;\nesac\n', { mode: 0o755 });
+    try {
+      const r = await runDevx(box, [
+        { wait: 'Ask or describe', timeout: 30 },
+        { ms: 300, send: '/update' },
+        { ms: 300, send: KEY.enter },
+        { wait: 'devx 99.0.0 is out', timeout: 20 },
+        { ms: 500, send: KEY.enter },                                        // "Update now"
+        { wait: 'is installed', timeout: 30 },
+        { wait: 'Ask or describe', timeout: 30, ms: 300 },                   // the restarted devx
+        { ms: 3000 },
+      ], { exitWait: 1, env: { ...env(), PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+      expect(r.steps.map((s) => s.ok)).toEqual(r.steps.map(() => true));
+      const afterInstall = r.plain.slice(r.plain.indexOf('is installed'));
+      expect(afterInstall.split('Ask or describe').length - 1, 'one prompt after the restart, not two').toBe(1);
+    } finally {
+      await fs.rm(bin, { recursive: true, force: true });
+    }
   }, 120000);
 
   it('at start-up "Skip this version" is remembered, and the next start does not ask again', async () => {
