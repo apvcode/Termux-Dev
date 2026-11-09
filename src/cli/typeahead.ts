@@ -157,7 +157,8 @@ export function renderComposer({ state, queued, cols, base, menu }: ComposerInpu
     const edit = t('composer.queuedHint');
     const newline = `${newlineKeyLabel()} ${t('composer.newline')}`;
     const fits = (hint: string) => room - displayWidth(prefix) - displayWidth(' · ' + hint) >= 12;
-    const hint = [`${edit} · ${newline}`, edit].find(fits) ?? '';
+    const send = t('composer.sendNow');
+    const hint = [`${edit} · ${send} · ${newline}`, `${edit} · ${send}`, edit].find(fits) ?? '';
     const suffixWidth = hint ? displayWidth(' · ' + hint) : 0;
     const message = truncateWidth(last, Math.max(4, room - displayWidth(prefix) - suffixWidth));
     note = prefix + palette.muted(message) + (hint ? palette.faint(' · ') + palette.text(hint) : '');
@@ -214,6 +215,8 @@ export class TurnComposer {
 
   /** Called on ctrl+p (thinking) and ctrl+o (tool output). */
   onToggle?: (kind: 'thinking' | 'output') => void;
+  /** Enter on an empty line while a message waits: the agent stops where it is and the waiting message goes now. */
+  onSendNow?: () => void;
   /** The line of live reasoning shown above the working line while thinking is collapsed; empty for none. */
   live?: () => string;
   /** The commands offered when the line starts with a slash. */
@@ -359,6 +362,9 @@ export class TurnComposer {
         if ((key === '\r' || key === '\n') && this.state.text.trim().toLowerCase() !== chosen.toLowerCase()) {
           this.state = { text: chosen, cursor: Array.from(chosen).length };
         }
+      } else if ((key === '\r' || key === '\n') && this.state.text === '' && this.queue.length > 0 && this.onSendNow) {
+        this.onSendNow();
+        continue;
       } else if (UP_ARROW.test(key)) {
         // Up and down bring back what was sent before: in this chat and in the earlier ones.
         const older = this.history.navigateUp(this.state.text);

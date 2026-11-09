@@ -39,6 +39,8 @@ export const ru: Messages = {
   'composer.queued': 'в очереди',
   'composer.queuedMany': 'в очереди: {n}',
   'composer.queuedHint': '↓ править',
+  'composer.sendNow': 'enter отправить сейчас',
+  'composer.sendingNow': 'Остановлено: отправляю ваше сообщение',
   'composer.newline': 'новая строка',
   'composer.hint1': 'enter — в очередь · esc — стоп',
   'composer.hint2': 'enter — в очередь',

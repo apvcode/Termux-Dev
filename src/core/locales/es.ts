@@ -39,6 +39,8 @@ export const es: Messages = {
   'composer.queued': 'en cola',
   'composer.queuedMany': '{n} en cola',
   'composer.queuedHint': '↓ editar',
+  'composer.sendNow': 'enter enviar ya',
+  'composer.sendingNow': 'Detenido: enviando tu mensaje',
   'composer.newline': 'nueva línea',
   'composer.hint1': 'enter en cola · esc detiene',
   'composer.hint2': 'enter en cola',

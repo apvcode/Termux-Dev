@@ -166,6 +166,10 @@ describe('the composer frame', () => {
     expect(draw('use tabs').map(stripAnsi)[1]).toContain('use tabs ');
   });
 
+  it('says that Enter on an empty line sends the waiting message now', () => {
+    expect(draw('', ['also add tests']).map(stripAnsi)[3]).toContain('enter send now');
+  });
+
   it('shows what is queued under the frame', () => {
     expect(draw('', ['also add tests']).map(stripAnsi)[3]).toContain('↳ queued: also add tests');
     expect(draw('', ['a', 'second one']).map(stripAnsi)[3]).toContain('↳ 2 queued: second one');

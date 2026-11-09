@@ -2470,6 +2470,12 @@ export async function main() {
       return false;
     };
     composer.onToggle = toggleView;
+    // Enter on an empty line with a message waiting: the answer is stopped and the message starts the next turn at once.
+    let sendQueuedNow = false;
+    composer.onSendNow = () => {
+      sendQueuedNow = true;
+      stopGeneration(t('composer.sendingNow'));
+    };
     const releasePauseHook = registerPauseHook(() => {
       composer.suspend();
       return () => composer.resume();
@@ -2825,7 +2831,10 @@ export async function main() {
       bg.off('change', onBgChange);
       const leftover = composer.stop();
       if (leftover.queued.length > 0) {
-        if (aborted) currentDraft = [...leftover.queued, leftover.draft].filter(Boolean).join(' ');
+        if (aborted && sendQueuedNow) {
+          autoTriggerPrompt = leftover.queued.join('\n');
+          if (leftover.draft) currentDraft = leftover.draft;
+        } else if (aborted) currentDraft = [...leftover.queued, leftover.draft].filter(Boolean).join(' ');
         else autoTriggerPrompt = leftover.queued.join('\n');
       } else if (leftover.draft) {
         currentDraft = leftover.draft;

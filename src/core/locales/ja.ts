@@ -39,6 +39,8 @@ export const ja: Messages = {
   'composer.queued': 'キュー済み',
   'composer.queuedMany': '{n} 件キュー済み',
   'composer.queuedHint': '↓ 編集',
+  'composer.sendNow': 'Enter 今すぐ送信',
+  'composer.sendingNow': '停止: メッセージを送信します',
   'composer.newline': '改行',
   'composer.hint1': 'enter でキュー · esc で停止',
   'composer.hint2': 'enter でキュー',

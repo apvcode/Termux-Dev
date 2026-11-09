@@ -85,4 +85,27 @@ describe.skipIf(!canRunE2E)('commands while the agent works', () => {
     const saved = await fs.readFile(path.join(box.home, '.devx', 'history.jsonl'), 'utf8');
     expect(saved).toContain('first task');
   }, 120000);
+
+  it('Enter on an empty line sends the waiting message now, and the arrows work with Num Lock on (kitty protocol)', async () => {
+    const r = await runDevx(box, [
+      { wait: 'Ask or describe', timeout: 30 },
+      typed('first task'), { ms: 200, send: KEY.enter },
+      { wait: 'esc to stop', timeout: 15 },
+      typed('second one'), { ms: 200, send: KEY.enter },
+      { wait: 'enter send now', timeout: 10 },
+      { ms: 200, send: '\x1b[1;129B' },                 // Down with Num Lock: the message comes back to the line
+      { ms: 400, send: KEY.enter },                      // and is queued again
+      { wait: 'enter send now', timeout: 10 },
+      { ms: 200, send: KEY.enter },                      // sent now: the first answer is stopped
+      { wait: 'Stopped: sending your message now', timeout: 10 },
+      { wait: 'FAKE-ANSWER', timeout: 30 },
+      { ms: 500 },
+      ...finish,
+    ], { exitWait: 6, env: { KITTY_WINDOW_ID: '1' } });
+    expect(r.plain).toContain('Stopped: sending your message now');
+    // two requests: the first was stopped, the second carries the message that was waiting
+    const streams = provider.requests.filter((q) => q.stream);
+    expect(streams).toHaveLength(2);
+    expect(JSON.stringify(streams[1].messages)).toContain('second one');
+  }, 120000);
 });

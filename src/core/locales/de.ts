@@ -39,6 +39,8 @@ export const de: Messages = {
   'composer.queued': 'in der Warteschlange',
   'composer.queuedMany': '{n} in der Warteschlange',
   'composer.queuedHint': '↓ bearbeiten',
+  'composer.sendNow': 'Enter jetzt senden',
+  'composer.sendingNow': 'Gestoppt: Ihre Nachricht wird gesendet',
   'composer.newline': 'neue Zeile',
   'composer.hint1': 'enter reiht ein · esc stoppt',
   'composer.hint2': 'enter reiht ein',

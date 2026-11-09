@@ -39,6 +39,8 @@ export const zh: Messages = {
   'composer.queued': '已排队',
   'composer.queuedMany': '{n} 条已排队',
   'composer.queuedHint': '↓ 编辑',
+  'composer.sendNow': '回车 立即发送',
+  'composer.sendingNow': '已停止：正在发送您的消息',
   'composer.newline': '换行',
   'composer.hint1': 'enter 排队 · esc 停止',
   'composer.hint2': 'enter 排队',

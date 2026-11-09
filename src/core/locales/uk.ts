@@ -39,6 +39,8 @@ export const uk: Messages = {
   'composer.queued': 'у черзі',
   'composer.queuedMany': 'у черзі: {n}',
   'composer.queuedHint': '↓ редагувати',
+  'composer.sendNow': 'enter надіслати зараз',
+  'composer.sendingNow': 'Зупинено: надсилаю ваше повідомлення',
   'composer.newline': 'новий рядок',
   'composer.hint1': 'enter — у чергу · esc — стоп',
   'composer.hint2': 'enter — у чергу',

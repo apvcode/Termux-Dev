@@ -39,6 +39,8 @@ export const pt: Messages = {
   'composer.queued': 'na fila',
   'composer.queuedMany': '{n} na fila',
   'composer.queuedHint': '↓ editar',
+  'composer.sendNow': 'enter enviar já',
+  'composer.sendingNow': 'Parado: enviando sua mensagem',
   'composer.newline': 'nova linha',
   'composer.hint1': 'enter enfileira · esc para',
   'composer.hint2': 'enter enfileira',

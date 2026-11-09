@@ -46,6 +46,8 @@ export const en = {
   'composer.queued': 'queued',
   'composer.queuedMany': '{n} queued',
   'composer.queuedHint': '↓ edit',
+  'composer.sendNow': 'enter send now',
+  'composer.sendingNow': 'Stopped: sending your message now',
   'composer.newline': 'new line',
   'composer.hint1': 'enter queues · esc stop',
   'composer.hint2': 'enter queues',

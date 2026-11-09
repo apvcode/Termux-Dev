@@ -10,7 +10,22 @@ const KEY = /\x1b\[[0-9;:?]*[ -/]*[@-~]|\x1bO[\s\S]|\x1b[\r\n\x7f]|\x1b|[\s\S]/g
  * presses of Down. Code that compares a whole chunk with one key would miss them all.
  */
 export function splitKeys(chunk: string): string[] {
-  return chunk.match(KEY) ?? [];
+  return (chunk.match(KEY) ?? []).map(stripLockMods);
+}
+
+/**
+ * Caps Lock and Num Lock are not part of a key. Once a terminal runs the kitty keyboard protocol it
+ * adds them to the modifier field, and Down becomes `ESC [ 1 ; 129 B` (Num Lock) instead of `ESC [ B`:
+ * every arrow, Home, End and Delete would stop working with a lock on. Bits 64 and 128 are cut off.
+ */
+export function stripLockMods(key: string): string {
+  const m = /^\x1b\[(\d+);(\d+)((?::\d+)*)([A-Za-z~])$/.exec(key);
+  if (!m) return key;
+  const mods = Number(m[2]) - 1;
+  const clean = mods & ~(64 | 128);
+  if (clean === mods) return key;
+  if (clean !== 0) return `\x1b[${m[1]};${clean + 1}${m[3]}${m[4]}`;
+  return m[4] !== 'u' && m[1] === '1' ? `\x1b[${m[4]}` : `\x1b[${m[1]}${m[4]}`;
 }
 
 /** Erases the word before the cursor (Ctrl+W in a shell); Ctrl+Backspace and Alt+Backspace are mapped to it. */
@@ -27,7 +42,7 @@ const SHIFT_ENTER = /^\x1b\[(?:13;2u|27;2;13~)$/;
 
 /** Does this key break the line instead of sending it? Ctrl+Enter, Alt+Enter and Shift+Enter, as far as the terminal tells them from Enter. */
 export function isNewlineKey(key: string): boolean {
-  return normalizeKey(key) === CTRL_ENTER || SHIFT_ENTER.test(key);
+  return normalizeKey(key) === CTRL_ENTER || SHIFT_ENTER.test(stripLockMods(key));
 }
 
 /**
@@ -81,7 +96,8 @@ export function extendedKeysOff(): string {
  * `CSI 99;5u` and `CSI 27;5;99~` become Ctrl+C (0x03), `CSI 27u` becomes Esc, and every way
  * of sending Ctrl+Enter or Alt+Enter becomes `CTRL_ENTER`. Anything else is returned as is.
  */
-export function normalizeKey(key: string): string {
+export function normalizeKey(raw: string): string {
+  const key = stripLockMods(raw);
   if (key === '\x1b\r' || key === '\x1b\n') return CTRL_ENTER;
   if (key === '\x1b\x7f') return WORD_BACKSPACE;      // Alt+Backspace
   const m = /^\x1b\[(?:27;(\d+);(\d+)~|(\d+)(?:;(\d+))?(?::\d+)?u)$/.exec(key);

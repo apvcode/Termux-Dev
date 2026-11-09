@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extendedKeysSupported, splitKeys } from '../../src/cli/keys.js';
+import { extendedKeysSupported, isNewlineKey, normalizeKey, splitKeys, stripLockMods } from '../../src/cli/keys.js';
 
 describe('splitKeys', () => {
   it('returns a single key unchanged', () => {
@@ -58,5 +58,29 @@ describe('extendedKeysSupported', () => {
   it('DEVX_EXTENDED_KEYS forces it either way', () => {
     expect(extendedKeysSupported({ DEVX_EXTENDED_KEYS: '1', PREFIX: '/data/data/com.termux/files/usr' }, 'linux')).toBe(true);
     expect(extendedKeysSupported({ DEVX_EXTENDED_KEYS: '0', TERM: 'xterm-kitty' }, 'linux')).toBe(false);
+  });
+});
+
+describe('Caps Lock and Num Lock in the modifier field', () => {
+  // kitty keyboard protocol: Num Lock adds 128, Caps Lock 64 (+1) to the modifiers of every key that has a CSI form
+  it('arrows, Home, End and Delete come out as plain keys', () => {
+    expect(splitKeys('\x1b[1;129B\x1b[1;65A\x1b[1;193D\x1b[1;129C')).toEqual(['\x1b[B', '\x1b[A', '\x1b[D', '\x1b[C']);
+    expect(stripLockMods('\x1b[1;129H')).toBe('\x1b[H');
+    expect(stripLockMods('\x1b[3;129~')).toBe('\x1b[3~');
+    expect(normalizeKey('\x1b[1;129B')).toBe('\x1b[B');
+  });
+
+  it('real modifiers stay', () => {
+    expect(stripLockMods('\x1b[1;5A')).toBe('\x1b[1;5A');          // Ctrl+Up
+    expect(stripLockMods('\x1b[1;133A')).toBe('\x1b[1;5A');        // Ctrl+Up with Num Lock
+    expect(stripLockMods('\x1b[1;2B')).toBe('\x1b[1;2B');
+    expect(stripLockMods('\x1b[B')).toBe('\x1b[B');
+    expect(stripLockMods('a')).toBe('a');
+  });
+
+  it('Shift+Enter and Enter keep their meaning with a lock on', () => {
+    expect(isNewlineKey('\x1b[13;130u')).toBe(true);
+    expect(isNewlineKey('\x1b[13;129u')).toBe(false);
+    expect(normalizeKey('\x1b[13;129u')).toBe('\r');
   });
 });
