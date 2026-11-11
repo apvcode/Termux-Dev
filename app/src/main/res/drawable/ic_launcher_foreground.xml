@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="7.33"
+        android:translateY="11.92"
+        android:scaleX="0.3394"
+        android:scaleY="0.3394">
+        <!-- d: the bowl and the stem -->
+        <path
+            android:pathData="M141.5,144.5 A38.5,38.5 0 1 1 64.5,144.5 A38.5,38.5 0 1 1 141.5,144.5 Z"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="16"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M141.5,65 L141.5,183"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="16"
+            android:strokeLineCap="round" />
+        <!-- x: its foot stands on the same baseline as the d -->
+        <path
+            android:pathData="M170,141 L212,183 M212,141 L170,183"
+            android:strokeColor="#9A9A9A"
+            android:strokeWidth="15"
+            android:strokeLineCap="round" />
+    </group>
+</vector>

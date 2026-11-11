@@ -1,0 +1,873 @@
+package com.apvcode.devx.ui.chat
+
+import androidx.compose.ui.unit.sp
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.SizeTransform
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
+import android.Manifest
+import com.apvcode.devx.model.Role
+import androidx.compose.animation.Crossfade
+import java.io.File
+import com.apvcode.devx.data.AttachmentKind
+import com.apvcode.devx.data.Attachment
+import coil3.compose.AsyncImage
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.content.ClipboardManager
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.layout.onSizeChanged
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import com.apvcode.devx.ui.components.GlassIconButton
+import com.apvcode.devx.ui.components.pressable
+import com.apvcode.devx.ui.components.LocalGlass
+import com.apvcode.devx.ui.components.glass
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Photo
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.apvcode.devx.R
+import com.apvcode.devx.data.Msg
+import com.apvcode.devx.ui.components.CircleIconButton
+import com.apvcode.devx.ui.components.DevxIcons
+import com.apvcode.devx.ui.theme.DevxColors
+import com.apvcode.devx.ui.theme.DevxType
+import kotlinx.coroutines.launch
+
+@Composable
+fun ChatScreen(
+    vm: ChatViewModel,
+    onOpenDrawer: () -> Unit,
+    onOpenProviders: () -> Unit,
+    onSelectText: (String) -> Unit,
+    onEdit: (Msg) -> Unit,
+    onOpenPhoto: (Attachment) -> Unit,
+    onShowThinking: (Msg) -> Unit,
+    onShowUploaded: (String) -> Unit,
+    onShowSources: (Msg) -> Unit,
+    onOpenFile: (com.apvcode.devx.data.Artifact) -> Unit,
+    onShowSteps: (Msg) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val listState = rememberLazyListState()
+    // The first time in the app the bars arrive after the iris has begun to open, one after the other.
+    val intro = remember { Animatable(if (WelcomeCeremony.running) 0f else 1f) }
+    LaunchedEffect(Unit) {
+        if (intro.value < 1f) {
+            kotlinx.coroutines.delay(650)
+            intro.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 120f))
+        }
+    }
+    // The search in the chat (opened from the chat menu).
+    var findOpen by remember { mutableStateOf(false) }
+    var findQuery by remember { mutableStateOf("") }
+    var findIndex by remember { mutableIntStateOf(0) }
+    var highlightId by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    var draft by remember { mutableStateOf("") }
+    var pickerOpen by remember { mutableStateOf(false) }
+    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val path = vm.path
+    val matches = remember(path.toList(), findQuery) {
+        if (findQuery.isBlank()) emptyList() else path.filter { it.text.contains(findQuery.trim(), ignoreCase = true) }.map { it.id }
+    }
+
+    val context = LocalContext.current
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { vm.attachMedia(it) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.attachFiles(it) }
+
+    var attachOpen by remember { mutableStateOf(false) }
+    var cameraOpen by remember { mutableStateOf(false) }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val openCamera = {
+        keyboard?.hide()
+        focus.clearFocus()
+        cameraOpen = true
+    }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) openCamera() else android.widget.Toast.makeText(context, R.string.camera_denied, android.widget.Toast.LENGTH_LONG).show()
+    }
+
+    // ----- the chat menu: find in chat, lock, shortcut, delete -----
+    var deleteAsk by remember { mutableStateOf(false) }
+    // The first message asks (once) to be allowed to show notifications: they keep you informed when an
+    // answer is written in the background.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val keyguard = remember { context.getSystemService(android.app.KeyguardManager::class.java) }
+    val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) vm.current?.let { vm.unlock(it.id) }
+    }
+    val unlockNow = {
+        val intent = keyguard?.createConfirmDeviceCredentialIntent(
+            context.getString(R.string.lock_prompt_title),
+            context.getString(R.string.lock_prompt_body),
+        )
+        if (intent != null) authLauncher.launch(intent) else vm.current?.let { vm.unlock(it.id) }
+    }
+    // Another chat opened: a search of the old one is over.
+    LaunchedEffect(vm.currentId) {
+        findOpen = false
+        findQuery = ""
+        findIndex = 0
+    }
+    val menuActions = ChatMenuActions(
+        onShare = { vm.current?.let { shareChat(context, vm.transcript(it.id), it.title) } },
+        onToggleLock = {
+            val chat = vm.current
+            if (chat != null) {
+                if (chat.locked) vm.setLocked(chat.id, false)
+                else if (keyguard?.isDeviceSecure == true) vm.setLocked(chat.id, true)
+                else android.widget.Toast.makeText(context, R.string.lock_need_screen_lock, android.widget.Toast.LENGTH_LONG).show()
+            }
+        },
+        onUploaded = { vm.current?.let { onShowUploaded(it.id) } },
+        onFind = { findOpen = true },
+        onAddToHome = { vm.current?.let { addChatToHome(context, it) } },
+        onDelete = { deleteAsk = true },
+    )
+
+    // With no models at all there is nothing to pick from: go straight to where they come from.
+    val openPicker = { if (vm.modelCount == 0) onOpenProviders() else pickerOpen = true }
+
+    val host = remember(vm, onOpenProviders, onSelectText, onEdit, onOpenPhoto, onShowThinking, onShowSources, onOpenFile, onShowSteps) {
+        MessageActionsHost(
+            onSend = { vm.send(it) },
+            onSelectText = onSelectText,
+            onEdit = onEdit,
+            onOpenSettings = onOpenProviders,
+            onPickModel = { if (vm.modelCount == 0) onOpenProviders() else pickerOpen = true },
+            onOpenPhoto = onOpenPhoto,
+            onShowThinking = onShowThinking,
+            onShowSources = onShowSources,
+            onOpenFile = onOpenFile,
+            onShowSteps = onShowSteps,
+        )
+    }
+
+    // While an answer is being written, stay at its end, unless the reader scrolled away.
+    var following by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is DragInteraction.Start -> following = false
+                is DragInteraction.Stop, is DragInteraction.Cancel -> following = !listState.canScrollForward
+                else -> Unit
+            }
+        }
+    }
+    // The message I just sent is pinned to the top of the screen and the answer grows below it,
+    // like in ChatGPT: [pinNext] says "the next new message is one I sent", [pinId] is the pinned one.
+    var pinNext by remember { mutableStateOf(false) }
+    var pinId by remember { mutableStateOf<String?>(null) }
+    var spacerPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    // How far the pinned message sits above the top edge: with pictures, the words stay at the top and the
+    // pictures peek out above them, instead of the pictures taking the whole top of the screen.
+    var pinOffsetPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val pinDensity = androidx.compose.ui.platform.LocalDensity.current
+    // Another chat opened: jump to its end at once (unless it is the very chat being started right now).
+    LaunchedEffect(vm.currentId) {
+        if (pinNext) return@LaunchedEffect
+        pinId = null
+        spacerPx = 0
+        pinOffsetPx = 0
+        if (path.isNotEmpty()) {
+            listState.scrollToItem(path.lastIndex)
+            listState.scrollBy(100_000f)
+        }
+        following = true
+    }
+    // A new message appeared: mine goes to the top, anything else (a regenerated answer) is glided to.
+    LaunchedEffect(path.size) {
+        if (path.isEmpty()) return@LaunchedEffect
+        val mine = if (pinNext) path.lastOrNull { it.role == Role.User } else null
+        if (mine != null) {
+            pinNext = false
+            pinId = mine.id
+            following = false
+            val index = path.indexOfFirst { it.id == mine.id }
+            // The free space under it is measured a frame or two later; try again until it sits at the top.
+            val peek = with(pinDensity) { 36.dp.roundToPx() }
+            val gap = with(pinDensity) { 6.dp.roundToPx() }
+            for (attempt in 0 until 6) {
+                androidx.compose.runtime.withFrameNanos { }
+                val media = if (mine.attachments.isNotEmpty()) MediaMetrics.heights[mine.id] ?: 0 else 0
+                val target = if (media > 0 && mine.text.isNotBlank()) (media + gap - peek).coerceAtLeast(0) else 0
+                pinOffsetPx = target
+                listState.animateScrollToItem(index, target)
+                val placed = listState.firstVisibleItemIndex == index && kotlin.math.abs(listState.firstVisibleItemScrollOffset - target) <= 3
+                if (placed && (media > 0 || mine.attachments.isEmpty())) break
+            }
+        } else {
+            listState.animateScrollToItem(path.lastIndex)
+            following = true
+        }
+    }
+    // The free space under the pinned message: exactly as much as makes it reachable at the top.
+    // It shrinks as the answer grows, so the answer fills the screen without anything jumping.
+    val gapPx = with(androidx.compose.ui.platform.LocalDensity.current) { 20.dp.roundToPx() }
+    LaunchedEffect(pinId) {
+        val id = pinId ?: return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow {
+            val info = listState.layoutInfo
+            val current = vm.path
+            val from = current.indexOfFirst { it.id == id }
+            if (from < 0) return@snapshotFlow null
+            val segment = info.visibleItemsInfo.filter { it.index in from..current.lastIndex }
+            if (segment.size != current.lastIndex - from + 1) return@snapshotFlow null
+            val room = info.viewportSize.height - info.beforeContentPadding - info.afterContentPadding
+            (room + pinOffsetPx - segment.sumOf { it.size } - segment.size * gapPx).coerceAtLeast(0)
+        }.collect { if (it != null) spacerPx = it }
+    }
+    val tailLength = path.lastOrNull()?.text?.length ?: 0
+    LaunchedEffect(tailLength) {
+        if (following && vm.generating) listState.scrollBy(100_000f)
+    }
+    // The end of the answer adds things below the text (buttons, an error card): keep them in view too.
+    val tailError = path.lastOrNull()?.error
+    LaunchedEffect(tailError, vm.generating) {
+        if (following && path.isNotEmpty()) listState.scrollBy(100_000f)
+    }
+    // Stepping through the matches: bring the message into view and flash it once.
+    LaunchedEffect(findQuery, findIndex, matches.size) {
+        val id = matches.getOrNull(findIndex.coerceIn(0, (matches.size - 1).coerceAtLeast(0))) ?: return@LaunchedEffect
+        val at = path.indexOfFirst { it.id == id }
+        if (at >= 0) {
+            following = false
+            listState.animateScrollToItem(at)
+            highlightId = id
+            kotlinx.coroutines.delay(1100)
+            highlightId = null
+        }
+    }
+    val canScrollDown by remember { androidx.compose.runtime.derivedStateOf { listState.canScrollForward } }
+
+    val haze = rememberHazeState()
+    val sendOrigin = remember { SendOrigin() }
+    var composerHeight by remember { mutableStateOf(0.dp) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+
+    androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides haze, LocalSendOrigin provides sendOrigin) {
+        Box(
+            modifier
+                .fillMaxSize()
+                .background(DevxColors.Bg)
+                .imePadding(),
+        ) {
+            // While the answer is awaited the screen glows (until the first words arrive).
+            val awaiting = path.lastOrNull()?.let { it.role == Role.Assistant && it.text.isEmpty() && it.error == null } == true
+            GenerationGlow(active = (com.apvcode.devx.data.Prefs.thinkingGlow && vm.generating && awaiting) || WelcomeCeremony.glow)
+
+            if (path.isNotEmpty()) {
+                com.apvcode.devx.ui.components.ProvideAskToolbar(onAsk = vm::attachSnippet) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().hazeSource(haze),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset + 72.dp, bottom = composerHeight + 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    items(path, key = { it.id }) { msg ->
+                        val animate = remember(msg.id) { vm.consumeFresh(msg.id) }
+                        val flash by animateFloatAsState(if (highlightId == msg.id) 0.14f else 0f, tween(300), label = "flash")
+                        val flashColor = DevxColors.TextPrimary
+                        Box(
+                            Modifier.drawBehind {
+                                if (flash > 0f) {
+                                    drawRoundRect(
+                                        flashColor.copy(alpha = flash),
+                                        topLeft = Offset(-6.dp.toPx(), -6.dp.toPx()),
+                                        size = Size(size.width + 12.dp.toPx(), size.height + 12.dp.toPx()),
+                                        cornerRadius = CornerRadius(20.dp.toPx()),
+                                    )
+                                }
+                            },
+                        ) { MessageItem(msg, vm, animate, host) }
+                    }
+                    if (pinId != null) {
+                        item(key = "pin-space") {
+                            androidx.compose.foundation.layout.Spacer(Modifier.height(with(density) { spacerPx.toDp() }))
+                        }
+                    }
+                }
+                }
+            } else {
+                Box(Modifier.fillMaxSize().hazeSource(haze))
+            }
+
+            // The empty chat greets you by name.
+            val hello = com.apvcode.devx.data.Prefs.nickname
+            AnimatedVisibility(
+                visible = path.isEmpty() && !vm.isTemporary && hello.isNotBlank(),
+                modifier = Modifier.align(Alignment.Center).padding(bottom = 96.dp),
+                enter = fadeIn(tween(900, delayMillis = 700)) +
+                    slideInVertically(tween(1100, delayMillis = 700, easing = FastOutSlowInEasing)) { it / 2 },
+                exit = fadeOut(tween(160)),
+            ) {
+                Text(
+                    stringResource(R.string.hello_name, hello),
+                    style = DevxType.Large.copy(fontSize = 34.sp, lineHeight = 42.sp),
+                    color = DevxColors.TextPrimary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 32.dp),
+                )
+            }
+
+            // The empty screen of a temporary chat says what it is.
+            AnimatedVisibility(
+                visible = path.isEmpty() && vm.isTemporary,
+                modifier = Modifier.align(Alignment.Center),
+                enter = fadeIn(tween(260)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 300f), initialScale = 0.9f),
+                exit = fadeOut(tween(140)),
+            ) {
+                Column(
+                    Modifier.padding(horizontal = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(DevxIcons.MessageCircle, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(34.dp))
+                    Text(stringResource(R.string.temp_title), style = DevxType.Title, color = DevxColors.TextPrimary)
+                    Text(
+                        stringResource(R.string.temp_body),
+                        style = DevxType.Body,
+                        color = DevxColors.TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = !findOpen,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer {
+                        alpha = intro.value.coerceIn(0f, 1f)
+                        translationY = -(1f - intro.value) * 48.dp.toPx()
+                    },
+                enter = fadeIn(tween(160)),
+                exit = fadeOut(tween(120)),
+            ) {
+                TopBar(vm, onOpenDrawer, onPickModel = openPicker, menuActions = menuActions)
+            }
+            AnimatedVisibility(
+                visible = findOpen,
+                modifier = Modifier.align(Alignment.TopCenter),
+                enter = fadeIn(tween(200)) + androidx.compose.animation.slideInVertically(spring(dampingRatio = 0.85f, stiffness = 420f)) { -it / 2 },
+                exit = fadeOut(tween(120)),
+            ) {
+                FindInChatBar(
+                    query = findQuery,
+                    onQuery = { findQuery = it; findIndex = 0 },
+                    count = matches.size,
+                    index = findIndex.coerceIn(0, (matches.size - 1).coerceAtLeast(0)),
+                    onPrev = { if (matches.isNotEmpty()) findIndex = (findIndex - 1 + matches.size) % matches.size },
+                    onNext = { if (matches.isNotEmpty()) findIndex = (findIndex + 1) % matches.size },
+                    onClose = { findOpen = false; findQuery = "" },
+                )
+            }
+            androidx.activity.compose.BackHandler(enabled = findOpen) { findOpen = false; findQuery = "" }
+
+            // A locked chat shows nothing until the screen lock has been passed.
+            val shut = vm.isShut(vm.current)
+            androidx.compose.animation.AnimatedVisibility(visible = shut, enter = fadeIn(tween(160)), exit = fadeOut(tween(260))) {
+                LaunchedEffect(vm.currentId) { unlockNow() }
+                LockedCover(onUnlock = { unlockNow() })
+            }
+
+            if (canScrollDown && path.isNotEmpty()) {
+                GlassIconButton(
+                    icon = Icons.Outlined.ArrowDownward,
+                    contentDescription = stringResource(R.string.cd_scroll_down),
+                    onClick = {
+                        following = true
+                        scope.launch {
+                            listState.animateScrollToItem(path.lastIndex)
+                            listState.scrollBy(100_000f)
+                        }
+                    },
+                    size = 38.dp,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 8.dp),
+                )
+            }
+
+            Composer(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .onSizeChanged { composerHeight = with(density) { it.height.toDp() } }
+                    .graphicsLayer {
+                        alpha = intro.value.coerceIn(0f, 1f)
+                        translationY = (1f - intro.value) * 96.dp.toPx()
+                    },
+                value = draft,
+                generating = vm.generating,
+                attachments = vm.draftAttachments,
+                importing = vm.importing,
+                fileOf = vm::previewOf,
+                onValueChange = { draft = it },
+                onSend = {
+                    // Remember where the text stands: the new bubble flies out of this very spot.
+                    sendOrigin.mark()
+                    if (android.os.Build.VERSION.SDK_INT >= 33 && !com.apvcode.devx.data.Prefs.askedNotifications) {
+                        com.apvcode.devx.data.Prefs.askedNotifications = true
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) !=
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    pinNext = true
+                    vm.send(draft)
+                    draft = ""
+                },
+                onStop = vm::stop,
+                onRemoveAttachment = vm::removeDraftAttachment,
+                onOpenAttachment = onOpenPhoto,
+                attachOpen = attachOpen,
+                onToggleAttach = { attachOpen = !attachOpen },
+            )
+
+            // The attach menu opens right over the "+", the camera rises from the bottom.
+            AttachMenu(
+                open = attachOpen,
+                onDismiss = { attachOpen = false },
+                onCamera = {
+                    attachOpen = false
+                    if (hasCameraPermission(context)) openCamera() else cameraPermission.launch(Manifest.permission.CAMERA)
+                },
+                onPhotos = {
+                    attachOpen = false
+                    imagePicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                },
+                onFiles = {
+                    attachOpen = false
+                    filePicker.launch(arrayOf("*/*"))
+                },
+                bottomPadding = composerHeight + 4.dp,
+                modifier = Modifier.fillMaxSize(),
+            )
+            CameraPanel(
+                open = cameraOpen,
+                onClose = { cameraOpen = false },
+                onCaptured = {
+                    cameraOpen = false
+                    vm.attachImages(listOf(it))
+                },
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.62f),
+            )
+        }
+    }
+
+    if (deleteAsk) {
+        vm.current?.let { chat ->
+            ConfirmDeleteChat(chat, onDismiss = { deleteAsk = false }) { vm.deleteChat(chat.id) }
+        } ?: run { deleteAsk = false }
+    }
+
+    if (pickerOpen) {
+        ModelPicker(vm, onDismiss = { pickerOpen = false }, onOpenProviders = {
+            pickerOpen = false
+            onOpenProviders()
+        })
+    }
+}
+
+@Composable
+private fun TopBar(vm: ChatViewModel, onOpenDrawer: () -> Unit, onPickModel: () -> Unit, menuActions: ChatMenuActions, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(DevxColors.Bg.copy(alpha = 0.7f), Color.Transparent)))
+            .statusBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            GlassIconButton(DevxIcons.Menu4, stringResource(R.string.cd_menu), onOpenDrawer)
+            Box(Modifier.size(8.dp))
+            // The model chip grows and shrinks smoothly with its content, and the words change with a slide.
+            Row(
+                Modifier
+                    .height(42.dp)
+                    .widthIn(max = 210.dp)
+                    .pressable(scaleTo = 0.93f, onClick = onPickModel)
+                    // The glass is OUTSIDE the size animation: the shape itself grows and shrinks. (The other way
+                    // round, a finished pill is cut by a moving edge, and that is a wall.)
+                    .glass(CircleShape)
+                    .animateContentSize(tween(380, easing = FastOutSlowInEasing), alignment = Alignment.CenterStart)
+                    .padding(start = 16.dp, end = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val noModel = stringResource(R.string.model_none)
+                AnimatedContent(
+                    targetState = vm.model?.model ?: noModel,
+                    transitionSpec = {
+                        (fadeIn(tween(220, delayMillis = 170)) + slideInVertically(tween(300, delayMillis = 170, easing = FastOutSlowInEasing)) { it / 3 }) togetherWith
+                            (fadeOut(tween(90)) + slideOutVertically(tween(160)) { -it / 3 }) using
+                            // The size of the words changes at once: the chip itself glides to it.
+                            SizeTransform(clip = false) { _, _ -> snap() }
+                    },
+                    modifier = Modifier.weight(1f, fill = false),
+                    label = "model-name",
+                ) { name ->
+                    Text(name, style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                // The level part appears and goes away with the width of the chip, and its word slides when it changes.
+                val level = vm.reasoningLevel
+                var lastLevel by remember { mutableStateOf(level) }
+                if (level != null) lastLevel = level
+                AnimatedVisibility(
+                    visible = level != null,
+                    enter = fadeIn(tween(220, delayMillis = 200)),
+                    exit = fadeOut(tween(90)),
+                ) {
+                    AnimatedContent(
+                        targetState = lastLevel,
+                        transitionSpec = {
+                            (fadeIn(tween(200, delayMillis = 120)) + slideInVertically(tween(280, delayMillis = 120, easing = FastOutSlowInEasing)) { it / 3 }) togetherWith
+                                (fadeOut(tween(90)) + slideOutVertically(tween(160)) { -it / 3 }) using
+                                SizeTransform(clip = false) { _, _ -> snap() }
+                        },
+                        label = "model-level",
+                    ) { shown ->
+                        Text(
+                            shown?.let { " · " + stringResource(levelLabelRes(it)) }.orEmpty(),
+                            style = DevxType.Body,
+                            color = DevxColors.TextSecondary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                Icon(Icons.Outlined.KeyboardArrowDown, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
+            }
+            Box(Modifier.weight(1f))
+            Row(
+                Modifier.height(42.dp).glass(CircleShape).animateContentSize(tween(300, easing = FastOutSlowInEasing), alignment = Alignment.CenterEnd),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // The temporary-chat button only exists on the empty screen and inside a temporary chat;
+                // in an ordinary chat it folds away.
+                val showTemporary = vm.current == null || vm.current?.temporary == true
+                AnimatedVisibility(
+                    visible = showTemporary,
+                    enter = fadeIn(tween(220, delayMillis = 60)) + scaleIn(spring(dampingRatio = 0.75f, stiffness = 420f), initialScale = 0.6f),
+                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.6f),
+                ) {
+                    val active = vm.isTemporary
+                    val fill by animateColorAsState(if (active) DevxColors.Accent else Color.Transparent, tween(220), label = "temp-fill")
+                    val tint by animateColorAsState(if (active) DevxColors.OnAccent else DevxColors.TextPrimary, tween(220), label = "temp-tint")
+                    Box(
+                        Modifier.size(width = 44.dp, height = 42.dp).pressable(onClick = vm::toggleTemporary),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(Modifier.size(34.dp).clip(CircleShape).background(fill), contentAlignment = Alignment.Center) {
+                            Icon(DevxIcons.MessageCircle, stringResource(R.string.cd_temp_chat), tint = tint, modifier = Modifier.size(22.dp))
+                        }
+                    }
+                }
+                // The three dots belong to a saved chat with something in it; they come and go with the chat.
+                val chat = vm.current
+                val showMore = chat != null && !chat.temporary
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showMore,
+                    enter = fadeIn(tween(220, delayMillis = 60)) + scaleIn(spring(dampingRatio = 0.75f, stiffness = 420f), initialScale = 0.6f),
+                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.6f),
+                ) {
+                    chat?.let { ChatMenuButton(it, vm, menuActions) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BarIcon(icon: ImageVector, description: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(width = 44.dp, height = 42.dp).pressable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, description, tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun Composer(
+    modifier: Modifier,
+    value: String,
+    generating: Boolean,
+    attachments: List<Attachment>,
+    importing: Int,
+    fileOf: (Attachment) -> File,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onOpenAttachment: (Attachment) -> Unit,
+    attachOpen: Boolean,
+    onToggleAttach: () -> Unit,
+) {
+    val origin = LocalSendOrigin.current
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    // On send the whole pill gives a little squeeze and springs back, like a pressed key.
+    val pulse = remember { Animatable(1f) }
+    val sendWithFeel = {
+        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+        scope.launch {
+            pulse.snapTo(0.965f)
+            pulse.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 380f))
+        }
+        onSend()
+    }
+    var focused by remember { mutableStateOf(false) }
+    val edge by animateFloatAsState(if (focused) 1f else 0f, tween(220), label = "focus")
+    val canSend = (value.isNotBlank() || attachments.isNotEmpty()) && importing == 0
+    Column(
+        modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // The plus turns into a cross while the menu is open.
+            val turn by animateFloatAsState(if (attachOpen) 45f else 0f, spring(dampingRatio = 0.6f, stiffness = 420f), label = "plus")
+            Box(
+                Modifier.size(42.dp).pressable(onClick = onToggleAttach).glass(CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Outlined.Add,
+                    stringResource(R.string.cd_attach),
+                    tint = DevxColors.TextPrimary,
+                    modifier = Modifier.size(24.dp).graphicsLayer { rotationZ = turn },
+                )
+            }
+            // With something attached the pill becomes a card: the pictures on top, the text below them.
+            val hasMedia = attachments.isNotEmpty() || importing > 0
+            val radius by androidx.compose.animation.core.animateDpAsState(if (hasMedia) 28.dp else 21.dp, spring(dampingRatio = 0.85f, stiffness = 420f), label = "radius")
+            Column(
+                Modifier
+                    .weight(1f)
+                    .graphicsLayer {
+                        scaleX = pulse.value * (1f + 0.006f * edge)
+                        scaleY = pulse.value * (1f + 0.006f * edge)
+                        transformOrigin = TransformOrigin(0.5f, 1f)
+                    }
+                    .glass(RoundedCornerShape(radius))
+                    .border(1.dp, DevxColors.TextPrimary.copy(alpha = 0.16f * edge), RoundedCornerShape(radius))
+                    .animateContentSize(spring(dampingRatio = 0.85f, stiffness = 420f)),
+            ) {
+            AnimatedVisibility(
+                visible = hasMedia,
+                enter = fadeIn(tween(180)) + expandVertically(spring(dampingRatio = 0.85f, stiffness = 420f)),
+                exit = fadeOut(tween(120)) + shrinkVertically(tween(180)),
+            ) {
+                ComposerAttachments(attachments, importing, fileOf, onRemoveAttachment, onOpen = onOpenAttachment)
+            }
+            Row(Modifier.padding(start = 16.dp, end = 3.dp), verticalAlignment = Alignment.Bottom) {
+                // The text sits exactly in the middle of a one-line pill and grows upwards.
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = 42.dp)
+                        .onGloballyPositioned { origin.field = it.boundsInWindow() },
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
+                        cursorBrush = SolidColor(DevxColors.Accent),
+                        maxLines = 6,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).onFocusChanged { focused = it.isFocused },
+                        decorationBox = { inner ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (value.isEmpty()) {
+                                    Text(stringResource(R.string.chat_placeholder), style = DevxType.Body, color = DevxColors.TextSecondary, maxLines = 1)
+                                }
+                                inner()
+                            }
+                        },
+                    )
+                }
+                // Voice input is not built yet: the button is a stub.
+                Box(Modifier.size(42.dp).pressable { }, contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Mic, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp))
+                }
+                Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+                    SendButton(canSend = canSend, generating = generating, onSend = sendWithFeel, onStop = onStop)
+                }
+            }
+            }
+        }
+    }
+}
+
+/**
+ * The round send button. It fills in white when there is something to send, squeezes under the
+ * finger, and on send the arrow flies up out of the circle and comes back from below. While an
+ * answer is being written it turns into "stop".
+ */
+@Composable
+internal fun SendButton(canSend: Boolean, generating: Boolean, onSend: () -> Unit, onStop: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val active = canSend || generating
+    val fill by animateColorAsState(if (active) DevxColors.Accent else DevxColors.Outline, tween(200), label = "fill")
+    val arrow by animateColorAsState(if (active) DevxColors.OnAccent else DevxColors.TextDisabled, tween(200), label = "arrow")
+    val squeeze by animateFloatAsState(
+        if (pressed && active) 0.86f else 1f,
+        spring(dampingRatio = 0.55f, stiffness = 500f),
+        label = "squeeze",
+    )
+    val ready by animateFloatAsState(
+        if (active) 1f else 0.92f,
+        spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMedium),
+        label = "ready",
+    )
+    val flight = remember { Animatable(0f) }
+    Box(
+        Modifier
+            .size(36.dp)
+            .graphicsLayer {
+                scaleX = squeeze * ready
+                scaleY = squeeze * ready
+            }
+            .clip(CircleShape)
+            .background(fill)
+            .clickable(interactionSource = source, indication = null, enabled = active) {
+                if (generating) {
+                    onStop()
+                } else {
+                    onSend()
+                    scope.launch {
+                        flight.snapTo(0f)
+                        flight.animateTo(1f, tween(340, easing = FastOutSlowInEasing))
+                        flight.snapTo(0f)
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Crossfade(targetState = generating, animationSpec = tween(180), label = "send-or-stop") { isStop ->
+            if (isStop) {
+                Icon(DevxIcons.Stop, stringResource(R.string.cd_stop), tint = arrow, modifier = Modifier.size(20.dp))
+            } else {
+                Icon(
+                    Icons.Outlined.ArrowUpward,
+                    stringResource(R.string.cd_send),
+                    tint = arrow,
+                    modifier = Modifier
+                        .size(22.dp)
+                        .graphicsLayer {
+                            // 0..0.5: up and out; 0.5..1: in from below.
+                            val f = flight.value
+                            val travel = 26.dp.toPx()
+                            if (f < 0.5f) {
+                                val t = f * 2f
+                                translationY = -travel * t
+                                alpha = 1f - t
+                            } else {
+                                val t = (f - 0.5f) * 2f
+                                translationY = travel * (1f - t)
+                                alpha = t
+                            }
+                        },
+                )
+            }
+        }
+    }
+}

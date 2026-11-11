@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tabler Icons (MIT), see NOTICE -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M3.2 11.371l8.297 -8.297c1.146 -1.146 3.003 -1.146 4.148 0c1.146 1.146 1.146 3.003 0 4.149l-6.266 6.265" android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M9.466 13.402l6.179 -6.179c1.146 -1.146 3.003 -1.146 4.149 0l.043 .043c1.146 1.146 1.146 3.003 0 4.148l-7.504 7.504c-.382 .382 -.382 1.001 0 1.383l1.541 1.54" android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M13.571 5.148l-6.136 6.136c-1.146 1.146 -1.146 3.003 0 4.149c1.146 1.145 3.003 1.145 4.148 0l6.136 -6.136" android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>
