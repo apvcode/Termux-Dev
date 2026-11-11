@@ -852,6 +852,14 @@ async function handleSettings(config: any): Promise<any> {
 }
 
 export async function main() {
+  // `devx remote ...`: the host that lets the phone app control devx on this computer (see remote/).
+  if (process.argv[2] === 'remote') {
+    if (process.argv[3] === 'daemon') acquireWakeLock();
+    const { runRemoteCli } = await import('../remote/cli.js');
+    const code = await runRemoteCli(process.argv.slice(3));
+    process.exit(code);
+  }
+
   // === Termux / Android Stability: Global Signal Handlers ===
   // Ignore SIGHUP so the process survives when Termux is minimized
   if (process.platform !== 'win32') {

@@ -5,6 +5,7 @@ import { wrapWords } from '../cli/width.js';
 import { t } from '../core/i18n.js';
 import { notifyAttention, questionNotice } from '../core/attention.js';
 import { Tool } from '../core/types.js';
+import { interaction } from '../core/interaction.js';
 
 interface QuestionItem {
   id?: string;
@@ -49,6 +50,11 @@ export const askQuestionsTool: Tool = {
     }
   },
   execute: async (args: { questions: QuestionItem[] }) => {
+    // Driven from the phone: the questions go there.
+    if (interaction.askQuestions && Array.isArray(args.questions) && args.questions.length > 0) {
+      const answers = await interaction.askQuestions(args.questions);
+      return answers.map((r) => `Q: ${r.question}\n\nA: ${r.answer ?? t('questions.skipped')}`).join('\n\n');
+    }
     if (!process.stdin.isTTY) {
       return JSON.stringify({ note: 'Questions skipped in non-interactive mode', answers: {} });
     }

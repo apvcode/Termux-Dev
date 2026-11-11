@@ -191,6 +191,24 @@ devx
 
 ---
 
+## Remote control from your phone
+
+devx 2.0 can be driven from the devx Android app. A small host runs in the background on your computer; the phone connects to it, and sees and controls the same sessions: every chat, live replies and reasoning, approval cards, questions, the plan, plan/agent/YOLO modes, the model and provider, context and cost, `/compact` and the other commands. Files and photos can be sent from the phone. Everything works with the terminal closed.
+
+```
+devx remote start     # start the host (keeps running without a terminal)
+devx remote pair      # shows a QR code: scan it in the app, confirm the six digits here
+devx remote status    # who is connected, which sessions are open
+devx remote devices   # paired phones          devx remote revoke <name>   # remove one
+devx remote service   # start at login (systemd / launchd)
+```
+
+How the phone reaches the computer, without any server of ours: first directly (same Wi-Fi, a VPN such as Tailscale, or a forwarded port 47821), and when that is impossible (mobile internet, carrier NAT) through a free public MQTT relay. The phone tries both at once and keeps trying; the relay only ever sees encrypted packets. The wire format and its security are in [docs/remote-protocol.md](docs/remote-protocol.md).
+
+Security: a phone is added only with a one-time code from `devx remote pair` (valid 5 minutes) **and** your confirmation here, where both screens show the same six digits. Keys are P-256 (the phone's never leaves its Keystore), every connection is signed and encrypted (AES-256-GCM) with fresh keys. Remote access is shell access to this computer: by default every command asks the phone for approval, and "Everything" mode is off until you switch it on for a session.
+
+If the phone has devx memory switched on, its name goes into the chat and the agent here gets a `phone_memory` tool that asks the phone for its notes: nothing is copied to this computer.
+
 ## Slash Commands
 
 Type `/` in the prompt to open the autocomplete command palette:

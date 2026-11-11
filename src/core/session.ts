@@ -23,7 +23,7 @@ export interface ChatSession {
   titleGenerated?: boolean;
 }
 
-const SESSIONS_DIR = path.join(os.homedir(), '.devx', 'sessions');
+const SESSIONS_DIR = process.env.DEVX_SESSIONS_DIR || path.join(os.homedir(), '.devx', 'sessions');
 
 /** Where the chats are saved. */
 export function sessionsDir(): string {

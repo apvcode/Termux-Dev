@@ -338,7 +338,9 @@ export interface GuardOptions {
   memory?: PermissionMemory;
   /** Called when the user answered "Always": store the key for the next sessions. */
   onAlways?: (remember: RememberKey) => void;
-  /** For tests: stands in for the approval card. */
+  /** Somebody else answers for the terminal (the phone, see remote/): no terminal is needed and nobody at it is notified. */
+  remote?: boolean;
+  /** Stands in for the approval card (the phone, or a test). */
   decide?: (request: PermissionRequest, offer: PermissionOffer, danger: boolean) => Promise<PermissionAnswer>;
 }
 
@@ -400,15 +402,18 @@ export class CLIConsoleGuard implements PermissionGuard {
 
   async askUser(toolName: string, args: any): Promise<boolean> {
     // In headless / non-interactive environment without TTY, deny confirmation-requiring actions immediately
-    if (!process.stdin.isTTY) {
+    // (unless somebody else answers for the terminal: the phone, see remote/).
+    if (!process.stdin.isTTY && !this.options.remote) {
       console.error(pc.red(`\n[PERMISSION DENIED] Action '${toolName}' requires user confirmation, but no interactive terminal is available. Pass --yolo (-y) to auto-approve regular actions in headless mode (dangerous commands and credential files still need a terminal).`));
       return false;
     }
 
     const request = buildPermissionRequest(toolName, args);
     // The work stops here until somebody answers: if the terminal is not in front, a notification says so.
-    const notice = approvalNotice(request.title, request.lines, request.danger);
-    notifyAttention(notice.title, notice.body);
+    if (!this.options.remote) {
+      const notice = approvalNotice(request.title, request.lines, request.danger);
+      notifyAttention(notice.title, notice.body);
+    }
     // Only requests that are safe to remember offer "Session" and "Always".
     const remember = request.danger ? null : rememberKeyFor(toolName, args);
     const offer: PermissionOffer = remember ? { session: true, always: true } : {};

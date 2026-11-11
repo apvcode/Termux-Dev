@@ -64,6 +64,9 @@ export function getActionDescription(toolName: string, args: any): string {
     } catch {}
     return `→ MCP: ${server} · ${rest.join('__')}${brief ? ' ' + (brief.length > 120 ? brief.slice(0, 117) + '...' : brief) : ''}`;
   }
+  if (t === 'phone_memory') {
+    return args?.action === 'search' ? `→ Phone memory: search "${args?.query ?? ''}"` : `→ Phone memory: read notes`;
+  }
   if (t === 'plan_ready') {
     return `→ Finalize Plan`;
   }
