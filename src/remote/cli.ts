@@ -8,6 +8,7 @@ import pc from 'picocolors';
 import qrcode from 'qrcode-terminal';
 import { ControlClient } from './control.js';
 import { RemoteStore, remoteDir } from './store.js';
+import { autostartOn, autostartPlan, disableAutostart, enableAutostart } from './autostart.js';
 
 const HELP = `
 ${pc.bold('devx remote')}: control devx on this computer from the devx app on your phone
@@ -20,7 +21,7 @@ ${pc.bold('devx remote')}: control devx on this computer from the devx app on yo
   devx remote name <name>  how this computer is called on the phone
   devx remote stop         stop the host
   devx remote logs         the end of the host's log
-  devx remote service      start the host at login (Linux systemd, macOS launchd)
+  devx remote service      start the host with the computer (service on | off | status)
   devx remote daemon       run the host in this terminal (what start does in the background)
 `;
 
@@ -98,27 +99,6 @@ async function pair(): Promise<number> {
   });
 }
 
-function unitFile(entry: string): { file: string; text: string; enable: string[] } | null {
-  const node = process.execPath;
-  if (process.platform === 'linux') {
-    const file = path.join(os.homedir(), '.config', 'systemd', 'user', 'devx-remote.service');
-    return {
-      file,
-      text: `[Unit]\nDescription=devx remote host (control devx from your phone)\nAfter=network-online.target\n\n[Service]\nExecStart=${node} ${entry} remote daemon\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n`,
-      enable: ['systemctl --user daemon-reload', 'systemctl --user enable --now devx-remote.service'],
-    };
-  }
-  if (process.platform === 'darwin') {
-    const file = path.join(os.homedir(), 'Library', 'LaunchAgents', 'dev.devx.remote.plist');
-    return {
-      file,
-      text: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>dev.devx.remote</string>\n<key>ProgramArguments</key><array><string>${node}</string><string>${entry}</string><string>remote</string><string>daemon</string></array>\n<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>\n</dict></plist>\n`,
-      enable: [`launchctl load -w ${file}`],
-    };
-  }
-  return null;
-}
-
 export async function runRemoteCli(args: string[]): Promise<number> {
   const [sub = 'help', ...rest] = args;
   try {
@@ -185,15 +165,23 @@ export async function runRemoteCli(args: string[]): Promise<number> {
         return 0;
       }
       case 'service': {
-        const entry = fileURLToPath(new URL('../../bin/devx.js', import.meta.url));
-        const unit = unitFile(entry);
-        if (!unit) {
-          console.log('\n  Starting at login is set up for Linux (systemd) and macOS (launchd).\n  On Windows add a shortcut to:  node "' + entry + '" remote daemon  in the Startup folder.\n  In Termux: install termux-services and make a service that runs  devx remote daemon.\n');
+        const plan = autostartPlan();
+        const what = rest[0] ?? '';
+        if (!plan) {
+          console.log('\n  Starting with the computer is set up for Linux, macOS and Windows.\n  In Termux: install termux-services and make a service that runs  devx remote daemon.\n');
           return 0;
         }
-        fs.mkdirSync(path.dirname(unit.file), { recursive: true });
-        fs.writeFileSync(unit.file, unit.text);
-        console.log(`\n  Wrote ${unit.file}\n  Turn it on with:\n${unit.enable.map((l) => `    ${pc.cyan(l)}`).join('\n')}\n`);
+        if (what === 'off') {
+          disableAutostart(plan);
+          console.log(`\n  ${pc.green('✓')} devx remote will no longer start with the computer\n`);
+          return 0;
+        }
+        if (what === 'status') {
+          console.log(`\n  Starts with the computer: ${autostartOn(plan) ? pc.green('yes') : pc.yellow('no')}\n`);
+          return 0;
+        }
+        enableAutostart(plan);
+        console.log(`\n  ${pc.green('✓')} devx remote starts with the computer now (${plan.file})\n  Turn it off with: devx remote service off\n`);
         return 0;
       }
       default:

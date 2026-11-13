@@ -200,7 +200,7 @@ devx remote start     # start the host (keeps running without a terminal)
 devx remote pair      # shows a QR code: scan it in the app, confirm the six digits here
 devx remote status    # who is connected, which sessions are open
 devx remote devices   # paired phones          devx remote revoke <name>   # remove one
-devx remote service   # start at login (systemd / launchd)
+devx remote service   # start with the computer (systemd / launchd / Startup folder); also in /settings. `service off` turns it off
 ```
 
 How the phone reaches the computer, without any server of ours: first directly (same Wi-Fi, a VPN such as Tailscale, or a forwarded port 47821), and when that is impossible (mobile internet, carrier NAT) through a free public MQTT relay. The phone tries both at once and keeps trying; the relay only ever sees encrypted packets. The wire format and its security are in [docs/remote-protocol.md](docs/remote-protocol.md).

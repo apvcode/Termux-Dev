@@ -81,6 +81,7 @@ import {
   summarizeToolResult,
 } from './ui.js';
 import { SettingsState, runSettings } from './settings.js';
+import { autostartOn, disableAutostart, enableAutostart } from '../remote/autostart.js';
 import { runMcpPanel } from './mcp-panel.js';
 import { TerminalLink } from '../remote/terminal-link.js';
 import { snapshotItems } from '../remote/runtime.js';
@@ -812,6 +813,7 @@ async function handleSettings(config: any): Promise<any> {
     updates: config.checkUpdates !== false,
     costLimit: Number(config.maxCostPerSession) || 0,
     language: getLanguage(),
+    remoteAutostart: autostartOn(),
   };
 
   // One panel, redrawn in place; every change is visible at once and saved when it closes.
@@ -843,6 +845,15 @@ async function handleSettings(config: any): Promise<any> {
   config.language = final.language;
   config.maxCostPerSession = final.costLimit;
   await saveConfig(config);
+  // The computer starts devx Remote at login (or no longer does): done when the panel is closed.
+  if (final.remoteAutostart !== initial.remoteAutostart) {
+    try {
+      if (final.remoteAutostart) enableAutostart(); else disableAutostart();
+      console.log(renderNotice('ok', t(final.remoteAutostart ? 'settings.remoteOn' : 'settings.remoteOff')));
+    } catch (err: any) {
+      console.log(renderNotice('warn', t('settings.remoteFailed', { error: String(err?.message || err).split('\n')[0] })));
+    }
+  }
   // Said once more where it cannot be missed, when the panel is closed with Extra newly switched on.
   if (config.autoApproveAll && !extraWasOn) {
     console.log(renderNotice('warn', t('settings.extraEnabled')));

@@ -34,9 +34,11 @@ export interface SettingsState {
   costLimit: number;
   /** Interface language id (see core/i18n.ts). */
   language: string;
+  /** devx Remote starts together with the computer (so the phone can connect without a terminal). */
+  remoteAutostart: boolean;
 }
 
-export type SettingKey = 'theme' | 'layout' | 'pureBlack' | 'autoApprove' | 'extra' | 'maxIterations' | 'memory' | 'updates' | 'costLimit' | 'language' | 'about';
+export type SettingKey = 'theme' | 'layout' | 'pureBlack' | 'autoApprove' | 'extra' | 'maxIterations' | 'memory' | 'updates' | 'costLimit' | 'language' | 'remoteAutostart' | 'about';
 
 type SectionKey = 'appearance' | 'agent' | 'general' | 'about';
 
@@ -71,6 +73,7 @@ export const ROWS: RowDef[] = [
   row('memory', 'agent', 'toggle'),
   row('updates', 'agent', 'toggle'),
   row('costLimit', 'agent', 'choice'),
+  row('remoteAutostart', 'general', 'toggle'),
   row('language', 'general', 'choice'),
   row('about', 'about', 'info'),
 ];
@@ -126,6 +129,8 @@ export function changeSetting(state: SettingsState, key: SettingKey, direction: 
       const current = COST_LIMIT_STEPS.reduce((best, step) => (Math.abs(step - state.costLimit) < Math.abs(best - state.costLimit) ? step : best), COST_LIMIT_STEPS[0]);
       return { ...state, costLimit: cycle(COST_LIMIT_STEPS, current, direction) };
     }
+    case 'remoteAutostart':
+      return { ...state, remoteAutostart: !state.remoteAutostart };
     case 'language':
       return { ...state, language: cycle(LANGUAGE_IDS, LANGUAGE_IDS.includes(state.language) ? state.language : LANGUAGE_IDS[0], direction) };
     default:
@@ -181,6 +186,8 @@ function valueText(key: SettingKey, state: SettingsState, version: string, room:
       return onOff(state.updates);
     case 'costLimit':
       return state.costLimit > 0 ? palette.text(`$${state.costLimit}`) : palette.faint(`○ ${t('settings.value.off')}`);
+    case 'remoteAutostart':
+      return onOff(state.remoteAutostart);
     case 'language':
       return palette.text(truncateWidth(languageName(state.language), Math.max(4, room)));
     case 'about':
@@ -285,18 +292,23 @@ function renderCompact(state: SettingsState, focus: number, cols: number, rows: 
   lines.push(' ' + palette.bold(palette.accent(t('settings.title'))) + palette.faint(` · v${version}`));
 
   const shown = visibleRows(state);
+  // A list longer than the screen is shown through a window that follows the focus (the title and the key hints always stay).
+  const room = Math.max(1, rows - 3);
+  const size = Math.min(shown.length, room);
+  const start = Math.max(0, Math.min(shown.length - size, focus - Math.floor((size - 1) / 2)));
   shown.forEach((row, index) => {
+    if (index < start || index >= start + size) return;
     const focused = index === focus;
     const mark = focused ? palette.accent('❯') : ' ';
     const label = focused ? palette.bold(palette.text(row.short)) : palette.muted(row.short);
     const prefix = ` ${mark} ${padEndWidth(label, shortWidth)}`;
-    const room = Math.max(4, width - displayWidth(prefix) - 1);
-    const content = prefix + valueText(row.key, state, version, room, false);
+    const roomLeft = Math.max(4, width - displayWidth(prefix) - 1);
+    const content = prefix + valueText(row.key, state, version, roomLeft, false);
     lines.push(focused ? palette.shade(padEndWidth(content, width)) : content);
   });
 
   // The title, the rows and the key hints come first; the help text takes what is left of the screen.
-  const detailCount = Math.max(0, Math.min(rows >= 16 ? 2 : 1, rows - 1 - (shown.length + 2)));
+  const detailCount = Math.max(0, Math.min(rows >= 16 ? 2 : 1, rows - 1 - (size + 2)));
   const detail = detailLines(state, shown[Math.min(focus, shown.length - 1)].key, width - 2, detailCount, version);
   for (let i = 0; i < detailCount; i++) lines.push(detail[i] ? ' ' + detail[i] : '');
   lines.push(' ' + keyHints(width - 1));

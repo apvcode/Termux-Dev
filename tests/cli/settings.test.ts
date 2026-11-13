@@ -25,6 +25,7 @@ const base: SettingsState = {
   updates: false,
   costLimit: 0,
   language: 'en',
+  remoteAutostart: false,
 };
 /** Everything on: YOLO and Extra, so that every row (and the longest warning) is on screen. */
 const all: SettingsState = { ...base, autoApprove: true, extra: true };
