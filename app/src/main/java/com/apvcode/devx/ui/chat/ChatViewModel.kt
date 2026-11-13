@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -173,6 +174,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val data = withContext(Dispatchers.IO) {
                 runCatching { ReasoningCatalog.load(context) }
+                runCatching { com.apvcode.devx.data.ModelLimits.load(context) }
                 val names = store.loadProjects()
                 val info = projectStore.load(names).also { projectStore.save(it) }
                 listOf(store.loadProviders(), names, store.loadModel(), store.loadChats(), store.loadEfforts(), info)
@@ -380,6 +382,26 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         discardTemporary()
         temporary = false
         currentId = id
+    }
+
+    /** Looks for words in every chat (see [ChatFinder]); the work is done off the main thread by the caller. */
+    fun search(query: String): List<com.apvcode.devx.data.SearchHit> = com.apvcode.devx.data.ChatFinder.run(chatStates.toList(), query)
+
+    /** A message the chat should scroll to and flash once it is on the screen (chat id, message id), from a search. */
+    var reveal by mutableStateOf<Pair<String, String>?>(null)
+
+    /** Opens a chat at one message: the branch that has it is shown, and the screen brings it into view. */
+    fun openChatAt(chatId: String, messageId: String?) {
+        openChat(chatId)
+        val chat = chatStates.firstOrNull { it.id == chatId } ?: return
+        val byId = chat.messages.associateBy { it.id }
+        var m = messageId?.let { byId[it] } ?: return
+        // The branch that holds the message is made the shown one, all the way up.
+        while (true) {
+            chat.select(m)
+            m = m.parentId?.let { byId[it] } ?: break
+        }
+        reveal = chatId to messageId
     }
 
     /** The chat that the next message starts will be temporary (not saved). Only from an empty screen. */
@@ -1047,10 +1069,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private fun historyFor(chat: Chat, upTo: Msg, withTools: Boolean = false): List<WireMessage> {
         val path = chat.activePath()
         val end = path.indexOfFirst { it.id == upTo.id }.let { if (it < 0) path.size - 1 else it }
-        val slice = path.take(end + 1)
+        var slice = path.take(end + 1)
+        // A shortened chat: what came before the cut is not sent, its summary is sent instead.
+        val cut = chat.summaryUpTo?.let { id -> slice.indexOfFirst { it.id == id } } ?: -1
+        val told = chat.summary.isNotBlank() && cut >= 0
+        if (told) slice = slice.drop(cut + 1)
         val recent = slice.filter { it.role == Role.User }.takeLast(RESEND_LAST_MESSAGES).map { it.id }.toSet()
         var bytes = 0L
         val out = ArrayList<WireMessage>()
+        if (told) {
+            out += WireMessage("user", "The earlier part of this conversation was shortened to save room. This is what it said:\n\n" + chat.summary)
+            out += WireMessage("assistant", "Understood. I will go on from there.")
+        }
         for (m in slice) {
             if (m.text.isBlank() && m.attachments.isEmpty()) continue
             val role = if (m.role == Role.User) "user" else "assistant"
@@ -1104,6 +1134,116 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             throw ApiException(ErrorKind.BadRequest, null, "The attachments are too large for one request (${bytes / 1_000_000} MB). Remove some photos.")
         }
         return out
+    }
+
+    /** The chat whose context is being compressed now (null when none). */
+    var compacting by mutableStateOf<String?>(null)
+        private set
+
+    /** What the card in the chat shows while it runs: the summary as the model writes it, since when, and how much is being read. */
+    var compressText by mutableStateOf("")
+        private set
+    var compressStartedAt by mutableLongStateOf(0L)
+        private set
+    var compressCount by mutableIntStateOf(0)
+        private set
+    var compressTokens by mutableIntStateOf(0)
+        private set
+
+    /** The last message that is being told short: the card is shown under it, where the result will stay. */
+    var compressAfter by mutableStateOf<String?>(null)
+        private set
+
+    /** The chat that was compressed a moment ago: its card opens on the result and plays the count-down once (null when none). */
+    var compactedNow by mutableStateOf<String?>(null)
+
+    /** What a compression did: the size before and after, in rough tokens. */
+    class Shortened(val before: Int, val after: Int)
+
+    private var compactJob: kotlinx.coroutines.Job? = null
+
+    /** Starts the compression; [onFailed] is called when it could not be done (not when it was cancelled). */
+    fun startCompaction(id: String, onFailed: () -> Unit) {
+        if (compactJob?.isActive == true) return
+        compactJob = viewModelScope.launch {
+            val done = try {
+                compactChat(id)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (done == null) onFailed()
+        }
+    }
+
+    /** Stops a compression that is running: the model is no longer waited for and the chat stays as it was. */
+    fun cancelCompaction() {
+        compactJob?.cancel()
+    }
+
+    /**
+     * Compresses the context of a long chat: the model tells the earlier part short (and the card in the chat shows the notes as
+     * they are written), and from then on only that summary and the last few messages are sent. The messages stay on the
+     * screen. Null when there is nothing to compress or no model to ask.
+     */
+    private suspend fun compactChat(id: String): Shortened? {
+        val chat = chatStates.firstOrNull { it.id == id } ?: return null
+        if (id in streaming || compacting != null) return null
+        val path = chat.activePath()
+        val from = chat.summaryUpTo?.let { up -> path.indexOfFirst { it.id == up } }?.takeIf { it >= 0 }?.plus(1) ?: 0
+        // The last messages stay as they are: the cut is made before one of the person's, leaving about four.
+        val cut = (path.size - KEEP_AFTER_SHORTENING downTo from + 1).firstOrNull { path[it].role == Role.User } ?: return null
+        if (cut - from < 2) return null
+        val ref = chat.model ?: model ?: return null
+        val provider = providers.firstOrNull { it.id == ref.providerId } ?: return null
+        val key = secrets.get(provider.id).orEmpty()
+        val wire = provider.copy(kind = formatOf(provider, ref.model))
+        val told = path.subList(from, cut).filter { it.text.isNotBlank() }
+        compressText = ""
+        compressCount = told.size
+        compressStartedAt = android.os.SystemClock.elapsedRealtime()
+        compressAfter = path[cut - 1].id
+        compacting = id
+        try {
+            val before = contextEstimate(chat)
+            compressTokens = before
+            // Long messages are cut short in the middle so that the whole fits in one request.
+            val per = (200_000 / told.size.coerceAtLeast(1)).coerceIn(600, 6_000)
+            val transcript = told.joinToString("\n\n") { m ->
+                val who = if (m.role == Role.User) "User" else "Assistant"
+                val text = m.text.trim().let { if (it.length > per) it.take(per * 2 / 3) + "\n[...]\n" + it.takeLast(per / 3) else it }
+                "$who: $text"
+            }
+            val prompt = buildString {
+                append("Shorten the conversation below into notes that let it continue without the original messages. ")
+                append("Keep: what the person wants, decisions made, facts and names, file names, commands and code that matter, open questions, and the person's preferences. ")
+                append("Drop pleasantries and repetition. Write in the language of the conversation, as plain text with short paragraphs or a list, no preamble.\n\n")
+                if (chat.summary.isNotBlank() && from > 0) append("Notes so far:\n").append(chat.summary).append("\n\n")
+                append("Conversation:\n").append(transcript)
+            }
+            // The notes are read as they arrive, so that the card shows them being written.
+            api.stream(wire, key, ref.model, "", listOf(WireMessage("user", prompt))).collect { piece ->
+                if (piece is Piece.Text) compressText += piece.text
+            }
+            val summary = compressText.trim()
+            if (summary.isBlank()) return null
+            chat.summary = summary
+            chat.summaryUpTo = path[cut - 1].id
+            val after = contextEstimate(chat)
+            chat.summaryBefore = before
+            chat.summaryAfter = after
+            chat.summaryCount = told.size
+            chat.summarySeconds = ((android.os.SystemClock.elapsedRealtime() - compressStartedAt) / 1000).toInt().coerceAtLeast(1)
+            // The card opens on the result, and its sizes count down from the old number to the new one, this once.
+            compactedNow = id
+            save(chat)
+            return Shortened(before, after)
+        } finally {
+            compacting = null
+            compressAfter = null
+            compressText = ""
+        }
     }
 
     private suspend fun nameChat(chat: Chat, provider: Provider, key: String, model: String, question: String, answer: String) {
@@ -1299,6 +1439,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         /** Photos and PDFs go along only for this many of my latest messages. */
         const val RESEND_LAST_MESSAGES = 3
+        const val KEEP_AFTER_SHORTENING = 4
 
         /** A text longer than this is not put into the message whole when the model has tools to read it. */
         const val INLINE_TEXT_LIMIT = 20_000

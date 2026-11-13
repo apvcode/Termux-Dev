@@ -229,9 +229,39 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
         onDispose { provider?.unbindAll() }
     }
 
-    // A flash that the lens does not have (most front cameras) cannot be asked for.
+    // A lens with a flash unit fires it (the back one); the front one has none, and lights the screen instead.
     val hasFlash = camera?.cameraInfo?.hasFlashUnit() == true
-    LaunchedEffect(flashMode, hasFlash) { imageCapture.flashMode = if (hasFlash) flashMode else ImageCapture.FLASH_MODE_OFF }
+    // The mode is chosen for one lens: turning to the other starts again with the flash off.
+    LaunchedEffect(front) { flashMode = ImageCapture.FLASH_MODE_OFF }
+    var screenLit by remember { mutableStateOf(false) }
+    val activity = remember(context) { var c = context; while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext; c as? android.app.Activity }
+    LaunchedEffect(flashMode, hasFlash, front) {
+        imageCapture.flashMode = when {
+            front -> if (flashMode == ImageCapture.FLASH_MODE_SCREEN) ImageCapture.FLASH_MODE_SCREEN else ImageCapture.FLASH_MODE_OFF
+            // "On" is done with the torch before the shot (see shoot): the device's own flash path is not trusted to fire.
+            hasFlash -> if (flashMode == ImageCapture.FLASH_MODE_AUTO) ImageCapture.FLASH_MODE_AUTO else ImageCapture.FLASH_MODE_OFF
+            else -> ImageCapture.FLASH_MODE_OFF
+        }
+    }
+    // The screen flash: the whole screen goes white and as bright as it can be while the shot is taken.
+    DisposableEffect(imageCapture) {
+        imageCapture.setScreenFlash(object : ImageCapture.ScreenFlash {
+            override fun apply(expirationTimeMillis: Long, screenFlashListener: ImageCapture.ScreenFlashListener) {
+                screenLit = true
+                activity?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = 1f } }
+                scope.launch { delay(220); screenFlashListener.onCompleted() }
+            }
+
+            override fun clear() {
+                screenLit = false
+                activity?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } }
+            }
+        })
+        onDispose {
+            imageCapture.setScreenFlash(null)
+            activity?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } }
+        }
+    }
     // The little "2.0×" shows while the zoom changes and goes away after a moment.
     LaunchedEffect(zoom) {
         if (zoom != 1f) {
@@ -260,9 +290,7 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
         }
     }
 
-    fun shoot() {
-        if (busy) return
-        busy = true
+    fun capture(torch: Boolean) {
         imageCapture.targetRotation = previewView.display?.rotation ?: android.view.Surface.ROTATION_0
         val file = File(context.cacheDir, "shot_${System.currentTimeMillis()}.jpg")
         val options = ImageCapture.OutputFileOptions.Builder(file)
@@ -277,16 +305,31 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                    if (torch) camera?.cameraControl?.enableTorch(false)
                     busy = false
                     onCaptured(Uri.fromFile(file))
                 }
 
                 override fun onError(exception: ImageCaptureException) {
+                    if (torch) camera?.cameraControl?.enableTorch(false)
                     busy = false
                     Toast.makeText(context, exception.message ?: context.getString(R.string.err_body_unknown), Toast.LENGTH_SHORT).show()
                 }
             },
         )
+    }
+
+    fun shoot() {
+        if (busy) return
+        busy = true
+        // "On" lights the torch first, so that the light is there when the picture is metered and taken.
+        val torch = !front && hasFlash && flashMode == ImageCapture.FLASH_MODE_ON
+        if (!torch) { capture(false); return }
+        camera?.cameraControl?.enableTorch(true)
+        scope.launch {
+            delay(450)
+            capture(true)
+        }
     }
 
     Box(
@@ -342,16 +385,18 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
                         .padding(horizontal = 14.dp, vertical = 7.dp),
                 )
             }
-            if (hasFlash) {
+            if (hasFlash || front) {
                 CameraRoundButton({
-                    flashMode = when (flashMode) {
+                    flashMode = if (front) {
+                        if (flashMode == ImageCapture.FLASH_MODE_SCREEN) ImageCapture.FLASH_MODE_OFF else ImageCapture.FLASH_MODE_SCREEN
+                    } else when (flashMode) {
                         ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
                         ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
                         else -> ImageCapture.FLASH_MODE_OFF
                     }
                 }) {
                     val icon = when (flashMode) {
-                        ImageCapture.FLASH_MODE_ON -> Icons.Outlined.FlashOn
+                        ImageCapture.FLASH_MODE_ON, ImageCapture.FLASH_MODE_SCREEN -> Icons.Outlined.FlashOn
                         ImageCapture.FLASH_MODE_AUTO -> Icons.Outlined.FlashAuto
                         else -> Icons.Outlined.FlashOff
                     }
@@ -364,7 +409,7 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
         Box(
             Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = flash.value }
+                .graphicsLayer { alpha = if (screenLit) 1f else flash.value }
                 .background(Color.White),
         )
         Row(

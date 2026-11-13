@@ -33,6 +33,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -66,6 +75,11 @@ private const val FADE_CHARS = 14
 fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boolean = false) {
     val smooth = remember { animate }
     val doc = remember(markdown) { MarkdownParser.parse(markdown) }
+    // Where each block begins in the running count of characters.
+    val offsets = remember(doc) {
+        var at = 0
+        IntArray(doc.blocks.size).also { out -> doc.blocks.forEachIndexed { i, b -> out[i] = at; at += b.revealLength() } }
+    }
     val total = remember(doc) { doc.blocks.sumOf { it.revealLength() } + FADE_CHARS }
     val reveal = remember { Animatable(if (smooth) 0f else total.toFloat()) }
     LaunchedEffect(total) {
@@ -80,31 +94,32 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boole
             }
         }
     }
-    // Read as a whole number, so the text is rebuilt only when a new character appears.
-    val visible by remember { derivedStateOf { reveal.value.toInt() } }
+    // The count of blocks that have begun to show: the layout is rebuilt only when a new block starts, not with every
+    // character. The edge inside a block moves in the drawing (see [revealing]), so it costs no new layout.
+    val begun by remember(doc) { derivedStateOf { val v = reveal.value.toInt(); offsets.count { it < v } } }
 
     Column(modifier.fillMaxWidth()) {
-        var offset = 0
         var previous: Md? = null
-        doc.blocks.forEach { block ->
-            val length = block.revealLength()
-            val local = visible - offset
-            offset += length
-            if (local > 0) {
+        doc.blocks.forEachIndexed { i, block ->
+            if (i < begun) {
                 val gap = when {
                     previous == null -> 0.dp
                     previous is Md.Item && block is Md.Item -> 5.dp
                     else -> 12.dp
                 }
-                Box(Modifier.padding(top = gap)) { BlockView(block, doc.math, local) }
+                val start = offsets[i]
+                Box(Modifier.padding(top = gap)) { BlockView(block, doc.math) { reveal.value - start } }
             }
             previous = block
         }
     }
 }
 
+/** A block that is shown whole: how far its reveal has gone is so large that nothing is hidden. */
+private val ALL: () -> Float = { Float.MAX_VALUE / 2 }
+
 @Composable
-private fun BlockView(block: Md, math: List<MathSpan>, local: Int) {
+private fun BlockView(block: Md, math: List<MathSpan>, local: () -> Float) {
     when (block) {
         is Md.Para -> RichText(block.rich, math, DevxType.Reply, local)
         is Md.Head -> RichText(block.rich, math, headingStyle(block.level), local)
@@ -121,7 +136,7 @@ private fun BlockView(block: Md, math: List<MathSpan>, local: Int) {
             Box(Modifier.width(3.dp).fillMaxHeight().background(DevxColors.Outline, RoundedCornerShape(2.dp)))
             Column(Modifier.padding(start = 14.dp)) {
                 block.blocks.forEachIndexed { i, inner ->
-                    Box(Modifier.padding(top = if (i == 0) 0.dp else 8.dp)) { BlockView(inner, math, Int.MAX_VALUE / 2) }
+                    Box(Modifier.padding(top = if (i == 0) 0.dp else 8.dp)) { BlockView(inner, math, ALL) }
                 }
             }
         }
@@ -142,17 +157,82 @@ private fun headingStyle(level: Int): TextStyle = DevxType.Reply.copy(
 
 /** Text with formulas in it: each formula is a picture sitting in the line. */
 @Composable
-private fun RichText(rich: Rich, math: List<MathSpan>, style: TextStyle, local: Int, modifier: Modifier = Modifier) {
+private fun RichText(rich: Rich, math: List<MathSpan>, style: TextStyle, local: () -> Float, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val color = DevxColors.TextPrimary.toArgb()
     val inline = remember(rich, density.density) {
         val px = with(density) { style.fontSize.toPx() }
         rich.mathIds.distinct().associate { id -> "m$id" to inlineMath(math[id], px, density, color) }
     }
-    val shown = remember(rich, local) {
-        if (local >= rich.text.length + FADE_CHARS) rich.text else rich.text.revealed(local)
+    val holder = remember { LayoutHolder() }
+    val length = rich.text.length
+    val fadePx = with(density) { (if (style.fontSize.isSp) style.fontSize.toPx() else 16.sp.toPx()) * 5f }
+    Text(
+        rich.text, style = style, color = DevxColors.TextPrimary, inlineContent = inline,
+        onTextLayout = { holder.layout = it },
+        modifier = modifier.revealing(length, fadePx, local, holder),
+    )
+}
+
+/** The last layout of a text, kept for the drawing (it is not state: the drawing reads it, nothing is rebuilt for it). */
+private class LayoutHolder { var layout: TextLayoutResult? = null }
+
+/**
+ * Shows the first [shown] characters of a text that is already laid out, with the last few fading in: the lines above the
+ * edge are drawn whole, the line of the edge is drawn through a mask that fades to nothing at the edge, the rest is not
+ * drawn. Only the drawing changes from frame to frame; the text is not rebuilt and not laid out again.
+ */
+private fun Modifier.revealing(length: Int, fadePx: Float, shown: () -> Float, holder: LayoutHolder): Modifier = drawWithContent {
+    val s = shown()
+    val layout = holder.layout
+    if (s >= length + FADE_CHARS || length == 0 || (layout != null && layout.layoutInput.layoutDirection == LayoutDirection.Rtl)) {
+        drawContent()
+        return@drawWithContent
     }
-    Text(shown, style = style, color = DevxColors.TextPrimary, inlineContent = inline, modifier = modifier)
+    if (layout == null || s <= 0f) return@drawWithContent
+
+    fun lineOf(at: Float) = layout.getLineForOffset(at.toInt().coerceIn(0, length))
+    // Where a character offset (with a fraction) falls on its line, from the left of the text.
+    fun xAt(at: Float): Float {
+        val whole = at.toInt().coerceIn(0, length)
+        val line = layout.getLineForOffset(whole)
+        val x0 = layout.getHorizontalPosition(whole, true)
+        if (whole >= length) return x0
+        val next = layout.getLineForOffset(whole + 1)
+        val x1 = if (next == line) layout.getHorizontalPosition(whole + 1, true) else layout.getLineRight(line)
+        return x0 + (x1 - x0) * (at - whole)
+    }
+
+    val edge = s.coerceIn(0f, length.toFloat())
+    val oldEdge = (s - FADE_CHARS).coerceIn(0f, length.toFloat())
+    val line = lineOf(edge)
+    val top = layout.getLineTop(line)
+    val bottom = layout.getLineBottom(line)
+    val xs = xAt(edge)
+    // The fade covers the last few characters; when they sit on the line before, this line starts from its left.
+    val xo = if (lineOf(oldEdge) == line) xAt(oldEdge) else layout.getLineLeft(line)
+    val fadeFrom = minOf(xo, xs).coerceAtLeast(0f)
+
+    if (top > 0f) clipRect(0f, 0f, size.width, top) { this@drawWithContent.drawContent() }
+    drawIntoCanvas { canvas ->
+        val bounds = androidx.compose.ui.geometry.Rect(0f, top, size.width, bottom)
+        canvas.saveLayer(bounds, androidx.compose.ui.graphics.Paint())
+        clipRect(bounds.left, bounds.top, bounds.right, bounds.bottom) { this@drawWithContent.drawContent() }
+        val w = size.width.coerceAtLeast(1f)
+        this@drawWithContent.drawRect(
+            brush = Brush.horizontalGradient(
+                0f to Color.Black,
+                (fadeFrom / w).coerceIn(0f, 1f) to Color.Black,
+                (xs / w).coerceIn(0f, 1f) to Color.Transparent,
+                1f to Color.Transparent,
+                startX = 0f, endX = size.width,
+            ),
+            topLeft = Offset(0f, top),
+            size = Size(size.width, bottom - top),
+            blendMode = BlendMode.DstIn,
+        )
+        canvas.restore()
+    }
 }
 
 private fun inlineMath(span: MathSpan, fontPx: Float, density: Density, color: Int): InlineTextContent {
@@ -210,7 +290,7 @@ private fun TableView(table: Md.Table, math: List<MathSpan>) {
                                     textAlign = cell.align,
                                     fontWeight = if (r == 0 && table.header.isNotEmpty()) FontWeight.Medium else FontWeight.Normal,
                                 )
-                                RichText(cell.rich, math, style, Int.MAX_VALUE / 2, Modifier.fillMaxWidth())
+                                RichText(cell.rich, math, style, ALL, Modifier.fillMaxWidth())
                             }
                         }
                     }
@@ -218,17 +298,5 @@ private fun TableView(table: Md.Table, math: List<MathSpan>) {
                 if (r < all.lastIndex) HorizontalDivider(color = DevxColors.Outline, thickness = 0.5.dp)
             }
         }
-    }
-}
-
-/** Characters before [shown] are visible, the last few fade in, the rest are invisible (but laid out). */
-private fun AnnotatedString.revealed(shown: Int): AnnotatedString = buildAnnotatedString {
-    append(this@revealed)
-    val end = length
-    val edge = shown.coerceIn(0, end)
-    if (edge < end) addStyle(SpanStyle(color = Color.Transparent), edge, end)
-    for (i in (edge - FADE_CHARS).coerceAtLeast(0) until edge) {
-        val alpha = ((shown - i).toFloat() / FADE_CHARS).coerceIn(0f, 1f)
-        if (alpha < 1f) addStyle(SpanStyle(color = DevxColors.TextPrimary.copy(alpha = alpha)), i, i + 1)
     }
 }

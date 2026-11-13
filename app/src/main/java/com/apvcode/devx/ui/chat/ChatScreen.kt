@@ -51,6 +51,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -238,6 +239,35 @@ fun ChatScreen(
         findQuery = ""
         findIndex = 0
     }
+    // The chat written to a file the person picks the place for (Downloads, a cloud folder...).
+    val exportMarkdown = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+        val chat = vm.current
+        if (uri != null && chat != null) scope.launch {
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val text = com.apvcode.devx.data.ChatExport.markdown(
+                        chat, com.apvcode.devx.data.Prefs.nickname.ifBlank { context.getString(R.string.export_me) }, "Devx",
+                        com.apvcode.devx.data.ChatExport.dateLabel(chat.updatedAt),
+                    )
+                    context.contentResolver.openOutputStream(uri)!!.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                }.isSuccess
+            }
+            android.widget.Toast.makeText(context, if (ok) R.string.export_saved else R.string.export_failed, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    val exportPdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        val chat = vm.current
+        if (uri != null && chat != null) scope.launch {
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)!!.use {
+                        com.apvcode.devx.data.ChatExport.pdf(chat, com.apvcode.devx.data.Prefs.nickname.ifBlank { context.getString(R.string.export_me) }, "Devx", it)
+                    }
+                }.isSuccess
+            }
+            android.widget.Toast.makeText(context, if (ok) R.string.export_saved else R.string.export_failed, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
     val menuActions = ChatMenuActions(
         onShare = { vm.current?.let { shareChat(context, vm.transcript(it.id), it.title) } },
         onToggleLock = {
@@ -250,6 +280,15 @@ fun ChatScreen(
         },
         onUploaded = { vm.current?.let { onShowUploaded(it.id) } },
         onFind = { findOpen = true },
+        onExportMarkdown = { vm.current?.let { exportMarkdown.launch(com.apvcode.devx.data.ChatExport.fileName(it.title, "md")) } },
+        onExportPdf = { vm.current?.let { exportPdf.launch(com.apvcode.devx.data.ChatExport.fileName(it.title, "pdf")) } },
+        onShorten = {
+            val chat = vm.current
+            // A good result is shown in the chat itself (the card with the notes); only a failure needs words.
+            if (chat != null) vm.startCompaction(chat.id) {
+                android.widget.Toast.makeText(context, R.string.shorten_failed, android.widget.Toast.LENGTH_LONG).show()
+            }
+        },
         onAddToHome = { vm.current?.let { addChatToHome(context, it) } },
         onDelete = { deleteAsk = true },
     )
@@ -376,6 +415,36 @@ fun ChatScreen(
             highlightId = null
         }
     }
+    // The card of a running compression is under the message where the cut is: bring it into view if it is not.
+    LaunchedEffect(vm.compressAfter) {
+        val id = vm.compressAfter ?: return@LaunchedEffect
+        if (vm.compacting != vm.currentId) return@LaunchedEffect
+        val at = path.indexOfFirst { it.id == id }
+        if (at < 0) return@LaunchedEffect
+        kotlinx.coroutines.delay(160)
+        val info = listState.layoutInfo
+        val seen = info.visibleItemsInfo.firstOrNull { it.index == at }
+        val room = info.viewportEndOffset - info.afterContentPadding
+        // The message is on the screen and there is room under it for the card: leave things as they are.
+        if (seen == null || seen.offset + seen.size + 220 > room) {
+            following = false
+            listState.animateScrollToItem(at)
+        }
+    }
+    // Coming from a search: bring the found message into view and flash it once.
+    LaunchedEffect(vm.reveal, path.size) {
+        val target = vm.reveal ?: return@LaunchedEffect
+        if (target.first != vm.currentId) return@LaunchedEffect
+        val at = path.indexOfFirst { it.id == target.second }
+        if (at >= 0) {
+            vm.reveal = null
+            following = false
+            listState.scrollToItem(at)
+            highlightId = target.second
+            kotlinx.coroutines.delay(1400)
+            highlightId = null
+        }
+    }
     // The arrow shows when the end is well out of reach (a little hysteresis, so that it does not flicker while text grows).
     val showDown by remember { androidx.compose.runtime.derivedStateOf { distanceToBottom(listState) > 260f } }
 
@@ -422,7 +491,31 @@ fun ChatScreen(
                                     )
                                 }
                             },
-                        ) { MessageItem(msg, vm, animate, host) }
+                        ) {
+                            androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                MessageItem(msg, vm, animate, host)
+                                // Under the last shortened message: a line that says what comes before it is told short now.
+                                val shortened = vm.current
+                                // While the context is compressed the card is here, where the result will stay.
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = vm.compacting != null && vm.compacting == vm.currentId && vm.compressAfter == msg.id,
+                                    enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 380f)) + androidx.compose.animation.fadeIn(tween(240)),
+                                    exit = androidx.compose.animation.shrinkVertically(tween(260)) + androidx.compose.animation.fadeOut(tween(160)),
+                                ) {
+                                    CompressingCard(vm.compressText, vm.compressStartedAt, vm.compressCount, vm.compressTokens, onCancel = vm::cancelCompaction)
+                                }
+                                if (shortened != null && shortened.summary.isNotBlank() && shortened.summaryUpTo == msg.id) {
+                                    // What was compressed: the messages just before the cut (as many as the compression took).
+                                    val at = path.indexOfFirst { it.id == msg.id }
+                                    val originals = if (shortened.summaryCount > 0 && at >= 0) path.subList((at + 1 - shortened.summaryCount).coerceAtLeast(0), at + 1).filter { it.text.isNotBlank() } else emptyList()
+                                    CompressedCard(
+                                        summary = shortened.summary, before = shortened.summaryBefore, after = shortened.summaryAfter,
+                                        seconds = shortened.summarySeconds, originals = originals,
+                                        fresh = vm.compactedNow == shortened.id, onSeen = { vm.compactedNow = null },
+                                    )
+                                }
+                            }
+                        }
                     }
                     if (pinId != null) {
                         item(key = "pin-space") {
@@ -798,6 +891,16 @@ private fun Composer(
     }
     var focused by remember { mutableStateOf(false) }
     val edge by animateFloatAsState(if (focused) 1f else 0f, tween(220), label = "focus")
+    // Asked from the tile or the widget: the field takes the focus and the keyboard comes up.
+    val fieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val fieldKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(com.apvcode.devx.data.PendingAsk.focus) {
+        if (!com.apvcode.devx.data.PendingAsk.focus) return@LaunchedEffect
+        kotlinx.coroutines.delay(380)
+        runCatching { fieldFocus.requestFocus() }
+        fieldKeyboard?.show()
+        com.apvcode.devx.data.PendingAsk.focus = false
+    }
     val canSend = (value.isNotBlank() || attachments.isNotEmpty()) && importing == 0
     Column(
         modifier
@@ -875,7 +978,7 @@ private fun Composer(
                         textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
                         cursorBrush = SolidColor(DevxColors.Accent),
                         maxLines = 6,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).onFocusChanged { focused = it.isFocused },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).focusRequester(fieldFocus).onFocusChanged { focused = it.isFocused },
                         decorationBox = { inner ->
                             Box(contentAlignment = Alignment.CenterStart) {
                                 if (value.isEmpty()) {

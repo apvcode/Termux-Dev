@@ -39,4 +39,15 @@ class ChatModelTest {
         assertEquals(120, back.tokensOut)
         assertEquals(1620, back.contextTokens)
     }
+
+    @Test
+    fun aShortenedChatKeepsItsSummary() {
+        val chat = Chat("a", "A", null, 1)
+        chat.summary = "The person is building an app."
+        chat.summaryUpTo = "m5"
+        val back = chatFromJson(chat.toJson())
+        assertEquals("The person is building an app.", back.summary)
+        assertEquals("m5", back.summaryUpTo)
+        assertNull(chatFromJson(Chat("b", "B", null, 1).toJson()).summaryUpTo)
+    }
 }

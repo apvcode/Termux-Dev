@@ -146,6 +146,21 @@ class Chat(val id: String, title: String, project: String?, val createdAt: Long)
     /** A locked chat opens only after the phone's screen lock (PIN, pattern or fingerprint) is passed. */
     var locked by mutableStateOf(false)
     val selected = mutableStateMapOf<String, String>()
+
+    /**
+     * The earlier part of a long conversation, told short by the model: the messages up to [summaryUpTo] (an id on the shown
+     * branch) are no longer sent, this is sent in their place. Empty when the chat was never shortened.
+     */
+    var summary by mutableStateOf("")
+    var summaryUpTo by mutableStateOf<String?>(null)
+
+    /** The size of the chat in rough tokens before and after the last shortening (0 when not known). */
+    var summaryBefore by mutableStateOf(0)
+    var summaryAfter by mutableStateOf(0)
+
+    /** How many messages the last shortening told short, and how many seconds it took (0 when not known). */
+    var summaryCount by mutableStateOf(0)
+    var summarySeconds by mutableStateOf(0)
 }
 
 const val ROOT = "root"
@@ -191,7 +206,7 @@ fun providerFromJson(o: JSONObject): Provider = Provider(
 
 fun Chat.toJson(): JSONObject = JSONObject()
     .put("id", id).put("title", title).put("project", project).put("createdAt", createdAt)
-    .put("pinned", pinned).put("archived", archived).put("updatedAt", updatedAt).put("titleFinal", titleFinal).put("locked", locked)
+    .put("pinned", pinned).put("archived", archived).put("updatedAt", updatedAt).put("titleFinal", titleFinal).put("locked", locked).put("summary", summary).put("summaryUpTo", summaryUpTo).put("summaryBefore", summaryBefore).put("summaryAfter", summaryAfter).put("summaryCount", summaryCount).put("summarySeconds", summarySeconds)
     .put("model", model?.let { JSONObject().put("providerId", it.providerId).put("model", it.model) })
     .put("selected", JSONObject().also { o -> selected.forEach { (k, v) -> o.put(k, v) } })
     .put(
@@ -230,6 +245,12 @@ fun chatFromJson(o: JSONObject): Chat {
     chat.updatedAt = o.optLong("updatedAt", chat.createdAt)
     chat.titleFinal = o.optBoolean("titleFinal")
     chat.locked = o.optBoolean("locked")
+    chat.summary = o.optString("summary")
+    chat.summaryBefore = o.optInt("summaryBefore")
+    chat.summaryAfter = o.optInt("summaryAfter")
+    chat.summaryCount = o.optInt("summaryCount")
+    chat.summarySeconds = o.optInt("summarySeconds")
+    chat.summaryUpTo = o.optString("summaryUpTo").takeIf { it.isNotEmpty() && it != "null" }
     chat.model = o.optJSONObject("model")?.let { runCatching { ModelRef(it.getString("providerId"), it.getString("model")) }.getOrNull() }
     o.optJSONObject("selected")?.let { s -> s.keys().forEach { k -> chat.selected[k] = s.getString(k) } }
     val arr = o.optJSONArray("messages") ?: JSONArray()

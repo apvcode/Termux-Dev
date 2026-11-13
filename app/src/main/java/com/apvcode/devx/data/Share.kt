@@ -11,3 +11,12 @@ object PendingShare {
 
     var item by mutableStateOf<Item?>(null)
 }
+
+/**
+ * "Ask devx" from the quick-settings tile or the widget: a fresh chat opens with the keyboard up. [request] is taken by the
+ * app (which opens the chat and sets [focus]); [focus] is taken by the message field once it is on the screen.
+ */
+object PendingAsk {
+    var request by mutableStateOf(false)
+    var focus by mutableStateOf(false)
+}

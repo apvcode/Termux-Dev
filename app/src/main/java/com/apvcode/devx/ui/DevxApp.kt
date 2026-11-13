@@ -190,6 +190,14 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
         vm.startFromShare(shared.text, shared.uris)
         screen = Screen.Chat; overlay = null; drawerState.close()
     }
+    // "Ask devx" from the tile or the widget: a fresh chat, and the keyboard up on it.
+    LaunchedEffect(com.apvcode.devx.data.PendingAsk.request) {
+        if (!com.apvcode.devx.data.PendingAsk.request) return@LaunchedEffect
+        com.apvcode.devx.data.PendingAsk.request = false
+        vm.newChat()
+        screen = Screen.Chat; overlay = null; drawerState.close()
+        com.apvcode.devx.data.PendingAsk.focus = true
+    }
     LaunchedEffect(requestedChat) {
         val id = requestedChat ?: return@LaunchedEffect
         if (vm.chatExists(id)) {
@@ -365,9 +373,10 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
         ) {
             SearchScreen(
                 chats = vm.chats,
+                search = vm::search,
                 onClose = { searchOpen = false },
-                onOpenChat = {
-                    vm.openChat(it.id)
+                onOpenChat = { id, messageId ->
+                    vm.openChatAt(id, messageId)
                     screen = Screen.Chat
                     searchOpen = false
                 },

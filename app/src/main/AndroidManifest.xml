@@ -63,6 +63,29 @@
             android:name=".remote.RemoteService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- "Ask devx" in the quick settings: a tile that opens a fresh chat. -->
+        <service
+            android:name=".AskTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_chat_plus"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <!-- A bar for the home screen with the same way in. -->
+        <receiver
+            android:name=".AskWidget"
+            android:exported="true"
+            android:label="@string/tile_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/ask_widget_info" />
+        </receiver>
         <receiver
             android:name=".data.ApprovalReceiver"
             android:exported="false" />

@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
 
     private fun takeChatFrom(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE) takeShare(intent)
+        if (intent?.action == ACTION_ASK) com.apvcode.devx.data.PendingAsk.request = true
         if (intent?.action == ACTION_OPEN_CHAT) requestedChat.value = intent.getStringExtra(EXTRA_CHAT_ID)
         if (intent?.action == ACTION_OPEN_REMOTE) {
             val host = intent.getStringExtra(EXTRA_HOST)
@@ -114,6 +115,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        const val ACTION_ASK = "com.apvcode.devx.ASK"
         const val ACTION_OPEN_CHAT = "com.apvcode.devx.OPEN_CHAT"
         const val EXTRA_CHAT_ID = "chatId"
         const val ACTION_OPEN_REMOTE = "com.apvcode.devx.OPEN_REMOTE"

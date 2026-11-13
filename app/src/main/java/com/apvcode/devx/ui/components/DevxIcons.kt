@@ -47,6 +47,8 @@ object DevxIcons {
     val Pencil: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_pencil)
 
     /** Archive. */
+    val Download: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_download)
+    val Minimize: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_minimize)
     val Archive: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_archive)
 
     /** Opens a submenu. */

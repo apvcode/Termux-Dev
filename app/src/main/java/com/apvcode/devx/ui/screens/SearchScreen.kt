@@ -40,6 +40,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.apvcode.devx.R
 import com.apvcode.devx.model.ChatStatus
@@ -56,18 +57,23 @@ import kotlinx.coroutines.delay
 @Composable
 fun SearchScreen(
     chats: List<ChatSummary>,
+    search: (String) -> List<com.apvcode.devx.data.SearchHit>,
     onClose: () -> Unit,
-    onOpenChat: (ChatSummary) -> Unit,
+    onOpenChat: (id: String, messageId: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var query by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val results = remember(query, chats.toList()) {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) chats.toList()
-        else chats.filter { it.title.lowercase().contains(q) || it.preview.lowercase().contains(q) }
+    // The words are looked for in every message of every chat, a moment after the last key and off the main thread.
+    val hits by androidx.compose.runtime.produceState(emptyList<com.apvcode.devx.data.SearchHit>(), query) {
+        val q = query.trim()
+        if (q.isEmpty()) { value = emptyList(); return@produceState }
+        delay(140)
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { search(q) }
     }
+    val byId = remember(chats.toList()) { chats.associateBy { it.id } }
+    val searching = query.isNotBlank()
 
     LaunchedEffect(Unit) {
         delay(340)
@@ -89,7 +95,7 @@ fun SearchScreen(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 20.dp, bottom = 8.dp),
             ) {
-                if (query.isBlank()) {
+                if (!searching) {
                     item {
                         Text(
                             stringResource(R.string.search_recent),
@@ -99,9 +105,15 @@ fun SearchScreen(
                         )
                     }
                 }
-                items(results, key = { it.id }) { chat -> ChatRow(chat) { onOpenChat(chat) } }
+                if (!searching) {
+                    items(chats, key = { it.id }) { chat -> ChatRow(chat) { onOpenChat(chat.id, null) } }
+                } else {
+                    items(hits, key = { it.chatId }) { hit ->
+                        byId[hit.chatId]?.let { chat -> HitRow(chat, hit) { onOpenChat(chat.id, hit.messageId) } }
+                    }
+                }
             }
-            if (results.isEmpty()) {
+            if (if (searching) hits.isEmpty() else chats.isEmpty()) {
                 Text(
                     stringResource(R.string.search_empty),
                     style = DevxType.Body,
@@ -186,5 +198,37 @@ private fun ChatRow(chat: ChatSummary, onClick: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         Text(chat.time, style = DevxType.Caption, color = DevxColors.TextSecondary)
+    }
+}
+
+/** A chat that has the words: its title, and a line of what was said with the words marked. */
+@Composable
+private fun HitRow(chat: ChatSummary, hit: com.apvcode.devx.data.SearchHit, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .pressable(scaleTo = 0.97f, haptic = false, onClick = onClick)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .padding(horizontal = 8.dp, vertical = 13.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Icon(if (chat.locked) DevxIcons.Lock else DevxIcons.ChatList, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(24.dp))
+            Text(chat.title, style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(chat.time, style = DevxType.Caption, color = DevxColors.TextSecondary)
+        }
+        hit.snippet?.let { line ->
+            val marked = androidx.compose.ui.text.buildAnnotatedString {
+                append(line.substring(0, hit.matchStart))
+                withStyle(androidx.compose.ui.text.SpanStyle(color = DevxColors.TextPrimary, background = DevxColors.TextPrimary.copy(alpha = 0.16f), fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)) {
+                    append(line.substring(hit.matchStart, hit.matchEnd))
+                }
+                append(line.substring(hit.matchEnd))
+            }
+            Text(marked, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 40.dp))
+            if (hit.count > 1) {
+                Text(stringResource(R.string.search_more, hit.count), style = DevxType.Caption, color = DevxColors.TextDisabled, modifier = Modifier.padding(start = 40.dp))
+            }
+        }
     }
 }
