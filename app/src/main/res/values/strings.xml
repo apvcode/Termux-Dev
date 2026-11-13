@@ -250,6 +250,8 @@
     <string name="theme_light">Light</string>
     <string name="settings_theme_title">Appearance</string>
     <string name="settings_language_title">Language</string>
+    <string name="menu_context_counted">Context %1$s tokens</string>
+    <string name="menu_usage">Sent %1$s, received %2$s in this chat</string>
     <string name="menu_context">Context ≈ %1$s tokens</string>
     <string name="menu_lock">Lock chat</string>
     <string name="menu_unlock">Unlock chat</string>

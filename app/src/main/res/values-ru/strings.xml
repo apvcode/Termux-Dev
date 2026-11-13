@@ -242,6 +242,8 @@
     <string name="theme_light">Светлая</string>
     <string name="settings_theme_title">Оформление</string>
     <string name="settings_language_title">Язык</string>
+    <string name="menu_context_counted">Контекст %1$s токенов</string>
+    <string name="menu_usage">Отправлено %1$s, получено %2$s в этом чате</string>
     <string name="menu_context">Контекст ≈ %1$s токенов</string>
     <string name="menu_lock">Заблокировать чат</string>
     <string name="menu_unlock">Разблокировать чат</string>

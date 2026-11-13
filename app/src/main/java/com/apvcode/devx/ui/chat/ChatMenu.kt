@@ -151,7 +151,22 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = if (chat.messages.isEmpty()) 6.dp else 0.dp),
                         )
-                        if (chat.messages.isNotEmpty() && estimate != null) {
+                        // What the provider counted, when it said; otherwise the rough estimate.
+                        val counted = chat.activePath().lastOrNull { it.contextTokens > 0 }
+                        if (counted != null) {
+                            Text(
+                                stringResource(R.string.menu_context_counted, tokenLabel(counted.contextTokens)),
+                                style = DevxType.Caption,
+                                color = DevxColors.TextDisabled,
+                                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 2.dp),
+                            )
+                            Text(
+                                stringResource(R.string.menu_usage, tokenLabel(chat.activePath().sumOf { it.tokensIn }), tokenLabel(chat.activePath().sumOf { it.tokensOut })),
+                                style = DevxType.Caption,
+                                color = DevxColors.TextDisabled,
+                                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 0.dp, bottom = 6.dp),
+                            )
+                        } else if (chat.messages.isNotEmpty() && estimate != null) {
                             Text(
                                 stringResource(R.string.menu_context, tokenLabel(estimate!!)),
                                 style = DevxType.Caption,

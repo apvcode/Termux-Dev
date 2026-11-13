@@ -29,4 +29,14 @@ class ChatModelTest {
         assertEquals(ErrorKind.Interrupted, back.error)
         assertEquals("half", back.text)
     }
+
+    @Test
+    fun tokenCountsSurviveSaving() {
+        val chat = Chat("a", "A", null, 1)
+        chat.messages += Msg("m", null, Role.Assistant, "done", 1).also { it.tokensIn = 3000; it.tokensOut = 120; it.contextTokens = 1620 }
+        val back = chatFromJson(chat.toJson()).messages.single()
+        assertEquals(3000, back.tokensIn)
+        assertEquals(120, back.tokensOut)
+        assertEquals(1620, back.contextTokens)
+    }
 }

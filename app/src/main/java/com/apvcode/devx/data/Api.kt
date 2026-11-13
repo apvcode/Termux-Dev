@@ -47,6 +47,12 @@ sealed interface Piece {
      * request must carry these blocks back unchanged, or the API refuses it.
      */
     data class ThinkingBlock(val text: String, val signature: String, val redacted: String? = null) : Piece
+
+    /**
+     * What the provider says this request used: [input] is everything it read (the whole conversation, the tools and
+     * the system prompt), [output] what it wrote. It may come more than once; the last one is the count.
+     */
+    data class Usage(val input: Int, val output: Int) : Piece
 }
 
 class WireImage(val mime: String, val base64: String)
@@ -160,8 +166,13 @@ class Api {
         tools: List<WireTool> = emptyList(),
     ): Flow<Piece> = flow {
         val json = "application/json".toMediaType()
+        val body = buildBody(provider.kind, model, system, history, extra, tools)
+        // Some servers send the count only when asked; those that do not know the option are not asked.
+        if (provider.kind == ProviderKind.OpenAI && asksForUsage(provider.baseUrl) && !body.has("stream_options")) {
+            body.put("stream_options", JSONObject().put("include_usage", true))
+        }
         val request = request(provider, key, chatUrl(provider))
-            .post(buildBody(provider.kind, model, system, history, extra, tools).toString().toRequestBody(json))
+            .post(body.toString().toRequestBody(json))
             .build()
         val call = client.newCall(request)
         @OptIn(kotlinx.coroutines.InternalCoroutinesApi::class)
@@ -205,6 +216,11 @@ class Api {
     /** The whole answer at once; used for short things such as naming a chat. */
     suspend fun complete(provider: Provider, key: String, model: String, system: String, history: List<WireMessage>, extra: JSONObject? = null): String =
         stream(provider, key, model, system, history, extra).toList().filterIsInstance<Piece.Text>().joinToString("") { it.text }
+
+    private fun asksForUsage(baseUrl: String): Boolean {
+        val host = baseUrl.lowercase()
+        return "api.openai.com" in host || "openrouter.ai" in host
+    }
 
     // ---------- requests ----------
 
@@ -385,6 +401,8 @@ class Api {
     private class PendingThinking(val text: StringBuilder = StringBuilder(), var signature: String = "", var redacted: String? = null)
 
     private class StreamState {
+        var usageIn = 0
+        var usageOut = 0
         val calls = java.util.TreeMap<Int, PendingCall>()
         val thinking = HashMap<Int, PendingThinking>()
     }
@@ -403,9 +421,13 @@ class Api {
         }
         return when (kind) {
             ProviderKind.OpenAI -> {
-                val choice = o.optJSONArray("choices")?.optJSONObject(0) ?: return emptyList()
-                val delta = choice.optJSONObject("delta") ?: return emptyList()
+                // The count comes in the last chunk (which may have no choices at all), or in the one with the last words.
+                val usage = o.optJSONObject("usage")?.takeIf { it.has("prompt_tokens") && !it.isNull("prompt_tokens") }
+                    ?.let { Piece.Usage(it.optInt("prompt_tokens"), it.optInt("completion_tokens")) }
+                val choice = o.optJSONArray("choices")?.optJSONObject(0) ?: return listOfNotNull(usage)
+                val delta = choice.optJSONObject("delta") ?: return listOfNotNull(usage)
                 val out = ArrayList<Piece>()
+                if (usage != null) out += usage
                 // Providers send the model's thinking in different fields.
                 for (field in listOf("reasoning_content", "reasoning", "thinking")) {
                     if (delta.has(field) && !delta.isNull(field)) {
@@ -435,6 +457,18 @@ class Api {
             ProviderKind.Anthropic -> {
                 val index = o.optInt("index", -1)
                 when (o.optString("type")) {
+                    "message_start" -> {
+                        // Input is counted whole: what was read afresh, what came from the cache and what was written to it.
+                        val u = o.optJSONObject("message")?.optJSONObject("usage") ?: return emptyList()
+                        state.usageIn = u.optInt("input_tokens") + u.optInt("cache_read_input_tokens") + u.optInt("cache_creation_input_tokens")
+                        state.usageOut = u.optInt("output_tokens")
+                        listOf(Piece.Usage(state.usageIn, state.usageOut))
+                    }
+                    "message_delta" -> {
+                        val u = o.optJSONObject("usage") ?: return emptyList()
+                        if (u.has("output_tokens")) state.usageOut = u.optInt("output_tokens")
+                        listOf(Piece.Usage(state.usageIn, state.usageOut))
+                    }
                     "content_block_start" -> {
                         val block = o.optJSONObject("content_block") ?: return emptyList()
                         when (block.optString("type")) {

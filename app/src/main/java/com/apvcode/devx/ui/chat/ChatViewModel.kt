@@ -796,6 +796,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     val reasoning = StringBuilder()
                 }
                 suspend fun runRound(round: Round, sent: List<WireMessage>, extra: org.json.JSONObject?, offered: List<WireTool>): Round {
+                    var usedIn = 0
+                    var usedOut = 0
                     api.stream(wire, key, ref.model, system, sent, extra, offered).collect { piece ->
                         if (assistant.reconnect != 0) assistant.reconnect = 0
                         if (assistant.activity != null && piece !is Piece.ToolCall) assistant.activity = null
@@ -828,12 +830,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             }
                             is Piece.ToolCall -> { round.calls += piece; lastKind = 3 }
                             is Piece.ThinkingBlock -> round.thinking += piece
+                            is Piece.Usage -> { usedIn = piece.input; usedOut = piece.output }
                         }
                         // Keep what is written so far on disk, so a killed app loses almost nothing.
                         if (now() - savedAt > 2000) {
                             savedAt = now()
                             save(chat)
                         }
+                    }
+                    // What the provider counted for this request is added to the answer (a tool round makes several).
+                    if (usedIn > 0 || usedOut > 0) {
+                        assistant.tokensIn += usedIn
+                        assistant.tokensOut += usedOut
+                        assistant.contextTokens = usedIn + usedOut
                     }
                     return round
                 }

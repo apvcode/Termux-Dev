@@ -2,6 +2,7 @@ package com.apvcode.devx.data
 
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -92,6 +93,14 @@ class Msg(
     var thoughtSeconds by mutableStateOf(thoughtSeconds)
     var error by mutableStateOf(error)
     var errorDetail by mutableStateOf(errorDetail)
+
+    /**
+     * What the provider counted for this answer (0 when it does not say): [tokensIn] is all it read over the requests
+     * made for it, [tokensOut] all it wrote, [contextTokens] the size of the conversation after the last request.
+     */
+    var tokensIn by mutableIntStateOf(0)
+    var tokensOut by mutableIntStateOf(0)
+    var contextTokens by mutableIntStateOf(0)
 
     /** The tool the assistant is using this moment (null when it is not using one). Not saved. */
     var activity by mutableStateOf<ToolActivity?>(null)
@@ -195,7 +204,7 @@ fun Chat.toJson(): JSONObject = JSONObject()
                         .put("text", m.text).put("createdAt", m.createdAt)
                         .put("error", m.error?.name).put("errorDetail", m.errorDetail)
                         .put("reasoning", m.reasoning).put("thoughtSeconds", m.thoughtSeconds).put("inflight", m.inflight)
-                        .put("stopped", m.stopped)
+                        .put("stopped", m.stopped).put("tokensIn", m.tokensIn).put("tokensOut", m.tokensOut).put("contextTokens", m.contextTokens)
                         .put("steps", JSONArray().also { a -> m.steps.forEach { st -> a.put(JSONObject().put("kind", st.kind.name).put("detail", st.detail).put("note", st.note).put("at", st.at)) } })
                         .put("sources", JSONArray().also { a -> m.sources.forEach { sr -> a.put(JSONObject().put("url", sr.url).put("title", sr.title).put("opened", sr.opened)) } })
                         .put(
@@ -246,6 +255,9 @@ fun chatFromJson(o: JSONObject): Chat {
             thoughtSeconds = m.optInt("thoughtSeconds"),
         ).also { msg ->
             msg.stopped = m.optBoolean("stopped")
+            msg.tokensIn = m.optInt("tokensIn")
+            msg.tokensOut = m.optInt("tokensOut")
+            msg.contextTokens = m.optInt("contextTokens")
             m.optJSONArray("steps")?.let { a ->
                 for (k in 0 until a.length()) {
                     val so = a.optJSONObject(k) ?: continue
