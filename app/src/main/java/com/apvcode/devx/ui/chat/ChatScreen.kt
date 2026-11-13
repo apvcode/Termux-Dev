@@ -10,6 +10,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.foundation.layout.offset
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideInVertically
@@ -958,6 +959,7 @@ private fun Composer(
         onSend()
     }
     var focused by remember { mutableStateOf(false) }
+    var lines by remember { mutableIntStateOf(1) }
     val edge by animateFloatAsState(if (focused) 1f else 0f, tween(220), label = "focus")
     // Asked from the tile or the widget: the field takes the focus and the keyboard comes up.
     val fieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -1042,12 +1044,24 @@ private fun Composer(
                 if (listening) {
                     VoiceBar(voice, onDone = onVoiceDone, onCancel = onVoiceCancel, onLanguage = onVoiceLanguage)
                 } else {
-                Row(Modifier.padding(start = 16.dp, end = 3.dp), verticalAlignment = Alignment.Bottom) {
+                // The microphone and the send button share the corner: with nothing written the microphone is the one white button;
+                // with a message it steps aside, to the left of the arrow, and for a long message it rises above the arrow.
+                val showSend = canSend || generating
+                val stacked = showSend && !generating && lines >= 3
+                val endPad by androidx.compose.animation.core.animateDpAsState(
+                    if (showSend && !stacked) 90.dp else 48.dp, spring(dampingRatio = 0.85f, stiffness = 420f), label = "field-end",
+                )
+                val micX by androidx.compose.animation.core.animateDpAsState(if (showSend && !stacked) (-42).dp else 0.dp, spring(dampingRatio = 0.8f, stiffness = 460f), label = "mic-x")
+                val micY by androidx.compose.animation.core.animateDpAsState(if (stacked) (-42).dp else 0.dp, spring(dampingRatio = 0.8f, stiffness = 460f), label = "mic-y")
+                val micQuiet by animateFloatAsState(if (showSend) 1f else 0f, tween(220), label = "mic-quiet")
+                Box(Modifier.fillMaxWidth().heightIn(min = if (stacked) 90.dp else 42.dp)) {
                     // The text sits exactly in the middle of a one-line pill and grows upwards.
                     Box(
                         Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = endPad)
                             .heightIn(min = 42.dp)
+                            .align(Alignment.BottomStart)
                             .onGloballyPositioned { origin.field = it.boundsInWindow() },
                         contentAlignment = Alignment.CenterStart,
                     ) {
@@ -1057,6 +1071,7 @@ private fun Composer(
                             textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
                             cursorBrush = SolidColor(DevxColors.Accent),
                             maxLines = 6,
+                            onTextLayout = { lines = it.lineCount },
                             modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).focusRequester(fieldFocus).onFocusChanged { focused = it.isFocused },
                             decorationBox = { inner ->
                                 Box(contentAlignment = Alignment.CenterStart) {
@@ -1068,12 +1083,35 @@ private fun Composer(
                             },
                         )
                     }
-                    // Speak instead of typing: the system's speech recognition opens, and what it hears goes into the field.
-                    Box(Modifier.size(42.dp).pressable(onClick = onMic), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.Mic, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp))
+                    // Send (or stop) in the corner; while there is nothing to send, the microphone takes its place.
+                    Box(Modifier.align(Alignment.BottomEnd).padding(end = 3.dp).size(42.dp), contentAlignment = Alignment.Center) {
+                        androidx.compose.animation.AnimatedContent(
+                            targetState = showSend,
+                            transitionSpec = { (fadeIn(tween(180)) + scaleIn(spring(dampingRatio = 0.6f, stiffness = 420f), initialScale = 0.5f)) togetherWith (fadeOut(tween(120)) + androidx.compose.animation.scaleOut(tween(140), targetScale = 0.5f)) },
+                            label = "send-or-mic",
+                        ) { send ->
+                            if (send) {
+                                SendButton(canSend = canSend, generating = generating, onSend = sendWithFeel, onStop = onStop)
+                            } else {
+                                Box(
+                                    Modifier.size(36.dp).pressable(onClick = onMic).clip(CircleShape).background(DevxColors.Accent),
+                                    contentAlignment = Alignment.Center,
+                                ) { Icon(Icons.Outlined.Mic, stringResource(R.string.voice_prompt), tint = DevxColors.OnAccent, modifier = Modifier.size(20.dp)) }
+                            }
+                        }
                     }
-                    Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
-                        SendButton(canSend = canSend, generating = generating, onSend = sendWithFeel, onStop = onStop)
+                    // The microphone next to the arrow, for adding more by voice.
+                    if (micQuiet > 0.01f && !generating) {
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 3.dp)
+                                .offset(x = micX, y = micY)
+                                .size(42.dp)
+                                .graphicsLayer { alpha = micQuiet }
+                                .pressable(onClick = onMic),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Outlined.Mic, stringResource(R.string.voice_prompt), tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp)) }
                     }
                 }
                 }

@@ -21,6 +21,14 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,66 +82,34 @@ import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
 
-/** A thing that comes in a moment after the one before it: it grows from small with a little spring and fades in. */
-@Composable
-private fun Stagger(delayMs: Int, modifier: Modifier = Modifier, from: Float = 0.6f, content: @Composable () -> Unit) {
-    val progress = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        delay(delayMs.toLong())
-        progress.animateTo(1f, spring(dampingRatio = 0.62f, stiffness = 360f))
-    }
-    Box(
-        modifier.graphicsLayer {
-            val k = from + (1f - from) * progress.value
-            scaleX = k; scaleY = k
-            alpha = progress.value.coerceIn(0f, 1f)
-        },
-    ) { content() }
-}
-
 /**
- * Listening, in the pill of the composer, all in one card: the language and the clock on top, the words as they come in the
- * middle (each one rises into place), and below them a cross, the bars of the voice on both sides of the microphone, and a
- * tick. It all comes in one after another when the listening starts.
+ * Listening, in the pill of the composer. The card has one fixed height whatever is said, so that nothing around it moves:
+ * the language and the time on top, the words in the middle (one piece of text; older lines melt away at the top, the end
+ * stays in view), and below them a quiet cross, a thin line of the voice, and a white tick.
  */
 @Composable
 internal fun VoiceBar(voice: VoiceInput, onDone: () -> Unit, onCancel: () -> Unit, onLanguage: (String) -> Unit, modifier: Modifier = Modifier) {
     val failed = voice.state == VoiceInput.State.Failed
     Column(
-        modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Stagger(0, Modifier.fillMaxWidth(), from = 0.96f) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                LanguageChip(VoiceInput.currentTag(), voice.detected, onLanguage)
-                Box(Modifier.weight(1f))
-                VoiceStatus(voice)
-            }
-        }
-        AnimatedVisibility(visible = voice.error != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            Text(
-                voice.error?.let { stringResource(it) }.orEmpty(),
-                style = DevxType.Caption, color = DevxColors.Danger, textAlign = TextAlign.Center,
-            )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            LanguageChip(VoiceInput.currentTag(), voice.detected, onLanguage)
+            Box(Modifier.weight(1f))
+            VoiceStatus(voice)
         }
         VoiceWords(voice)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Stagger(110) {
-                Box(
-                    Modifier.size(44.dp).pressable(onClick = onCancel).clip(CircleShape).background(DevxColors.Outline),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Outlined.Close, stringResource(R.string.voice_cancel), tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp)) }
-            }
-            Stagger(170, Modifier.weight(1f), from = 0.2f) { VoiceWave(voice, listening = !failed, towardsLeft = true, modifier = Modifier.fillMaxWidth().height(40.dp)) }
-            VoiceOrb(voice, failed)
-            Stagger(170, Modifier.weight(1f), from = 0.2f) { VoiceWave(voice, listening = !failed, towardsLeft = false, modifier = Modifier.fillMaxWidth().height(40.dp)) }
-            Stagger(230) {
-                Box(
-                    Modifier.size(44.dp).pressable(onClick = onDone).clip(CircleShape).background(DevxColors.Accent),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Outlined.Check, stringResource(R.string.voice_done), tint = DevxColors.OnAccent, modifier = Modifier.size(22.dp)) }
-            }
+        Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(
+                Modifier.size(40.dp).pressable(onClick = onCancel).clip(CircleShape).border(1.dp, DevxColors.TextPrimary.copy(alpha = 0.18f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Outlined.Close, stringResource(R.string.voice_cancel), tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp)) }
+            VoiceLine(voice, listening = !failed, modifier = Modifier.weight(1f).fillMaxHeight())
+            Box(
+                Modifier.size(40.dp).pressable(onClick = onDone).clip(CircleShape).background(DevxColors.Accent),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Outlined.Check, stringResource(R.string.voice_done), tint = DevxColors.OnAccent, modifier = Modifier.size(21.dp)) }
         }
     }
 }
@@ -165,114 +141,97 @@ private fun VoiceStatus(voice: VoiceInput) {
 }
 
 /**
- * The words, centred and even. Each new word rises a little and fades in; the words the recogniser is still unsure of are
- * paler until it settles on them. With a lot said, the top fades out and the end stays in view.
+ * The words. The box is always the same height (about four lines), the text is one piece and sits on the bottom edge: when a
+ * new line begins the old ones glide up by one line instead of the whole card growing. What the recogniser is still unsure of is
+ * paler until it settles. A message of any length stays calm.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VoiceWords(voice: VoiceInput) {
-    val settled = remember(voice.confirmed) { voice.confirmed.split(Regex("\\s+")).filter { it.isNotEmpty() } }
-    val loose = voice.pending.split(Regex("\\s+")).filter { it.isNotEmpty() }
-    val all = settled + loose
-    // Only the last words are kept as separate pieces; the number counted off keeps the rest of them in their places.
-    val dropped = (all.size - MAX_WORDS).coerceAtLeast(0)
-    val shown = all.drop(dropped)
-    val scroll = rememberScrollState()
-    LaunchedEffect(all.size, voice.pending) { scroll.animateScrollTo(scroll.maxValue) }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 72.dp, max = 168.dp)
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                // The top edge fades out, so that older lines melt away instead of being cut.
-                drawRect(
-                    Brush.verticalGradient(0f to Color.Transparent, 0.18f to Color.Black, 1f to Color.Black),
-                    blendMode = BlendMode.DstIn,
-                )
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (all.isEmpty()) {
-            val pulse by rememberInfiniteTransition(label = "voice-wait").animateFloat(
-                0.45f, 1f, infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "wait",
-            )
-            Text(
-                stringResource(R.string.voice_say), style = DevxType.Reply, color = DevxColors.TextSecondary,
-                modifier = Modifier.graphicsLayer { alpha = pulse },
-            )
-        } else {
-            FlowRow(
-                Modifier.fillMaxWidth().verticalScroll(scroll).padding(vertical = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                shown.forEachIndexed { i, word ->
-                    androidx.compose.runtime.key(dropped + i) { VoiceWord(word, pale = dropped + i >= settled.size) }
-                }
+    val settledColor = DevxColors.TextPrimary
+    val looseColor = DevxColors.TextPrimary.copy(alpha = 0.5f)
+    val text = remember(voice.confirmed, voice.pending, settledColor, looseColor) {
+        buildAnnotatedString {
+            val head = voice.confirmed.trim()
+            val tail = voice.pending.trim()
+            withStyle(SpanStyle(color = settledColor)) { append(head) }
+            if (tail.isNotEmpty()) {
+                if (head.isNotEmpty()) append(' ')
+                withStyle(SpanStyle(color = looseColor)) { append(tail) }
             }
         }
     }
-}
-
-private const val MAX_WORDS = 90
-
-@Composable
-private fun VoiceWord(word: String, pale: Boolean) {
-    val rise = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { rise.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 420f)) }
-    val shade by animateFloatAsState(if (pale) 0.55f else 1f, tween(260), label = "word-shade")
-    Text(
-        word, style = DevxType.Reply, color = DevxColors.TextPrimary,
-        modifier = Modifier.graphicsLayer {
-            alpha = (rise.value * shade).coerceIn(0f, 1f)
-            translationY = (1f - rise.value) * 10.dp.toPx()
-        },
-    )
-}
-
-/**
- * The microphone: a white disc that breathes while it waits and swells a little with the voice, with a soft halo behind it
- * that follows how loud it is (it grows and shrinks in place; nothing spreads out from it).
- */
-@Composable
-private fun VoiceOrb(voice: VoiceInput, failed: Boolean) {
-    val breath by rememberInfiniteTransition(label = "voice-breath").animateFloat(
-        0f, 1f, infiniteRepeatable(tween(1700, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "breath",
-    )
-    val enter = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        delay(60)
-        enter.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 340f))
-    }
-    val halo = DevxColors.Accent
-    Box(Modifier.size(68.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.matchParentSizeCompat()) {
-            @Suppress("UNUSED_VARIABLE") val moved = voice.tick
-            val level = if (failed) 0f else voice.levels.last()
-            val radius = size.minDimension / 2f * (0.70f + 0.30f * level) * enter.value.coerceIn(0f, 1.2f)
-            drawCircle(halo.copy(alpha = 0.08f + 0.22f * level), radius = radius)
+    // When the text gets taller by a line the lines are kept where they were for a moment and glide up.
+    val glide = remember { Animatable(0f) }
+    var height by remember { mutableIntStateOf(0) }
+    var grew by remember { mutableIntStateOf(0) }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(112.dp)
+            .clip(androidx.compose.ui.graphics.RectangleShape)
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    Brush.verticalGradient(0f to Color.Transparent, 0.22f to Color.Black, 1f to Color.Black),
+                    blendMode = BlendMode.DstIn,
+                )
+            },
+        contentAlignment = Alignment.BottomStart,
+    ) {
+        if (text.isEmpty()) {
+            val pulse by rememberInfiniteTransition(label = "voice-wait").animateFloat(
+                0.4f, 1f, infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "wait",
+            )
+            Text(
+                stringResource(R.string.voice_say), style = DevxType.Reply, color = DevxColors.TextSecondary,
+                modifier = Modifier.padding(bottom = 4.dp).graphicsLayer { alpha = pulse },
+            )
+        } else {
+            Text(
+                text, style = DevxType.Reply,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(Alignment.Bottom, unbounded = true)
+                    .onSizeChanged { size ->
+                        grew = (size.height - height).coerceAtLeast(0)
+                        height = size.height
+                    }
+                    .graphicsLayer { translationY = glide.value },
+            )
         }
-        Box(
-            Modifier
-                .size(48.dp)
-                .graphicsLayer {
-                    @Suppress("UNUSED_VARIABLE") val moved = voice.tick
-                    val level = if (failed) 0f else voice.levels.last()
-                    val k = enter.value * (1f + 0.035f * breath + 0.10f * level)
-                    scaleX = k; scaleY = k
-                }
-                .clip(CircleShape)
-                .background(if (failed) DevxColors.Outline else DevxColors.Accent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Outlined.Mic, null, tint = if (failed) DevxColors.TextDisabled else DevxColors.OnAccent, modifier = Modifier.size(24.dp))
+    }
+    LaunchedEffect(height) {
+        if (grew > 0 && height > grew) {
+            glide.snapTo(grew.toFloat())
+            glide.animateTo(0f, tween(200, easing = FastOutSlowInEasing))
         }
     }
 }
 
-private fun Modifier.matchParentSizeCompat(): Modifier = this.fillMaxWidth().height(68.dp)
+/** A single thin line of the voice, from the left to the right: the newest bar at the right edge, older ones to the left and paler. */
+@Composable
+private fun VoiceLine(voice: VoiceInput, listening: Boolean, modifier: Modifier = Modifier) {
+    val color = DevxColors.TextPrimary
+    Canvas(modifier) {
+        @Suppress("UNUSED_VARIABLE") val moved = voice.tick
+        val bar = 2.5.dp.toPx()
+        val gap = 3.dp.toPx()
+        val count = ((size.width + gap) / (bar + gap)).toInt().coerceIn(3, voice.levels.size)
+        for (i in 0 until count) {
+            val level = if (listening) voice.levels[voice.levels.size - count + i] else 0f
+            val h = (bar + level * (size.height - bar)).coerceAtMost(size.height)
+            val fade = (i + 1f) / count
+            val x = size.width - (count - i) * (bar + gap) + gap
+            drawRoundRect(
+                color.copy(alpha = 0.12f + 0.78f * fade * fade),
+                topLeft = Offset(x, (size.height - h) / 2f),
+                size = Size(bar, h),
+                cornerRadius = CornerRadius(bar / 2f),
+            )
+        }
+    }
+}
 
 /** The language that is listened for, as "RU ⌄"; a tap offers the others. */
 @Composable
@@ -308,30 +267,3 @@ private fun LanguageChip(tag: String, detected: String, onPick: (String) -> Unit
     }
 }
 
-/**
- * Bars that follow the voice, on one side of the microphone. The two sides are the same, so the whole is symmetric: the
- * newest bar is next to the microphone, older ones move outward and fade. A flat row of dots when nothing is heard.
- */
-@Composable
-private fun VoiceWave(voice: VoiceInput, listening: Boolean, towardsLeft: Boolean, modifier: Modifier = Modifier) {
-    val color = DevxColors.TextPrimary
-    Canvas(modifier) {
-        @Suppress("UNUSED_VARIABLE") val moved = voice.tick
-        val bar = 3.dp.toPx()
-        val gap = 3.5.dp.toPx()
-        val count = ((size.width + gap) / (bar + gap)).toInt().coerceIn(3, voice.levels.size)
-        for (i in 0 until count) {
-            // i = 0 is the bar next to the microphone.
-            val level = if (listening) voice.levels[voice.levels.size - 1 - i] else 0f
-            val h = (bar + level * (size.height - bar)).coerceAtMost(size.height)
-            val alpha = 0.95f - 0.8f * i / count
-            val x = if (towardsLeft) size.width - (i + 1) * bar - i * gap else i * (bar + gap)
-            drawRoundRect(
-                color.copy(alpha = alpha),
-                topLeft = Offset(x, (size.height - h) / 2f),
-                size = Size(bar, h),
-                cornerRadius = CornerRadius(bar / 2f),
-            )
-        }
-    }
-}
