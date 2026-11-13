@@ -225,6 +225,8 @@ fun RemoteControls(session: RemoteSession, conn: RemoteConnection, onDismiss: ()
                     }
                 }
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                    // A chat that runs in the terminal is steered there: what is shown here is read-only.
+                    if (s.terminal) Text(stringResource(R.string.remote_terminal_note), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(horizontal = 6.dp))
                     Stagger(0) {
                         Section(stringResource(R.string.remote_mode)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -140,6 +140,8 @@ fun SettingsRow(
     value: String? = null,
     showChevron: Boolean = false,
     titleColor: Color = DevxColors.TextPrimary,
+    /** A long title is folded to this many lines (the rest shows when it is opened). */
+    titleMaxLines: Int = Int.MAX_VALUE,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
@@ -156,7 +158,7 @@ fun SettingsRow(
             Icon(icon, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(24.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = DevxType.Body, color = titleColor)
+            Text(title, style = DevxType.Body, color = titleColor, maxLines = titleMaxLines, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             if (subtitle != null) {
                 Text(subtitle, style = DevxType.Caption, color = DevxColors.TextSecondary)
             }

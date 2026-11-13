@@ -395,7 +395,7 @@ private fun ChatTopBar(session: RemoteSession, link: LinkState, onBack: () -> Un
             if (state == null && session.draft && !draftWhere.isNullOrEmpty()) Text(draftWhere, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (state != null) {
                 val where = state.cwd.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')
-                Text(listOfNotNull(where.takeIf { it.isNotEmpty() }, state.model.takeIf { it.isNotEmpty() }, if (state.plan) stringResource(R.string.remote_mode_plan) else null).joinToString(" · "), style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOfNotNull(where.takeIf { it.isNotEmpty() }, state.model.takeIf { it.isNotEmpty() }, if (state.plan) stringResource(R.string.remote_mode_plan) else null, if (state.terminal) stringResource(R.string.remote_in_terminal).lowercase() else null).joinToString(" · "), style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         if (state != null && state.ctxLimit > 0) ContextRing(state.ctxUsed, state.ctxLimit, onClick = onControls)

@@ -53,7 +53,9 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -84,6 +86,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -161,6 +164,8 @@ fun ChatScreen(
     var highlightId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
+    // Words that another app shared arrive in the field of the new chat.
+    LaunchedEffect(vm.sharedDraft) { vm.sharedDraft?.let { draft = it; vm.sharedDraft = null } }
     var pickerOpen by remember { mutableStateOf(false) }
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val path = vm.path
@@ -172,6 +177,32 @@ fun ChatScreen(
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { vm.attachMedia(it) }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.attachFiles(it) }
 
+    // What the speech recognition heard is added to the field.
+    val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val heard = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
+        if (!heard.isNullOrBlank()) draft = if (draft.isBlank()) heard else draft.trimEnd() + " " + heard
+    }
+    // A picture in the phone's clipboard (copied from the gallery, a browser, a screenshot tool) is offered for pasting.
+    val clipboardManager = remember { context.getSystemService(android.content.ClipboardManager::class.java) }
+    var clipImageAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var clipDismissedAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    fun checkClipboard() {
+        val d = runCatching { clipboardManager?.primaryClipDescription }.getOrNull()
+        clipImageAt = if (d != null && d.hasMimeType("image/*")) d.timestamp else 0L
+    }
+    androidx.compose.runtime.DisposableEffect(clipboardManager) {
+        val listener = android.content.ClipboardManager.OnPrimaryClipChangedListener { checkClipboard() }
+        checkClipboard()
+        clipboardManager?.addPrimaryClipChangedListener(listener)
+        onDispose { clipboardManager?.removePrimaryClipChangedListener(listener) }
+    }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { checkClipboard(); onPauseOrDispose { } }
+    val pasteImages = {
+        val clip = runCatching { clipboardManager?.primaryClip }.getOrNull()
+        val uris = buildList { if (clip != null) for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { add(it) } }
+        if (uris.isNotEmpty()) vm.attachMedia(uris) else android.widget.Toast.makeText(context, R.string.paste_image_failed, android.widget.Toast.LENGTH_SHORT).show()
+        clipDismissedAt = clipImageAt
+    }
     var attachOpen by remember { mutableStateOf(false) }
     var cameraOpen by remember { mutableStateOf(false) }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
@@ -213,7 +244,7 @@ fun ChatScreen(
             val chat = vm.current
             if (chat != null) {
                 if (chat.locked) vm.setLocked(chat.id, false)
-                else if (keyguard?.isDeviceSecure == true) vm.setLocked(chat.id, true)
+                else if (com.apvcode.devx.data.AppLock.locksChats || keyguard?.isDeviceSecure == true) vm.setLocked(chat.id, true)
                 else android.widget.Toast.makeText(context, R.string.lock_need_screen_lock, android.widget.Toast.LENGTH_LONG).show()
             }
         },
@@ -241,14 +272,20 @@ fun ChatScreen(
         )
     }
 
-    // While an answer is being written, stay at its end, unless the reader scrolled away.
+    // While an answer is being written the screen follows its end, gently and all the time; a finger on the list lets go of it,
+    // and it takes hold again when the reader comes back to the bottom (also after a fling that ends there).
     var following by remember { mutableStateOf(true) }
+    var userScrolling by remember { mutableStateOf(false) }
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is DragInteraction.Start -> following = false
-                is DragInteraction.Stop, is DragInteraction.Cancel -> following = !listState.canScrollForward
-                else -> Unit
+            if (interaction is DragInteraction.Start) { following = false; userScrolling = true }
+        }
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { moving ->
+            if (!moving && userScrolling) {
+                userScrolling = false
+                following = distanceToBottom(listState) < 48f
             }
         }
     }
@@ -315,14 +352,17 @@ fun ChatScreen(
             (room + pinOffsetPx - segment.sumOf { it.size } - segment.size * gapPx).coerceAtLeast(0)
         }.collect { if (it != null) spacerPx = it }
     }
-    val tailLength = path.lastOrNull()?.text?.length ?: 0
-    LaunchedEffect(tailLength) {
-        if (following && vm.generating) listState.scrollBy(100_000f)
-    }
-    // The end of the answer adds things below the text (buttons, an error card): keep them in view too.
-    val tailError = path.lastOrNull()?.error
-    LaunchedEffect(tailError, vm.generating) {
-        if (following && path.isNotEmpty()) listState.scrollBy(100_000f)
+    // The follow itself: every frame the list moves a fraction of the way to the bottom, so that growing text, a step appearing
+    // or the sign of work folding away are all taken in one smooth glide instead of jumps. It also finishes the last stretch after the answer.
+    var settleUntil by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    LaunchedEffect(vm.generating) { if (!vm.generating) settleUntil = android.os.SystemClock.uptimeMillis() + 1400 }
+    LaunchedEffect(following, vm.generating, settleUntil) {
+        if (!following) return@LaunchedEffect
+        while (vm.generating || android.os.SystemClock.uptimeMillis() < settleUntil) {
+            androidx.compose.runtime.withFrameNanos { }
+            val d = distanceToBottom(listState)
+            if (d > 0.5f) listState.scrollBy(if (d == Float.MAX_VALUE) 900f else (d * 0.2f).coerceIn(1.5f, 1400f))
+        }
     }
     // Stepping through the matches: bring the message into view and flash it once.
     LaunchedEffect(findQuery, findIndex, matches.size) {
@@ -336,7 +376,8 @@ fun ChatScreen(
             highlightId = null
         }
     }
-    val canScrollDown by remember { androidx.compose.runtime.derivedStateOf { listState.canScrollForward } }
+    // The arrow shows when the end is well out of reach (a little hysteresis, so that it does not flicker while text grows).
+    val showDown by remember { androidx.compose.runtime.derivedStateOf { distanceToBottom(listState) > 260f } }
 
     val haze = rememberHazeState()
     val sendOrigin = remember { SendOrigin() }
@@ -350,6 +391,10 @@ fun ChatScreen(
                 .background(DevxColors.Bg)
                 .imePadding(),
         ) {
+            // A locked chat shows nothing until the screen lock has been passed.
+            val shut = vm.isShut(vm.current)
+            // The chat under the cover is hidden from screen readers too, not only from the eyes.
+            Box(Modifier.fillMaxSize().then(if (shut) Modifier.clearAndSetSemantics { } else Modifier)) {
             // While the answer is awaited the screen glows (until the first words arrive).
             val awaiting = path.lastOrNull()?.let { it.role == Role.Assistant && it.text.isEmpty() && it.error == null } == true
             GenerationGlow(active = (com.apvcode.devx.data.Prefs.thinkingGlow && vm.generating && awaiting) || WelcomeCeremony.glow)
@@ -462,26 +507,23 @@ fun ChatScreen(
             }
             androidx.activity.compose.BackHandler(enabled = findOpen) { findOpen = false; findQuery = "" }
 
-            // A locked chat shows nothing until the screen lock has been passed.
-            val shut = vm.isShut(vm.current)
-            androidx.compose.animation.AnimatedVisibility(visible = shut, enter = fadeIn(tween(160)), exit = fadeOut(tween(260))) {
-                LaunchedEffect(vm.currentId) { unlockNow() }
-                LockedCover(onUnlock = { unlockNow() })
-            }
-
-            if (canScrollDown && path.isNotEmpty()) {
+            AnimatedVisibility(
+                visible = showDown && path.isNotEmpty(),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 8.dp),
+                enter = fadeIn(tween(220)) + scaleIn(spring(dampingRatio = 0.55f, stiffness = 420f), initialScale = 0.35f) + slideInVertically(spring(dampingRatio = 0.7f, stiffness = 380f)) { it },
+                exit = fadeOut(tween(160)) + scaleOut(tween(200, easing = FastOutSlowInEasing), targetScale = 0.4f) + slideOutVertically(tween(220)) { it / 2 },
+            ) {
                 GlassIconButton(
                     icon = Icons.Outlined.ArrowDownward,
                     contentDescription = stringResource(R.string.cd_scroll_down),
                     onClick = {
                         following = true
                         scope.launch {
-                            listState.animateScrollToItem(path.lastIndex)
-                            listState.scrollBy(100_000f)
+                            if (distanceToBottom(listState) == Float.MAX_VALUE) listState.animateScrollToItem(path.lastIndex)
+                            listState.animateScrollBy(distanceToBottom(listState).coerceAtLeast(0f), tween(480, easing = FastOutSlowInEasing))
                         }
                     },
                     size = 38.dp,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 8.dp),
                 )
             }
 
@@ -517,6 +559,22 @@ fun ChatScreen(
                 onOpenAttachment = onOpenPhoto,
                 attachOpen = attachOpen,
                 onToggleAttach = { attachOpen = !attachOpen },
+                clipImage = clipImageAt != 0L && clipImageAt != clipDismissedAt,
+                onPasteImage = pasteImages,
+                onDismissClip = { clipDismissedAt = clipImageAt },
+                onMic = {
+                    keyboard?.hide()
+                    try {
+                        speech.launch(
+                            android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toLanguageTag())
+                                .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, context.getString(R.string.voice_prompt)),
+                        )
+                    } catch (e: android.content.ActivityNotFoundException) {
+                        android.widget.Toast.makeText(context, R.string.voice_missing, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                },
             )
 
             // The attach menu opens right over the "+", the camera rises from the bottom.
@@ -547,6 +605,22 @@ fun ChatScreen(
                 },
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.62f),
             )
+
+            } // the chat under the cover
+            // A locked chat has no keyboard.
+            LaunchedEffect(shut) { if (shut) { keyboard?.hide(); focus.clearFocus() } }
+            // One cover per chat: opening a locked chat has it in place from the first frame, only locking the open chat animates it in.
+            androidx.compose.runtime.key(vm.current?.id) {
+                androidx.compose.animation.AnimatedVisibility(visible = shut, enter = fadeIn(tween(200)) + scaleIn(tween(320, easing = FastOutSlowInEasing), initialScale = 1.05f), exit = fadeOut(tween(420)) + scaleOut(tween(460, easing = FastOutSlowInEasing), targetScale = 1.1f)) {
+                    if (com.apvcode.devx.data.AppLock.locksChats) {
+                        // The app's own code (or the fingerprint): the padlock opens and the chat shows.
+                        com.apvcode.devx.ui.lock.ChatLockCover(onUnlocked = { vm.current?.let { vm.unlock(it.id) } }, onMenu = onOpenDrawer)
+                    } else {
+                        LaunchedEffect(vm.currentId) { unlockNow() }
+                        LockedCover(onUnlock = { unlockNow() })
+                    }
+                }
+            }
         }
     }
 
@@ -562,6 +636,14 @@ fun ChatScreen(
             onOpenProviders()
         })
     }
+}
+
+/** How far the end of the list is below the screen, in pixels (Float.MAX_VALUE when the last item is not even in view). */
+internal fun distanceToBottom(state: androidx.compose.foundation.lazy.LazyListState): Float {
+    val info = state.layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return 0f
+    if (last.index < info.totalItemsCount - 1) return Float.MAX_VALUE
+    return (last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding)).toFloat().coerceAtLeast(0f)
 }
 
 @Composable
@@ -580,12 +662,12 @@ private fun TopBar(vm: ChatViewModel, onOpenDrawer: () -> Unit, onPickModel: () 
             Row(
                 Modifier
                     .height(42.dp)
-                    .widthIn(max = 210.dp)
+                    .widthIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * 0.66f).dp)
                     .pressable(scaleTo = 0.93f, onClick = onPickModel)
                     // The glass is OUTSIDE the size animation: the shape itself grows and shrinks. (The other way
                     // round, a finished pill is cut by a moving edge, and that is a wall.)
                     .glass(CircleShape)
-                    .animateContentSize(tween(380, easing = FastOutSlowInEasing), alignment = Alignment.CenterStart)
+                    .animateContentSize(spring(dampingRatio = 0.86f, stiffness = 260f), alignment = Alignment.CenterStart)
                     .padding(start = 16.dp, end = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -593,8 +675,8 @@ private fun TopBar(vm: ChatViewModel, onOpenDrawer: () -> Unit, onPickModel: () 
                 AnimatedContent(
                     targetState = vm.model?.model ?: noModel,
                     transitionSpec = {
-                        (fadeIn(tween(220, delayMillis = 170)) + slideInVertically(tween(300, delayMillis = 170, easing = FastOutSlowInEasing)) { it / 3 }) togetherWith
-                            (fadeOut(tween(90)) + slideOutVertically(tween(160)) { -it / 3 }) using
+                        (fadeIn(tween(340, delayMillis = 90)) + slideInVertically(tween(420, delayMillis = 60, easing = FastOutSlowInEasing)) { it / 4 }) togetherWith
+                            (fadeOut(tween(240)) + slideOutVertically(tween(300, easing = FastOutSlowInEasing)) { -it / 4 }) using
                             // The size of the words changes at once: the chip itself glides to it.
                             SizeTransform(clip = false) { _, _ -> snap() }
                     },
@@ -609,14 +691,14 @@ private fun TopBar(vm: ChatViewModel, onOpenDrawer: () -> Unit, onPickModel: () 
                 if (level != null) lastLevel = level
                 AnimatedVisibility(
                     visible = level != null,
-                    enter = fadeIn(tween(220, delayMillis = 200)),
-                    exit = fadeOut(tween(90)),
+                    enter = fadeIn(tween(320, delayMillis = 120)) + androidx.compose.animation.expandHorizontally(spring(dampingRatio = 0.86f, stiffness = 260f)),
+                    exit = fadeOut(tween(200)) + androidx.compose.animation.shrinkHorizontally(spring(dampingRatio = 0.9f, stiffness = 300f)),
                 ) {
                     AnimatedContent(
                         targetState = lastLevel,
                         transitionSpec = {
-                            (fadeIn(tween(200, delayMillis = 120)) + slideInVertically(tween(280, delayMillis = 120, easing = FastOutSlowInEasing)) { it / 3 }) togetherWith
-                                (fadeOut(tween(90)) + slideOutVertically(tween(160)) { -it / 3 }) using
+                            (fadeIn(tween(320, delayMillis = 90)) + slideInVertically(tween(400, delayMillis = 60, easing = FastOutSlowInEasing)) { it / 4 }) togetherWith
+                                (fadeOut(tween(220)) + slideOutVertically(tween(280, easing = FastOutSlowInEasing)) { -it / 4 }) using
                                 SizeTransform(clip = false) { _, _ -> snap() }
                         },
                         label = "model-level",
@@ -696,6 +778,10 @@ private fun Composer(
     onOpenAttachment: (Attachment) -> Unit,
     attachOpen: Boolean,
     onToggleAttach: () -> Unit,
+    onMic: () -> Unit,
+    clipImage: Boolean = false,
+    onPasteImage: () -> Unit = {},
+    onDismissClip: () -> Unit = {},
 ) {
     val origin = LocalSendOrigin.current
     val haptic = LocalHapticFeedback.current
@@ -720,6 +806,24 @@ private fun Composer(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // The picture that waits in the clipboard: one tap puts it in the message.
+        AnimatedVisibility(
+            visible = clipImage,
+            enter = fadeIn(tween(200)) + expandVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) + scaleIn(spring(dampingRatio = 0.7f, stiffness = 420f), initialScale = 0.8f),
+            exit = fadeOut(tween(140)) + shrinkVertically(tween(180)),
+        ) {
+            Row(
+                Modifier.padding(bottom = 2.dp).glass(CircleShape).pressable(scaleTo = 0.97f, onClick = onPasteImage).padding(start = 14.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(DevxIcons.Photo, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(20.dp))
+                Text(stringResource(R.string.paste_image), style = DevxType.Body.copy(fontSize = 15.sp), color = DevxColors.TextPrimary, modifier = Modifier.padding(vertical = 9.dp))
+                Box(Modifier.size(36.dp).pressable(onClick = onDismissClip), contentAlignment = Alignment.Center) {
+                    Icon(androidx.compose.material.icons.Icons.Outlined.Close, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // The plus turns into a cross while the menu is open.
             val turn by animateFloatAsState(if (attachOpen) 45f else 0f, spring(dampingRatio = 0.6f, stiffness = 420f), label = "plus")
@@ -782,8 +886,8 @@ private fun Composer(
                         },
                     )
                 }
-                // Voice input is not built yet: the button is a stub.
-                Box(Modifier.size(42.dp).pressable { }, contentAlignment = Alignment.Center) {
+                // Speak instead of typing: the system's speech recognition opens, and what it hears goes into the field.
+                Box(Modifier.size(42.dp).pressable(onClick = onMic), contentAlignment = Alignment.Center) {
                     Icon(Icons.Outlined.Mic, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp))
                 }
                 Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {

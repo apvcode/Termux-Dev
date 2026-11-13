@@ -60,13 +60,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, Skills, SkillEdit, Assistant }
+enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, Skills, SkillEdit, Assistant, AppLock }
 
 private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.AddConnection, Screen.Computer -> Screen.Computers
     Screen.RemoteChat -> Screen.Computer
     Screen.ProviderEdit -> Screen.Providers
-    Screen.Providers, Screen.Notifications, Screen.About, Screen.Memory, Screen.Skills, Screen.Assistant -> Screen.Settings
+    Screen.Providers, Screen.Notifications, Screen.About, Screen.Memory, Screen.Skills, Screen.Assistant, Screen.AppLock -> Screen.Settings
     Screen.MemorySummary, Screen.MemoryNotes -> Screen.Memory
     Screen.ProjectEdit, Screen.ProjectKnowledge, Screen.ProjectSummary -> Screen.Project
     Screen.SkillEdit -> Screen.Skills
@@ -107,12 +107,13 @@ fun DevxApp(vm: ChatViewModel = viewModel(), requestedChat: String? = null, onCh
     val iris = remember { Animatable(0f) }
     var welcomeShown by remember { mutableStateOf(!Prefs.onboarded) }
     val ceremonyScope = rememberCoroutineScope()
+    Box(Modifier.fillMaxSize()) {
     Crossfade(targetState = if (splash) 0 else 1, animationSpec = tween(450), label = "splash") { current ->
         if (current == 0) {
             SplashScreen()
         } else {
             Box(Modifier.fillMaxSize().background(DevxColors.Bg)) {
-                if (Prefs.onboarded) {
+                if (Prefs.onboarded && !com.apvcode.devx.data.AppLock.hideContent) {
                     Box(
                         Modifier.fillMaxSize().graphicsLayer {
                             if (welcomeShown) {
@@ -147,6 +148,9 @@ fun DevxApp(vm: ChatViewModel = viewModel(), requestedChat: String? = null, onCh
             }
         }
     }
+    // The lock of the app covers everything, even the opening animation.
+    com.apvcode.devx.ui.lock.AppLockOverlay(ready = !splash)
+    }
 }
 
 @Composable
@@ -164,10 +168,28 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
     var lastOverlay by remember { mutableStateOf<Overlay?>(null) }
     if (overlay != null) lastOverlay = overlay
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // The list of chats opening takes the keyboard away: from the moment the panel starts to slide out (a swipe or the button).
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    LaunchedEffect(drawerState) {
+        var closedAt: Float? = null
+        androidx.compose.runtime.snapshotFlow { drawerState.currentOffset to (drawerState.targetValue != DrawerValue.Closed) }.collect { (offset, opening) ->
+            if (closedAt == null) closedAt = offset.takeIf { drawerState.currentValue == DrawerValue.Closed }
+            val moved = closedAt?.let { offset > it + 6f } ?: false
+            if (moved || opening) { keyboard?.hide(); focusManager.clearFocus() }
+        }
+    }
     val scope = rememberCoroutineScope()
 
     // A home-screen icon or a notification asked for a chat: open it, or say that it is gone.
     var chatGone by remember { mutableStateOf(false) }
+    // "Share" from another app: a new chat opens with what was shared.
+    LaunchedEffect(com.apvcode.devx.data.PendingShare.item) {
+        val shared = com.apvcode.devx.data.PendingShare.item ?: return@LaunchedEffect
+        com.apvcode.devx.data.PendingShare.item = null
+        vm.startFromShare(shared.text, shared.uris)
+        screen = Screen.Chat; overlay = null; drawerState.close()
+    }
     LaunchedEffect(requestedChat) {
         val id = requestedChat ?: return@LaunchedEffect
         if (vm.chatExists(id)) {
@@ -182,6 +204,7 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
     }
     // Locked chats shut again as soon as the app is left.
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { vm.relockAll() }
+    LaunchedEffect(com.apvcode.devx.data.AppLock.panic) { if (com.apvcode.devx.data.AppLock.panic > 0) vm.relockAll() }
     // A notification of the agent (a permission, an answer) asked for its chat.
     LaunchedEffect(com.apvcode.devx.remote.PendingRemoteChat.target) {
         val t = com.apvcode.devx.remote.PendingRemoteChat.target ?: return@LaunchedEffect
@@ -273,7 +296,7 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         onPickerShown = { pickFolder = false },
                     )
                     Screen.RemoteChat -> RemoteChatScreen(remoteHost.orEmpty(), remoteSession.orEmpty(), draftCwd = remoteDraft, onBack = { screen = Screen.Computer }, onNewChat = { pickFolder = true; screen = Screen.Computer })
-                    Screen.Mcp -> McpScreen(onBack = { screen = Screen.Chat })
+                    Screen.Mcp -> McpScreen(vm, onBack = { screen = Screen.Chat })
                     Screen.Settings -> SettingsScreen(
                         vm,
                         onBack = { screen = Screen.Chat },
@@ -283,7 +306,9 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         onMemory = { screen = Screen.Memory },
                         onSkills = { screen = Screen.Skills },
                         onAssistant = { screen = Screen.Assistant },
+                        onAppLock = { screen = Screen.AppLock },
                     )
+                    Screen.AppLock -> com.apvcode.devx.ui.lock.AppLockScreen(onBack = { screen = Screen.Settings })
                     Screen.Providers -> ProvidersScreen(
                         vm,
                         onBack = { screen = Screen.Settings },

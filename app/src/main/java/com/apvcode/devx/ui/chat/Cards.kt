@@ -5,6 +5,10 @@ import com.apvcode.devx.ui.components.rememberCopied
 import com.apvcode.devx.ui.components.CopyIcon
 import com.apvcode.devx.ui.components.pressable
 import androidx.compose.foundation.background
+import androidx.compose.ui.unit.sp
+import com.apvcode.devx.ui.components.DevxIcons
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -247,4 +251,70 @@ fun ApprovalCard(command: String, modifier: Modifier = Modifier) {
             )
         }
     }
+}
+
+
+/**
+ * Before the assistant uses a server (GitHub, an MCP tool): what it wants to do, and three answers: allow once, allow and
+ * stop asking in this chat, or cancel. The card rises with a spring, the badge lands with a bounce, the parts come in one after another.
+ */
+@Composable
+fun ToolApprovalCard(pending: com.apvcode.devx.data.PendingApproval, modifier: Modifier = Modifier) {
+    val r = pending.request
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    androidx.compose.runtime.LaunchedEffect(Unit) { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) }
+    // The edge breathes slowly: the card asks to be looked at without shouting.
+    val breathe by androidx.compose.animation.core.rememberInfiniteTransition(label = "ask").animateFloat(
+        0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800, easing = androidx.compose.animation.core.FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "breathe",
+    )
+    val tint = if (r.changesData) DevxColors.Warning else DevxColors.TextPrimary
+    val badge = remember { androidx.compose.animation.core.Animatable(0.4f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { badge.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.42f, stiffness = 320f)) }
+    val shape = RoundedCornerShape(26.dp)
+    Column(
+        modifier.fillMaxWidth().clip(shape).background(DevxColors.Card).border(1.dp, tint.copy(alpha = 0.18f + 0.3f * breathe), shape).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(
+                Modifier.size(40.dp).graphicsLayer { scaleX = badge.value; scaleY = badge.value; alpha = badge.value.coerceIn(0f, 1f) }.clip(CircleShape).background(tint.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) { Icon(DevxIcons.ShieldLock, null, tint = tint, modifier = Modifier.size(22.dp)) }
+            Text(stringResource(R.string.mcp_ask_title, r.serverName), style = DevxType.BodyStrong, color = DevxColors.TextPrimary, modifier = Modifier.weight(1f))
+        }
+        AskRise(90) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(DevxColors.CardInner).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(r.title, style = DevxType.Mono, color = DevxColors.TextPrimary, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    if (r.detail.isNotBlank()) Text(r.detail, style = DevxType.Mono.copy(fontSize = 12.sp), color = DevxColors.TextSecondary, maxLines = 5, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
+                if (r.changesData) Text(stringResource(R.string.mcp_ask_changes), style = DevxType.Caption, color = DevxColors.Warning)
+            }
+        }
+        AskRise(190) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PillButton(stringResource(R.string.mcp_ask_deny), onClick = { pending.answer(com.apvcode.devx.data.ApprovalDecision.Deny) }, filled = false, modifier = Modifier.weight(1f))
+                PillButton(stringResource(R.string.mcp_ask_allow), onClick = { pending.answer(com.apvcode.devx.data.ApprovalDecision.Once) }, modifier = Modifier.weight(1f))
+            }
+        }
+        if (r.alwaysKey.isNotEmpty()) AskRise(250) {
+            Text(
+                stringResource(R.string.mcp_ask_always_tool, r.alwaysKey), style = DevxType.Caption, color = DevxColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).pressable(scaleTo = 0.97f) { pending.answer(com.apvcode.devx.data.ApprovalDecision.Always) }.padding(vertical = 11.dp, horizontal = 12.dp),
+            )
+        }
+        AskRise(310) {
+            Text(
+                stringResource(R.string.mcp_ask_always, r.serverName), style = DevxType.Caption, color = DevxColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).pressable(scaleTo = 0.97f) { pending.answer(com.apvcode.devx.data.ApprovalDecision.ThisChat) }.padding(vertical = 11.dp, horizontal = 12.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AskRise(delayMs: Long, content: @Composable () -> Unit) {
+    val a = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { kotlinx.coroutines.delay(delayMs); a.animateTo(1f, androidx.compose.animation.core.tween(360, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    Box(Modifier.graphicsLayer { alpha = a.value; translationY = (1f - a.value) * 14.dp.toPx() }) { content() }
 }

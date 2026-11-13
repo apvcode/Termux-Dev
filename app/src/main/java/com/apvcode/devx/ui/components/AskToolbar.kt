@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
  * text inside: [onAsk] gets the words that were selected.
  *
  * The selected words are not handed out, only copied. So the menu's own Copy is run and the words are taken
- * from the clipboard (where they stay, as after any Copy).
+ * from the clipboard, which is then put back as it was: nothing of what was picked stays in the clipboard.
  */
 @Composable
 fun ProvideAskToolbar(onAsk: (String) -> Unit, content: @Composable () -> Unit) {
@@ -67,6 +67,8 @@ private const val ASK_KEY = "devx-ask"
 private fun grab(context: Context, scope: CoroutineScope, copy: () -> Unit, deliver: (String) -> Unit) {
     val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
     val stamp = clipboard.primaryClipDescription?.timestamp ?: 0L
+    // What the clipboard held before: it is given back afterwards.
+    val before = clipboard.primaryClip
     copy()
     scope.launch {
         var text: String? = null
@@ -76,6 +78,11 @@ private fun grab(context: Context, scope: CoroutineScope, copy: () -> Unit, deli
             val clip = clipboard.primaryClip
             if (now != stamp && clip != null && clip.itemCount > 0) text = clip.getItemAt(0).coerceToText(context)?.toString()
             else delay(40)
+        }
+        // The words have been taken: the clipboard goes back to what it held (or is emptied if it held nothing).
+        runCatching {
+            if (before != null) clipboard.setPrimaryClip(before)
+            else if (android.os.Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
         }
         text?.takeIf { it.isNotBlank() }?.let(deliver)
     }

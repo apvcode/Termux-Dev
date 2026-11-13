@@ -47,12 +47,12 @@ class AttachmentStore(private val context: Context) {
 
     fun readText(a: Attachment): String = fileOf(a).readText()
 
-    /** Words the person picked out of a message, kept as a quote that goes with their next message. */
+    /** Words the person picked out of a message: they join the next message as a text file ("Fragment 1.txt"), as if one had been attached. */
     fun saveText(name: String, text: String): Attachment {
         val id = UUID.randomUUID().toString()
         val out = File(dir, "$id.txt")
         out.writeText(text)
-        return Attachment(id, AttachmentKind.Text, name, QUOTE_MIME, out.name, out.length())
+        return Attachment(id, AttachmentKind.Text, name, "text/plain", out.name, out.length())
     }
 
     /** A photo, turned upright, scaled so its long side is at most [maxEdge], saved as JPEG. */

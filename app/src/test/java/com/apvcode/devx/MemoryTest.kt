@@ -56,10 +56,24 @@ class MemoryTest {
 
     @Test
     fun notesAreCleanedAndDuplicatesRecognised() {
-        assertEquals("Likes tea", MemoryStore.clean("  - Likes\n  tea "))
+        assertEquals("Likes\ntea", MemoryStore.clean("  - Likes\n  tea "))
+        // A long rule keeps its paragraphs, and a long note is no longer cut at 400 characters.
+        assertEquals("One.\n\nTwo.", MemoryStore.clean("One.  \n\n\n  Two."))
+        assertEquals(1199, MemoryStore.clean("word ".repeat(240)).length)
         assertTrue(MemoryStore.same("Likes tea.", "likes  TEA"))
         assertFalse(MemoryStore.same("Likes tea", "Likes coffee"))
-        assertEquals(MemoryStore.MAX_NOTE_CHARS, MemoryStore.clean("x".repeat(1000)).length)
+        assertEquals(MemoryStore.MAX_NOTE_CHARS, MemoryStore.clean("x".repeat(9000)).length)
+    }
+
+    @Test
+    fun theOverviewIsInThePromptToo() {
+        val withOverview = SystemPrompt.forUser("", memory = "- [abc12] Likes tea", summary = "Builds an Android client; prefers short answers.")
+        assertTrue(withOverview.contains("Builds an Android client"))
+        assertTrue(withOverview.contains("Likes tea"))
+        // Without one, nothing about an overview is said.
+        assertFalse(SystemPrompt.forUser("", memory = "- [abc12] Likes tea").contains("Overview (written from"))
+        // It cannot grow without limit.
+        assertTrue(SystemPrompt.forUser("", memory = "x", summary = "y".repeat(9000)).length < SystemPrompt.forUser("", memory = "x").length + 4200)
     }
 
     @Test

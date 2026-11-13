@@ -88,6 +88,7 @@ import com.apvcode.devx.R
 import com.apvcode.devx.data.Attachment
 import com.apvcode.devx.data.AttachmentKind
 import com.apvcode.devx.data.Chat
+import com.apvcode.devx.data.activePath
 import com.apvcode.devx.ui.components.CircleIconButton
 import com.apvcode.devx.ui.components.DevxIcons
 import com.apvcode.devx.ui.components.MenuRow
@@ -145,8 +146,16 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                             color = DevxColors.TextSecondary,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 6.dp),
+                            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = if (chat.messages.isEmpty()) 6.dp else 0.dp),
                         )
+                        if (chat.messages.isNotEmpty()) {
+                            Text(
+                                stringResource(R.string.menu_context, contextTokens(chat)),
+                                style = DevxType.Caption,
+                                color = DevxColors.TextDisabled,
+                                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 6.dp),
+                            )
+                        }
                         MenuRow(DevxIcons.Share, stringResource(R.string.msg_share)) { open = false; actions.onShare() }
                         MenuRow(DevxIcons.Pin, stringResource(if (chat.pinned) R.string.menu_unpin else R.string.menu_pin)) {
                             open = false
@@ -463,4 +472,11 @@ fun ChatGoneOverlay(onClose: () -> Unit, modifier: Modifier = Modifier) {
             PillButton(stringResource(R.string.gone_ok), onClick = onClose, modifier = Modifier.graphicsLayer { alpha = words.value })
         }
     }
+}
+
+/** A rough size of what the model reads from this chat: about four letters to a token, counted over the branch that is shown. */
+internal fun contextTokens(chat: Chat): String {
+    val letters = chat.activePath().sumOf { it.text.length }
+    val tokens = (letters + 3) / 4
+    return if (tokens < 1000) tokens.toString() else String.format(java.util.Locale.US, "%.1fk", tokens / 1000.0)
 }

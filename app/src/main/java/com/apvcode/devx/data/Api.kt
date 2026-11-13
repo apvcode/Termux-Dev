@@ -80,6 +80,8 @@ class Api {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(240, TimeUnit.SECONDS)
+        // A connection that went dead without a word (a train, a lift) is noticed in seconds, not after minutes.
+        .pingInterval(20, TimeUnit.SECONDS)
         .build()
 
     /** The ids of the models the provider offers. */
@@ -511,8 +513,14 @@ class Api {
     private fun mapIo(e: IOException): ApiException = when (e) {
         is InterruptedIOException -> ApiException(ErrorKind.Timeout, null, e.message)
         is UnknownHostException, is ConnectException, is NoRouteToHostException -> ApiException(ErrorKind.NoInternet, null, e.message)
-        is SSLException -> ApiException(ErrorKind.ProviderDown, null, e.message)
-        else -> ApiException(ErrorKind.Unknown, null, e.message)
+        // The line broke in the middle of an answer: that is the network, not the provider.
+        is java.net.SocketException, is java.io.EOFException, is java.net.ProtocolException -> ApiException(ErrorKind.NoInternet, null, e.message)
+        is SSLException -> ApiException(
+            if (Regex("reset|abort|closed|read error|unexpected end|broken pipe|timed out", RegexOption.IGNORE_CASE).containsMatchIn(e.message.orEmpty())) ErrorKind.NoInternet else ErrorKind.ProviderDown,
+            null, e.message,
+        )
+        else -> if (Regex("unexpected end of stream|stream was reset|connection (reset|closed|abort)|ping|timeout", RegexOption.IGNORE_CASE).containsMatchIn(e.message.orEmpty())) ApiException(ErrorKind.NoInternet, null, e.message)
+        else ApiException(ErrorKind.Unknown, null, e.message)
     }
 }
 
@@ -622,4 +630,16 @@ class ThoughtSummaryFilter {
         if (body.isEmpty() || title.endsWith(":") || title.split(' ').size > 8) return null
         return "**$title**\n\n$body\n\n"
     }
+}
+
+
+/**
+ * Some gateways pass the short titles of a model's thinking summaries on as words of the answer, glued to
+ * what comes before and after ("...done.**Reading the file**Now I..."). A piece that is nothing but one bold
+ * title, and arrives glued to the text before it (or right after another title), is such a summary.
+ */
+object TitleChunk {
+    private val TITLE = Regex("^\\*\\*[^*\\n]{2,100}\\*\\*$")
+
+    fun looksLikeSummary(chunk: String, glued: Boolean): Boolean = glued && TITLE.matches(chunk.trim())
 }

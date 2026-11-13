@@ -1,6 +1,8 @@
 package com.apvcode.devx.ui.chat
 
 import com.apvcode.devx.ui.components.pressable
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -193,7 +195,7 @@ internal fun levelMeaningRes(level: Level): Int = when (level) {
 private fun ReasoningSection(vm: ChatViewModel) {
     val caps = vm.reasoningCaps ?: return
     if (!caps.supported && !caps.alwaysOn) return
-    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp).animateContentSize(androidx.compose.animation.core.spring(dampingRatio = 0.88f, stiffness = 300f)), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (!caps.supported) {
             Text(stringResource(R.string.reasoning_always_on), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(start = 6.dp))
             return
@@ -211,20 +213,28 @@ private fun ReasoningSection(vm: ChatViewModel) {
                 LevelChip(stringResource(levelLabelRes(level)), selected = current == level) { vm.selectReasoning(level) }
             }
         }
-        if (current != null) {
-            Text(stringResource(levelMeaningRes(current)), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(start = 6.dp))
+        // The words under the chips change with a soft crossfade, and the sheet gives or takes the room smoothly.
+        androidx.compose.animation.AnimatedContent(
+            targetState = current,
+            transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(320, delayMillis = 60)) togetherWith androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) },
+            label = "level-meaning",
+        ) { shown ->
+            if (shown != null) Text(stringResource(levelMeaningRes(shown)), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(start = 6.dp))
+            else Box(Modifier.size(0.dp))
         }
     }
 }
 
 @Composable
 private fun LevelChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    val base = Modifier.pressable(scaleTo = 0.9f, onClick = onClick).clip(CircleShape)
-    val styled = if (selected) base.background(DevxColors.Accent) else base.border(1.dp, DevxColors.Outline, CircleShape)
+    // The chosen chip fills in and the old one empties with a glide, the word changes colour with it.
+    val fill by androidx.compose.animation.animateColorAsState(if (selected) DevxColors.Accent else Color.Transparent, androidx.compose.animation.core.tween(320), label = "fill")
+    val line by androidx.compose.animation.animateColorAsState(if (selected) DevxColors.Accent else DevxColors.Outline, androidx.compose.animation.core.tween(320), label = "line")
+    val ink by androidx.compose.animation.animateColorAsState(if (selected) DevxColors.OnAccent else DevxColors.TextPrimary, androidx.compose.animation.core.tween(320), label = "ink")
     Text(
         text,
         style = DevxType.Body,
-        color = if (selected) DevxColors.OnAccent else DevxColors.TextPrimary,
-        modifier = styled.padding(horizontal = 14.dp, vertical = 7.dp),
+        color = ink,
+        modifier = Modifier.pressable(scaleTo = 0.9f, onClick = onClick).clip(CircleShape).background(fill).border(1.dp, line, CircleShape).padding(horizontal = 14.dp, vertical = 7.dp),
     )
 }

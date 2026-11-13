@@ -19,10 +19,24 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 /** What a tool gives back to the model: words, and sometimes pictures. */
+/** What the assistant is about to do with a server (an MCP tool, GitHub): shown to the person to allow or cancel. */
+class ToolApproval(val serverId: String, val serverName: String, val title: String, val detail: String, val changesData: Boolean, val alwaysKey: String = "")
+
+enum class ApprovalDecision { Once, ThisChat, Always, Deny }
+
+/** A question waiting on the screen; [answer] lets the assistant go on (or not). */
+class PendingApproval(val request: ToolApproval, val answer: (ApprovalDecision) -> Unit)
+
 class ToolOutcome(val text: String, val images: List<WireImage> = emptyList())
 
 /** How a running tool tells the screen what it is doing and which pages it has touched. */
 interface ToolReport {
+    /** Has the person already said "allow, and do not ask again" for this server in this chat? */
+    fun allowed(serverId: String): Boolean = true
+
+    /** Asks the person before a server is used: waits for the answer. (Tests and plain tools just allow.) */
+    suspend fun approve(request: ToolApproval): ApprovalDecision = ApprovalDecision.Once
+
     fun activity(activity: ToolActivity?)
     fun source(source: Source)
 
@@ -46,6 +60,7 @@ class Toolbox(
     private val work: WorkTools,
     private val memory: MemoryTools,
     private val skillTools: SkillTools,
+    private val mcp: McpTools,
 ) {
     init {
         runCatching { PDFBoxResourceLoader.init(context.applicationContext) }
@@ -100,6 +115,8 @@ class Toolbox(
         if (workOn || terminalOn) out += work.definitions(workOn, terminalOn)
         if (memoryOn) out += memory.definitions(inProject)
         if (skillsOn) out += skillTools.definitions(copyToo = workOn || terminalOn)
+        // The servers the person added: always there when they are connected.
+        out += mcp.definitions()
         return out
     }
 
@@ -111,7 +128,7 @@ class Toolbox(
                 in work.names -> work.run(call.name, args, chatId, report)
                 in memory.names -> memory.run(call.name, args, report, chatId, project)
                 in skillTools.names -> skillTools.run(call.name, args, chatId, report)
-                else -> withContext(Dispatchers.IO) { runFileTool(call.name, args, files, report) }
+                else -> if (mcp.isMcp(call.name)) mcp.run(call.name, args, report) else withContext(Dispatchers.IO) { runFileTool(call.name, args, files, report) }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e

@@ -4,11 +4,13 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -128,7 +130,10 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf("") }
     if (picking) SummaryModelPicker(vm, onDismiss = { picking = false })
+    androidx.activity.compose.BackHandler(enabled = editing) { editing = false }
     LaunchedEffect(Unit) {
         if (vm.memorySummaryStale(project)) vm.refreshMemorySummary(project)
     }
@@ -144,6 +149,8 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
                 Text(stringResource(if (project == null) R.string.memory_summary else R.string.project_summary), style = DevxType.Title, color = DevxColors.TextPrimary)
                 val subtitle = when {
                     memory.summarizing -> stringResource(R.string.memory_updating)
+                    editing -> stringResource(R.string.memory_editing)
+                    memory.summaryManual -> stringResource(R.string.memory_edited)
                     memory.summaryAt > 0 && memory.summary.isNotEmpty() -> updatedText(memory.summaryAt)
                     else -> null
                 }
@@ -156,6 +163,11 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
                     onClick = { menu = true },
                 )
                 PopupMenu(expanded = menu, onDismiss = { menu = false }, offset = DpOffset(0.dp, 0.dp)) {
+                    MenuRow(DevxIcons.Pencil, stringResource(R.string.memory_edit), enabled = !memory.summarizing) {
+                        menu = false
+                        draft = memory.summary
+                        editing = true
+                    }
                     MenuRow(DevxIcons.Refresh, stringResource(R.string.memory_refresh), enabled = !memory.summarizing) {
                         menu = false
                         vm.refreshMemorySummary(project)
@@ -171,10 +183,34 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
                 }
             }
         }
-        Column(
+        if (editing) {
+            // The text of the overview itself (Markdown), as it is kept.
+            Column(Modifier.weight(1f).imePadding().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                androidx.compose.foundation.layout.Box(Modifier.weight(1f).fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp)).background(DevxColors.Card).padding(horizontal = 18.dp, vertical = 14.dp)) {
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = draft, onValueChange = { draft = it },
+                        textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(DevxColors.Accent),
+                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                        decorationBox = { inner ->
+                            androidx.compose.foundation.layout.Box {
+                                if (draft.isEmpty()) Text(stringResource(R.string.memory_edit_hint), style = DevxType.Body, color = DevxColors.TextDisabled)
+                                inner()
+                            }
+                        },
+                    )
+                }
+                Text(stringResource(R.string.memory_edit_note), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(horizontal = 8.dp))
+                PillButton(stringResource(R.string.memory_save), onClick = { memory.editSummary(draft); editing = false })
+                PillButton(stringResource(R.string.settings_cancel), filled = false, onClick = { editing = false })
+            }
+        } else Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (memory.summaryManual && memory.summary.isNotEmpty()) {
+                Text(stringResource(R.string.memory_edited_hint), style = DevxType.Caption, color = DevxColors.TextSecondary)
+            }
             if (memory.summary.isNotEmpty()) {
                 MarkdownText(memory.summary)
             } else if (!memory.summarizing && memory.summaryError == null) {
@@ -230,6 +266,7 @@ fun MemoryNotesScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? = 
                         if (i > 0) SettingsDivider()
                         SettingsRow(
                             title = note.text,
+                            titleMaxLines = 3,
                             subtitle = DateFormat.format("d MMM yyyy", Date(note.updatedAt)).toString(),
                             onClick = { editing = note },
                         )

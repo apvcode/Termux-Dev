@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,15 +77,24 @@ fun TasksScreen(onBack: () -> Unit) {
 }
 
 @Composable
-fun McpScreen(onBack: () -> Unit) {
-    ScreenScaffold(stringResource(R.string.mcp_title), onBack) {
-        item { EmptyNote(stringResource(R.string.mcp_empty)) }
-    }
-}
-
-@Composable
-fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit, onProviders: () -> Unit, onNotifications: () -> Unit, onAbout: () -> Unit, onMemory: () -> Unit, onSkills: () -> Unit, onAssistant: () -> Unit) {
+fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit, onProviders: () -> Unit, onNotifications: () -> Unit, onAbout: () -> Unit, onMemory: () -> Unit, onSkills: () -> Unit, onAssistant: () -> Unit, onAppLock: () -> Unit = {}) {
     var dialog by remember { mutableStateOf<String?>(null) }
+    // Backup: everything of the person's in one file, and back (keys and tokens stay behind: they belong to this phone).
+    val appContext = androidx.compose.ui.platform.LocalContext.current
+    val backupScope = androidx.compose.runtime.rememberCoroutineScope()
+    var restoreFrom by remember { mutableStateOf<android.net.Uri?>(null) }
+    var restoring by remember { mutableStateOf(false) }
+    fun say(res: Int) = android.widget.Toast.makeText(appContext, res, android.widget.Toast.LENGTH_LONG).show()
+    val makeBackup = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) backupScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val ok = runCatching {
+                val version = appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: ""
+                appContext.contentResolver.openOutputStream(uri)!!.use { out -> com.apvcode.devx.data.Backup.export(appContext.filesDir, java.io.File(appContext.applicationInfo.dataDir, "shared_prefs"), out, version) }
+            }.isSuccess
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { say(if (ok) R.string.backup_done else R.string.backup_failed) }
+        }
+    }
+    val pickBackup = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri -> restoreFrom = uri }
     val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
     val languageNames = mapOf(
         AppLanguage.System to stringResource(R.string.lang_system),
@@ -97,6 +107,31 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
         ThemeMode.Gray to stringResource(R.string.theme_gray),
         ThemeMode.Light to stringResource(R.string.theme_light),
     )
+    restoreFrom?.let { uri ->
+        DevxDialog(stringResource(R.string.backup_restore), onDismiss = { if (!restoring) restoreFrom = null }) {
+            androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
+                Text(stringResource(R.string.backup_restore_ask), style = com.apvcode.devx.ui.theme.DevxType.Body, color = com.apvcode.devx.ui.theme.DevxColors.TextSecondary)
+                PillButton(stringResource(R.string.backup_restore), enabled = !restoring, onClick = {
+                    restoring = true
+                    backupScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val result = runCatching { appContext.contentResolver.openInputStream(uri)!!.use { com.apvcode.devx.data.Backup.restore(appContext.filesDir, java.io.File(appContext.applicationInfo.dataDir, "shared_prefs"), it) } }
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            restoring = false
+                            restoreFrom = null
+                            if (result.isSuccess) {
+                                say(R.string.backup_restored)
+                                // The app starts again so that it reads what was restored.
+                                val launch = appContext.packageManager.getLaunchIntentForPackage(appContext.packageName)?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                launch?.let { appContext.startActivity(it) }
+                                Runtime.getRuntime().exit(0)
+                            } else say(R.string.backup_bad)
+                        }
+                    }
+                })
+                PillButton(stringResource(R.string.settings_cancel), filled = false, enabled = !restoring, onClick = { restoreFrom = null })
+            }
+        }
+    }
     when (dialog) {
         "language" -> ChoiceDialog(
             stringResource(R.string.settings_language_title),
@@ -204,9 +239,26 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                 SettingsRow(
                     title = stringResource(R.string.settings_pin),
                     icon = Icons.Outlined.Lock,
-                    value = stringResource(R.string.settings_pin_value),
+                    value = stringResource(if (com.apvcode.devx.data.AppLock.enabled) R.string.settings_pin_on else R.string.settings_pin_value),
                     showChevron = true,
-                    onClick = {},
+                    onClick = onAppLock,
+                )
+            }
+        }
+        item {
+            SettingsGroup {
+                SettingsRow(
+                    title = stringResource(R.string.backup_create),
+                    subtitle = stringResource(R.string.backup_create_hint),
+                    icon = com.apvcode.devx.ui.components.DevxIcons.FilePlus,
+                    onClick = { makeBackup.launch("devx-backup-" + java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) + ".zip") },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    title = stringResource(R.string.backup_restore),
+                    subtitle = stringResource(R.string.backup_restore_hint),
+                    icon = com.apvcode.devx.ui.components.DevxIcons.Undo,
+                    onClick = { pickBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
                 )
             }
         }

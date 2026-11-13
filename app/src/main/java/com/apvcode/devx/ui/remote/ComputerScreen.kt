@@ -68,12 +68,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** One saved chat on the computer, as the list shows it. */
-class RemoteChatInfo(val id: String, val title: String, val cwd: String?, val updatedAt: Long, val messages: Int, val open: Boolean, val running: Boolean, val snippet: String, val status: String? = null)
+class RemoteChatInfo(val id: String, val title: String, val cwd: String?, val updatedAt: Long, val messages: Int, val open: Boolean, val running: Boolean, val snippet: String, val status: String? = null, val terminal: Boolean = false)
 
 private fun parseSessions(o: JSONObject): List<RemoteChatInfo> {
     val a = o.optJSONArray("sessions") ?: return emptyList()
     return List(a.length()) { i -> a.getJSONObject(i).let { s ->
-        RemoteChatInfo(s.getString("id"), s.optString("title", "Chat"), s.optString("cwd").takeIf { it.isNotEmpty() && it != "null" }, s.optLong("updatedAt"), s.optInt("messages"), s.optBoolean("open"), s.optBoolean("running"), s.optString("snippet"), s.optString("status").takeIf { it.isNotEmpty() && it != "null" })
+        RemoteChatInfo(s.getString("id"), s.optString("title", "Chat"), s.optString("cwd").takeIf { it.isNotEmpty() && it != "null" }, s.optLong("updatedAt"), s.optInt("messages"), s.optBoolean("open"), s.optBoolean("running"), s.optString("snippet"), s.optString("status").takeIf { it.isNotEmpty() && it != "null" }, s.optBoolean("terminal"))
     } }
 }
 
@@ -214,6 +214,7 @@ private fun SessionRow(s: RemoteChatInfo, onClick: () -> Unit, onLong: () -> Uni
             Text(listOfNotNull(where.takeIf { it.isNotEmpty() }, relativeTime(s.updatedAt)).joinToString(" · "), style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1)
             if (s.snippet.isNotEmpty()) Text(s.snippet, style = DevxType.Caption, color = DevxColors.TextDisabled, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
+        if (s.terminal) Icon(DevxIcons.Terminal, stringResource(R.string.remote_in_terminal), tint = DevxColors.TextSecondary, modifier = Modifier.size(18.dp))
         // Green: the agent finished and nobody has read it. Orange: it waits for you (a question, a permission). Red: the provider failed.
         val tone = when (s.status) { "unread" -> DevxColors.Success; "ask" -> DevxColors.Warning; "error" -> DevxColors.Danger; else -> null }
         if (s.running && tone == null) Text(stringResource(R.string.remote_working), style = DevxType.Caption, color = DevxColors.TextSecondary)

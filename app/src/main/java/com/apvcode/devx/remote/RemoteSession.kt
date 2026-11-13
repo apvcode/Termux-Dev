@@ -43,7 +43,7 @@ class Effort(val supported: Boolean, val levels: List<String>, val level: String
 class SessionState(
     val id: String, val title: String, val cwd: String, val running: Boolean, val plan: Boolean, val yolo: Boolean, val extra: Boolean,
     val model: String, val provider: String, val effort: Effort, val cost: Double, val costEstimated: Boolean,
-    val ctxUsed: Int, val ctxLimit: Int, val trusted: Boolean, val mcpPending: Int, val queued: Int,
+    val ctxUsed: Int, val ctxLimit: Int, val trusted: Boolean, val mcpPending: Int, val queued: Int, val terminal: Boolean = false,
 ) {
     companion object {
         fun from(o: JSONObject): SessionState {
@@ -57,7 +57,7 @@ class SessionState(
                 effort = Effort(e?.optBoolean("supported") ?: false, levels, e?.optString("level")?.takeIf { it.isNotEmpty() && it != "null" }, e?.optBoolean("alwaysOn") ?: false),
                 cost = o.optDouble("cost", 0.0), costEstimated = o.optBoolean("costEstimated"),
                 ctxUsed = ctx?.optInt("used") ?: 0, ctxLimit = ctx?.optInt("limit") ?: 0,
-                trusted = o.optBoolean("trusted", true), mcpPending = o.optInt("mcpPending"), queued = o.optInt("queued"),
+                trusted = o.optBoolean("trusted", true), mcpPending = o.optInt("mcpPending"), queued = o.optInt("queued"), terminal = o.optBoolean("terminal"),
             )
         }
     }
@@ -217,7 +217,7 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
             }
             "reasoning" -> {
                 val last = items.lastOrNull()
-                if (last is RItem.Thought && last.live) last.text += e.optString("d") else { items += RItem.Thought(key(), e.optString("d"), null, true) }
+                if (last is RItem.Thought && last.live) last.text += e.optString("d") else { thoughtFrom = System.currentTimeMillis(); items += RItem.Thought(key(), e.optString("d"), null, true) }
                 liveText = false
             }
             "tool_start" -> {
@@ -261,12 +261,14 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
     }
 
     private var liveText = false
+    private var thoughtFrom = 0L
 
     private fun closeThought() {
         val last = items.lastOrNull()
         if (last is RItem.Thought && last.live) {
             last.live = false
-            if (last.sec == null && turnStartedAt > 0) last.sec = "${((System.currentTimeMillis() - turnStartedAt) / 1000).coerceAtLeast(1)}"
+            // How long this thought took, not how long the whole turn has been going.
+            if (last.sec == null && thoughtFrom > 0) last.sec = "${((System.currentTimeMillis() - thoughtFrom) / 1000).coerceAtLeast(1)}"
         }
     }
 

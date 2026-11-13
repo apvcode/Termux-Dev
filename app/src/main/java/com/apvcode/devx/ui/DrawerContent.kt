@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -80,6 +81,10 @@ import com.apvcode.devx.model.ChatStatus
 import com.apvcode.devx.model.ChatSummary
 import com.apvcode.devx.ui.chat.ChatViewModel
 import com.apvcode.devx.ui.components.DevxIcons
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
+import com.apvcode.devx.ui.components.LocalGlass
+import com.apvcode.devx.ui.components.glass
 import com.apvcode.devx.ui.components.MenuRow
 import com.apvcode.devx.ui.components.PopupMenu
 import com.apvcode.devx.ui.components.PressState
@@ -114,7 +119,6 @@ fun DrawerContent(
     modifier: Modifier = Modifier,
 ) {
     val width = (LocalConfiguration.current.screenWidthDp * 0.8f).dp
-    val running = 0 // running background tasks: comes with the computer connection
 
     var ask by remember { mutableStateOf<Ask?>(null) }
     var projectsOpen by remember { mutableStateOf(true) }
@@ -132,113 +136,129 @@ fun DrawerContent(
     }
     val projectNames = vm.projects.toList()
 
-    Column(
+    // The search and the computers on top and the buttons at the bottom float over the list: the chats scroll under them
+    // and fade into the panel's colour, so that the buttons stand in the air and never move.
+    val density = LocalDensity.current
+    var topHeight by remember { mutableStateOf(0.dp) }
+    var bottomHeight by remember { mutableStateOf(0.dp) }
+    val panel = DevxColors.Drawer
+    val haze = rememberHazeState()
+    androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides haze) {
+    Box(
         modifier
             .width(width)
             .fillMaxHeight()
-            .background(DevxColors.Drawer)
+            .background(panel)
             .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .navigationBarsPadding(),
     ) {
-        run {
-            SearchButton(onClick = onSearch)
-            RemoteButton(onClick = { onNavigate(Screen.Computers) }, modifier = Modifier.padding(top = 8.dp))
-
-            LazyColumn(
-                Modifier.weight(1f).padding(top = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+        LazyColumn(
+            Modifier.fillMaxSize().hazeSource(haze).padding(horizontal = 16.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = topHeight, bottom = bottomHeight),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
                 if (vm.chats.isEmpty() && vm.projects.isEmpty()) {
-                    item(key = "empty") {
-                        Text(
-                            stringResource(R.string.drawer_empty),
-                            style = DevxType.Body,
-                            color = DevxColors.TextSecondary,
-                            modifier = Modifier.padding(start = 6.dp, top = 24.dp),
-                        )
-                    }
-                }
-                item(key = "projects") {
-                    SectionHeader(
-                        icon = DevxIcons.Folder,
-                        title = stringResource(R.string.drawer_projects),
-                        count = projectChats.size,
-                        expanded = projectsOpen,
-                        onClick = { projectsOpen = !projectsOpen },
-                        actionIcon = DevxIcons.FolderPlus,
-                        actionDescription = stringResource(R.string.cd_new_project),
-                        onAction = onNewProject,
+                item(key = "empty") {
+                    Text(
+                        stringResource(R.string.drawer_empty),
+                        style = DevxType.Body,
+                        color = DevxColors.TextSecondary,
+                        modifier = Modifier.padding(start = 6.dp, top = 24.dp),
                     )
                 }
-                if (projectsOpen) {
-                    projectChats.forEach { (project, chats) ->
-                        val open = collapsed[project] != true
-                        item(key = "p-$project") {
-                            ProjectHeader(
-                                title = project,
-                                count = chats.size,
-                                expanded = open,
-                                onToggle = { collapsed[project] = open },
-                                info = vm.projectInfo[project],
-                                onOpen = { onOpenProject(project) },
-                                onNewChat = {
-                                    vm.newChat(project)
-                                    onNavigate(Screen.Chat)
-                                },
-                                onAsk = { ask = it },
-                                modifier = Modifier.animateItem(),
-                            )
-                        }
-                        if (open) {
-                            items(chats, key = { it.id }) { chat ->
-                                ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, Modifier.animateItem())
-                            }
-                        }
-                    }
-                }
-                if (plainChats.isNotEmpty()) {
-                    item(key = "chats") {
-                        SectionHeader(
-                            icon = DevxIcons.ChatList,
-                            title = stringResource(R.string.drawer_chats),
-                            count = plainChats.size,
-                            expanded = chatsOpen,
-                            onClick = { chatsOpen = !chatsOpen },
-                            modifier = Modifier.padding(top = 6.dp),
+            }
+            item(key = "projects") {
+                SectionHeader(
+                    icon = DevxIcons.Folder,
+                    title = stringResource(R.string.drawer_projects),
+                    count = projectChats.size,
+                    expanded = projectsOpen,
+                    onClick = { projectsOpen = !projectsOpen },
+                    actionIcon = DevxIcons.FolderPlus,
+                    actionDescription = stringResource(R.string.cd_new_project),
+                    onAction = onNewProject,
+                )
+            }
+            if (projectsOpen) {
+                projectChats.forEach { (project, chats) ->
+                    val open = collapsed[project] != true
+                    item(key = "p-$project") {
+                        ProjectHeader(
+                            title = project,
+                            count = chats.size,
+                            expanded = open,
+                            onToggle = { collapsed[project] = open },
+                            info = vm.projectInfo[project],
+                            onOpen = { onOpenProject(project) },
+                            onNewChat = {
+                                vm.newChat(project)
+                                onNavigate(Screen.Chat)
+                            },
+                            onAsk = { ask = it },
+                            modifier = Modifier.animateItem(),
                         )
                     }
-                }
-                if (chatsOpen) {
-                    items(plainChats, key = { it.id }) { chat ->
-                        ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, Modifier.animateItem())
+                    if (open) {
+                        items(chats, key = { it.id }) { chat ->
+                            ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, Modifier.animateItem())
+                        }
                     }
                 }
             }
+            if (plainChats.isNotEmpty()) {
+                item(key = "chats") {
+                    SectionHeader(
+                        icon = DevxIcons.ChatList,
+                        title = stringResource(R.string.drawer_chats),
+                        count = plainChats.size,
+                        expanded = chatsOpen,
+                        onClick = { chatsOpen = !chatsOpen },
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+            if (chatsOpen) {
+                items(plainChats, key = { it.id }) { chat ->
+                    ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, Modifier.animateItem())
+                }
+            }
+        }
 
+        Column(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to panel.copy(alpha = 0.88f), 0.55f to panel.copy(alpha = 0.55f), 1f to panel.copy(alpha = 0f)))
+                .onSizeChanged { topHeight = with(density) { it.height.toDp() } }
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 22.dp),
+        ) {
+            SearchButton(onClick = onSearch)
+            RemoteButton(onClick = { onNavigate(Screen.Computers) }, modifier = Modifier.padding(top = 8.dp))
+        }
+
+        Row(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to panel.copy(alpha = 0f), 0.5f to panel.copy(alpha = 0.55f), 1f to panel.copy(alpha = 0.9f)))
+                .onSizeChanged { bottomHeight = with(density) { it.height.toDp() } }
+                .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Row(
-                Modifier.fillMaxWidth().padding(top = 12.dp),
+                Modifier
+                    .weight(1f)
+                    .pressable(scaleTo = 0.95f) { onNewChat() }
+                    .clip(CircleShape)
+                    .background(DevxColors.Accent)
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(
-                    Modifier
-                        .weight(1f)
-                        .pressable(scaleTo = 0.95f) { onNewChat() }
-                        .clip(CircleShape)
-                        .background(DevxColors.Accent)
-                        .padding(horizontal = 18.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(DevxIcons.ChatPlus, null, tint = DevxColors.OnAccent, modifier = Modifier.size(22.dp))
-                    Text(stringResource(R.string.menu_new_chat), style = DevxType.Body, color = DevxColors.OnAccent)
-                }
-                RoundAction(Icons.Outlined.Checklist, stringResource(R.string.menu_tasks), badge = running) { onNavigate(Screen.Tasks) }
-                RoundAction(DevxIcons.Mcp, stringResource(R.string.menu_mcp)) { onNavigate(Screen.Mcp) }
-                RoundAction(DevxIcons.Settings, stringResource(R.string.menu_settings)) { onNavigate(Screen.Settings) }
+                Icon(DevxIcons.ChatPlus, null, tint = DevxColors.OnAccent, modifier = Modifier.size(22.dp))
+                Text(stringResource(R.string.menu_new_chat), style = DevxType.Body, color = DevxColors.OnAccent)
             }
+            RoundAction(DevxIcons.Mcp, stringResource(R.string.menu_mcp)) { onNavigate(Screen.Mcp) }
+            RoundAction(DevxIcons.Settings, stringResource(R.string.menu_settings)) { onNavigate(Screen.Settings) }
         }
+    }
     }
 
     AskHost(ask, onDismiss = { ask = null }, vm = vm)
@@ -255,8 +275,7 @@ private fun RemoteButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
         modifier
             .fillMaxWidth()
             .pressable(scaleTo = 0.97f, onClick = onClick)
-            .clip(CircleShape)
-            .background(DevxColors.Card)
+            .glass(CircleShape)
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -276,8 +295,7 @@ private fun SearchButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
         modifier
             .fillMaxWidth()
             .pressable(scaleTo = 0.97f, onClick = onClick)
-            .clip(CircleShape)
-            .background(DevxColors.Card)
+            .glass(CircleShape)
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -293,8 +311,7 @@ private fun RoundAction(icon: ImageVector, description: String, badge: Int = 0, 
         Modifier
             .size(50.dp)
             .pressable(onClick = onClick)
-            .clip(CircleShape)
-            .background(DevxColors.Card),
+            .glass(CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, description, tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp))

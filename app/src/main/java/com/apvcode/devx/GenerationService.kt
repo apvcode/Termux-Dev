@@ -110,6 +110,41 @@ class GenerationService : Service() {
             return PendingIntent.getActivity(context, chatId?.hashCode() ?: 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        /** "It waits for your answer" with the buttons, for when the app is not on screen: the assistant is about to use a server. */
+        fun announceApproval(context: Context, chatId: String, title: String, request: com.apvcode.devx.data.ToolApproval) {
+            runCatching {
+                ensureChannels(context)
+                val manager = NotificationManagerCompat.from(context)
+                if (!manager.areNotificationsEnabled()) return
+                fun action(decision: com.apvcode.devx.data.ApprovalDecision, label: Int): NotificationCompat.Action {
+                    val intent = Intent(context, com.apvcode.devx.data.ApprovalReceiver::class.java)
+                        .putExtra(com.apvcode.devx.data.ApprovalReceiver.EXTRA_CHAT, chatId)
+                        .putExtra(com.apvcode.devx.data.ApprovalReceiver.EXTRA_DECISION, decision.name)
+                    val pending = android.app.PendingIntent.getBroadcast(context, (chatId + decision.name).hashCode(), intent, android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+                    return NotificationCompat.Action.Builder(0, context.getString(label), pending).build()
+                }
+                val notification = NotificationCompat.Builder(context, CHANNEL_ANSWERS)
+                    .setSmallIcon(R.drawable.ic_message_circle)
+                    .setContentTitle(context.getString(R.string.mcp_ask_title, request.serverName))
+                    .setContentText(request.title)
+                    .setSubText(title.ifBlank { null })
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(request.title + (if (request.detail.isNotBlank()) "\n" + request.detail else "")))
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setOngoing(true)
+                    .setContentIntent(openApp(context, chatId))
+                    .addAction(action(com.apvcode.devx.data.ApprovalDecision.Deny, R.string.mcp_ask_deny))
+                    .addAction(action(com.apvcode.devx.data.ApprovalDecision.Once, R.string.mcp_ask_allow))
+                    .build()
+                @Suppress("MissingPermission")
+                manager.notify(com.apvcode.devx.data.ApprovalReceiver.notificationId(chatId), notification)
+            }
+        }
+
+        /** The question was answered (on screen or from the notification): the notification goes. */
+        fun withdrawApproval(context: Context, chatId: String) {
+            runCatching { NotificationManagerCompat.from(context).cancel(com.apvcode.devx.data.ApprovalReceiver.notificationId(chatId)) }
+        }
+
         /** "The answer is ready", for when the app is not on screen. */
         fun announceAnswer(context: Context, chatId: String, title: String, preview: String) {
             runCatching {

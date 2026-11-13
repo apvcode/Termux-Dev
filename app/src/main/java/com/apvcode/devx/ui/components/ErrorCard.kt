@@ -1,6 +1,10 @@
 package com.apvcode.devx.ui.components
 
 import androidx.compose.foundation.background
+import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +48,8 @@ import com.apvcode.devx.ui.theme.DevxType
 fun ErrorCard(
     kind: ErrorKind,
     detail: String?,
+    /** Something was already done in this answer: the button goes on from there instead of starting over. */
+    canContinue: Boolean = false,
     onRetry: () -> Unit,
     onOpenSettings: () -> Unit,
     onPickModel: () -> Unit,
@@ -63,8 +69,23 @@ fun ErrorCard(
         ErrorKind.Unknown -> Triple(Icons.Outlined.ErrorOutline, R.string.err_title_unknown, R.string.err_body_unknown)
     }
     val shape = RoundedCornerShape(24.dp)
+    // The card rises into place with a little spring, and its icon lands after it.
+    val enter = remember { androidx.compose.animation.core.Animatable(0f) }
+    val badge = remember { androidx.compose.animation.core.Animatable(0.4f) }
+    LaunchedEffect(Unit) {
+        launch { enter.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 320f)) }
+        kotlinx.coroutines.delay(120)
+        badge.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.4f, stiffness = 300f))
+    }
     Column(
         modifier
+            .graphicsLayer {
+                val v = enter.value
+                alpha = v.coerceIn(0f, 1f)
+                translationY = (1f - v) * 28.dp.toPx()
+                scaleX = 0.94f + 0.06f * v
+                scaleY = 0.94f + 0.06f * v
+            }
             .fillMaxWidth()
             .clip(shape)
             .background(DevxColors.Card)
@@ -74,7 +95,7 @@ fun ErrorCard(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
             Box(
-                Modifier.size(40.dp).clip(CircleShape).background(DevxColors.Bg),
+                Modifier.size(40.dp).graphicsLayer { scaleX = badge.value; scaleY = badge.value }.clip(CircleShape).background(DevxColors.Bg),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(icon, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp))
@@ -98,7 +119,7 @@ fun ErrorCard(
             ErrorKind.InvalidKey, ErrorKind.NoProvider ->
                 PillButton(stringResource(R.string.err_open_settings), onClick = onOpenSettings)
             ErrorKind.NoModel -> PillButton(stringResource(R.string.err_pick_model), onClick = onPickModel)
-            else -> PillButton(stringResource(R.string.err_retry), onClick = onRetry)
+            else -> PillButton(stringResource(if (canContinue) R.string.err_continue else R.string.err_retry), onClick = onRetry)
         }
     }
 }

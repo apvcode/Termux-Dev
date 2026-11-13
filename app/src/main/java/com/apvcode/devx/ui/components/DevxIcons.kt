@@ -113,6 +113,11 @@ object DevxIcons {
 
     val Qrcode: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_qrcode)
 
+    val BrandGithub: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_brand_github)
+    val Book: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_book)
+    val Sitemap: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_sitemap)
+    val Fingerprint: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_fingerprint)
+    val Backspace: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_backspace)
     val Unlink: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_unlink)
     val Plug: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_plug)
 

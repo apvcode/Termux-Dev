@@ -38,11 +38,14 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
     /** The notes have changed since the overview was written: it may say something that is no longer true. */
     var summaryStale by mutableStateOf(false)
         private set
+    /** The person wrote or changed the overview by hand: it is not renewed by itself, only when they ask for "Update". */
+    var summaryManual by mutableStateOf(false)
+        private set
     var summarizing by mutableStateOf(false)
     var summaryError by mutableStateOf<ErrorKind?>(null)
 
     suspend fun load() {
-        val (loaded, text, at, stale) = withContext(Dispatchers.IO) {
+        val (loaded, text, at, stale, manual) = withContext(Dispatchers.IO) {
             val list = runCatching {
                 JSONArray(notesFile.takeIf { it.exists() }?.readText() ?: "[]").let { a ->
                     (0 until a.length()).map { i ->
@@ -52,16 +55,17 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
                 }
             }.getOrDefault(emptyList())
             val s = runCatching { JSONObject(summaryFile.takeIf { it.exists() }?.readText() ?: "{}") }.getOrDefault(JSONObject())
-            Loaded(list, s.optString("text"), s.optLong("at"), s.optBoolean("stale"))
+            Loaded(list, s.optString("text"), s.optLong("at"), s.optBoolean("stale"), s.optBoolean("manual"))
         }
         notes.clear()
         notes.addAll(loaded)
         summary = text
         summaryAt = at
         summaryStale = stale
+        summaryManual = manual
     }
 
-    private data class Loaded(val notes: List<MemoryNote>, val text: String, val at: Long, val stale: Boolean)
+    private data class Loaded(val notes: List<MemoryNote>, val text: String, val at: Long, val stale: Boolean, val manual: Boolean)
 
     // ---------- the notes ----------
 
@@ -132,6 +136,24 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
         summary = text.trim()
         summaryAt = now
         summaryStale = false
+        summaryManual = false
+        summaryError = null
+        persistSummary()
+    }
+
+    /** The person's own version of the overview. An empty one gives the overview back to the model. */
+    fun editSummary(text: String, now: Long = System.currentTimeMillis()) {
+        val clean = text.trim()
+        if (clean.isEmpty()) {
+            summary = ""
+            summaryManual = false
+            summaryStale = true
+        } else {
+            summary = clean
+            summaryManual = true
+            summaryStale = false
+        }
+        summaryAt = now
         summaryError = null
         persistSummary()
     }
@@ -148,7 +170,7 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
     /** The notes as lines for the system prompt, with their ids; the oldest are left out when there are too many. */
     fun forPrompt(limit: Int = PROMPT_CHARS): String {
         if (notes.isEmpty()) return ""
-        val lines = notes.sortedBy { it.createdAt }.map { "- [${it.id}] ${it.text}" }
+        val lines = notes.sortedBy { it.createdAt }.map { "- [${it.id}] ${it.text.replace("\n", " ")}" }
         var used = 0
         val kept = ArrayList<String>()
         for (line in lines.asReversed()) {
@@ -180,7 +202,7 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
     }
 
     private fun persistSummary() {
-        val json = JSONObject().put("text", summary).put("at", summaryAt).put("stale", summaryStale).toString()
+        val json = JSONObject().put("text", summary).put("at", summaryAt).put("stale", summaryStale).put("manual", summaryManual).toString()
         writer.execute { writeAtomic(summaryFile, json) }
     }
 
@@ -204,11 +226,11 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
 
     companion object {
         const val MAX_NOTES = 200
-        const val MAX_NOTE_CHARS = 400
+        const val MAX_NOTE_CHARS = 4000
         const val PROMPT_CHARS = 4000
         private const val ID_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 
-        fun clean(raw: String): String = raw.replace(Regex("\\s+"), " ").trim().removePrefix("- ").trim().take(MAX_NOTE_CHARS)
+        fun clean(raw: String): String = raw.replace(Regex("[ \\t]+"), " ").replace(Regex("\\s*\\n\\s*(\\n\\s*)+"), "\n\n").replace(Regex(" ?\\n ?"), "\n").trim().removePrefix("- ").trim().take(MAX_NOTE_CHARS)
 
         /** The same fact, written twice: equal when case, spaces and the final full stop are ignored. */
         fun same(a: String, b: String): Boolean {

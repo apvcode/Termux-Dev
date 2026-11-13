@@ -7,7 +7,11 @@ import com.apvcode.devx.ui.components.pressable
 import android.content.Context
 import android.content.Intent
 import android.text.format.DateFormat
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -188,20 +192,6 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
     val streaming = vm.isStreaming(msg)
     val blocks = remember(msg.text) { parseBlocks(msg.text) }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (msg.text.isEmpty() && msg.error == null && streaming) {
-            // While a tool works the row says what it does; between the tools it is the model reading what they found.
-            if (msg.activity != null) {
-                ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
-            } else {
-                val headline = rememberThinkingHeadline(msg)
-                ThinkingLabel(
-                    text = headline,
-                    enabled = msg.reasoning.isNotBlank() || msg.steps.isNotEmpty(),
-                    onClick = { host.onShowThinking(msg) },
-                )
-                if (msg.sources.isNotEmpty()) ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
-            }
-        }
         blocks.forEach { block ->
             when (block) {
                 is Block.Text -> SelectionContainer { MarkdownText(block.markdown, animate = animate) }
@@ -216,12 +206,45 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
         if (msg.stopped && !streaming) {
             Text(stringResource(R.string.stopped_note), style = DevxType.Caption, color = DevxColors.TextDisabled)
         }
-        // It wrote something and now goes to look again.
-        if (streaming && msg.text.isNotEmpty() && msg.activity != null) ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
+        // The assistant waits for a "yes" before it uses a server: the card rises under the text, and sinks when it is answered.
+        val asked = msg.approval
+        var lastAsk by remember { mutableStateOf<com.apvcode.devx.data.PendingApproval?>(null) }
+        if (asked != null) lastAsk = asked
+        AnimatedVisibility(
+            visible = asked != null,
+            enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 320f)) { it / 2 } +
+                androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 360f), initialScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)) +
+                androidx.compose.animation.expandVertically(androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 360f)) + fadeIn(tween(240)),
+            exit = androidx.compose.animation.slideOutVertically(tween(260)) { it / 3 } + androidx.compose.animation.scaleOut(tween(240), targetScale = 0.94f) + shrinkVertically(tween(280)) + fadeOut(tween(200)),
+        ) { lastAsk?.let { ToolApprovalCard(it) } }
+        // While the answer is being made there is always a sign of it, whatever the model does this moment (thinking, searching,
+        // waiting for the line); when the answer is whole, it folds away softly and the text settles into its place.
+        AnimatedVisibility(
+            visible = streaming && msg.error == null,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(220)) + shrinkVertically(tween(360)),
+        ) {
+            Column {
+                when {
+                    msg.reconnect > 0 -> ReconnectRow(msg.reconnect)
+                    msg.activity != null -> ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
+                    else -> {
+                        val headline = rememberThinkingHeadline(msg)
+                        ThinkingLabel(
+                            text = headline,
+                            enabled = msg.reasoning.isNotBlank() || msg.steps.isNotEmpty(),
+                            onClick = { host.onShowThinking(msg) },
+                        )
+                        if (msg.text.isEmpty() && msg.sources.isNotEmpty()) ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
+                    }
+                }
+            }
+        }
         msg.error?.let { kind ->
             ErrorCard(
                 kind = kind,
                 detail = msg.errorDetail,
+                canContinue = msg.text.isNotBlank() || msg.steps.isNotEmpty(),
                 onRetry = { vm.retry(msg) },
                 onOpenSettings = host.onOpenSettings,
                 onPickModel = host.onPickModel,
@@ -230,6 +253,15 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
         if (!streaming && (msg.text.isNotBlank() || msg.error != null)) {
             AssistantActions(msg, vm, host)
         }
+    }
+}
+
+/** The line to the provider broke and is being tried again: what was written stays, the answer goes on when the line is back. */
+@Composable
+private fun ReconnectRow(attempt: Int) {
+    Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ThinkingSparkle()
+        Text(stringResource(R.string.chat_reconnecting, attempt), style = DevxType.Body, color = DevxColors.TextSecondary)
     }
 }
 

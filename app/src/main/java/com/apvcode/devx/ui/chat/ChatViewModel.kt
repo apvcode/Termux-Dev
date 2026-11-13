@@ -46,6 +46,12 @@ import com.apvcode.devx.data.WireImage
 import com.apvcode.devx.data.ApiException
 import com.apvcode.devx.data.Chat
 import com.apvcode.devx.data.ErrorKind
+import com.apvcode.devx.data.McpStore
+import com.apvcode.devx.data.ToolApproval
+import com.apvcode.devx.data.PendingApproval
+import com.apvcode.devx.data.ApprovalDecision
+import com.apvcode.devx.data.McpTools
+import com.apvcode.devx.data.TitleChunk
 import com.apvcode.devx.data.Level
 import com.apvcode.devx.data.ReasoningCaps
 import com.apvcode.devx.data.formatOf
@@ -73,6 +79,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Date
@@ -100,10 +107,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The guides the assistant may read, built in and imported. */
     val skills = SkillStore(context)
+    /** Servers the person allowed for the rest of a chat (per chat; forgotten when the app closes). */
+    private val mcpAllowed = HashMap<String, MutableSet<String>>()
+
+    /** The MCP servers the person added (GitHub and the like), reached by web address. */
+    val mcp = McpStore(context, secrets, viewModelScope)
     private val toolbox = Toolbox(
         context, attachmentStore, WebTools(context), WorkTools(context, workspace, artifacts),
         MemoryTools(memory, { projectInfo[it]?.memory }) { chatDigests() },
         SkillTools(skills, workspace),
+        McpTools(mcp),
     )
 
     /** A file the assistant handed over, by its id (null if it is gone). */
@@ -156,6 +169,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val fresh = HashSet<String>()
 
     init {
+        mcp.load()
         viewModelScope.launch {
             val data = withContext(Dispatchers.IO) {
                 runCatching { ReasoningCatalog.load(context) }
@@ -343,6 +357,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var draftProject by mutableStateOf<String?>(null)
         private set
 
+    /** Words shared from another app: the new chat's field takes them (and clears this). */
+    var sharedDraft by mutableStateOf<String?>(null)
+
+    /** Something shared from another app starts a new chat: its words in the field, its pictures and files attached. Nothing is sent. */
+    fun startFromShare(text: String, uris: List<android.net.Uri>) {
+        newChat()
+        sharedDraft = text.ifBlank { null }
+        val (images, others) = uris.partition { context.contentResolver.getType(it).orEmpty().startsWith("image/") || context.contentResolver.getType(it).orEmpty().startsWith("video/") }
+        if (images.isNotEmpty()) attachMedia(images)
+        if (others.isNotEmpty()) attachFiles(others)
+    }
+
     fun newChat(project: String? = null) {
         discardTemporary()
         temporary = false
@@ -421,6 +447,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val chat = current ?: return
         if (generating) return
         val user = chat.messages.firstOrNull { it.id == assistant.parentId } ?: return
+        // What was already done and said stays: the model goes on from there instead of starting over.
+        if (assistant.text.isNotBlank() || assistant.steps.isNotEmpty()) {
+            generate(chat, user, resume = assistant)
+            return
+        }
         chat.messages.remove(assistant)
         chat.selected.remove(user.id)
         generate(chat, user)
@@ -466,8 +497,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setLocked(id: String, locked: Boolean) {
         withChat(id) { it.locked = locked }
-        // A chat that has just been locked by its owner stays open for now; a released one needs no unlocking.
-        if (locked) { if (id !in unlocked) unlocked += id } else unlocked -= id
+        // With the app code the chat closes at once (the cover slides in); with the device lock it stays open until the next relock.
+        if (locked) { if (com.apvcode.devx.data.AppLock.locksChats) unlocked -= id else if (id !in unlocked) unlocked += id } else unlocked -= id
     }
 
     fun unlock(id: String) {
@@ -636,11 +667,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- generation ----------
 
-    private fun generate(chat: Chat, user: Msg) {
-        val assistant = Msg(newId(), user.id, Role.Assistant, "", now())
-        chat.messages += assistant
+    private fun generate(chat: Chat, user: Msg, resume: Msg? = null) {
+        val assistant = resume ?: Msg(newId(), user.id, Role.Assistant, "", now())
+        if (resume == null) {
+            chat.messages += assistant
+            fresh += assistant.id
+        } else {
+            // The answer that broke off goes on in the same message.
+            assistant.error = null
+            assistant.errorDetail = null
+            assistant.stopped = false
+        }
         chat.select(assistant)
-        fresh += assistant.id
         streaming[chat.id] = assistant.id
         assistant.inflight = true
         save(chat)
@@ -676,14 +714,43 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 fun systemNow() = SystemPrompt.forUser(
                     Prefs.nickname,
                     if (memoryOn) memory.forPrompt() else null,
-                    project?.let { SystemPrompt.ProjectContext(projectName!!, it.description, it.instructions, if (memoryOn) it.memory.forPrompt() else null) },
+                    project?.let { SystemPrompt.ProjectContext(projectName!!, it.description, it.instructions, if (memoryOn) it.memory.forPrompt() else null, if (memoryOn) it.memory.summary else null) },
                     if (skillsOn) skills.forPrompt() else null,
+                    ref.model,
+                    if (memoryOn) memory.summary else null,
                 )
                 if (Prefs.workTools || Prefs.terminal) withContext(Dispatchers.IO) { workspace.syncUploads(chat.id, files, attachmentStore) }
                 var messages = withContext(Dispatchers.IO) { historyFor(chat, user, withTools = tools.isNotEmpty()) }.toMutableList()
+                if (resume != null) {
+                    // Going on after a break: the model is shown what it had said and done, and told to continue.
+                    val partial = assistant.text.trim()
+                    if (partial.isNotEmpty()) messages += WireMessage("assistant", partial)
+                    messages.addContinuation(continuationNote(assistant))
+                }
                 var system = systemNow()
                 var params = reasoningParams
                 val report = object : ToolReport {
+                    override fun allowed(serverId: String) = serverId in (mcpAllowed[chat.id] ?: emptySet())
+
+                    override suspend fun approve(request: ToolApproval): ApprovalDecision {
+                        val answer = kotlinx.coroutines.CompletableDeferred<ApprovalDecision>()
+                        val pendingApproval = PendingApproval(request) { answer.complete(it) }
+                        withContext(Dispatchers.Main.immediate) { assistant.approval = pendingApproval }
+                        // With the app away, a notification carries the question and its buttons.
+                        com.apvcode.devx.data.ApprovalBridge.put(chat.id, pendingApproval)
+                        if (!com.apvcode.devx.AppState.foreground) com.apvcode.devx.GenerationService.announceApproval(context, chat.id, chat.title, request)
+                        try {
+                            // Nobody answers for a long time: it counts as "cancel".
+                            val said = kotlinx.coroutines.withTimeoutOrNull(10 * 60_000L) { answer.await() } ?: ApprovalDecision.Deny
+                            if (said == ApprovalDecision.ThisChat) mcpAllowed.getOrPut(chat.id) { HashSet() } += request.serverId
+                            return said
+                        } finally {
+                            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main.immediate) { assistant.approval = null }
+                            com.apvcode.devx.data.ApprovalBridge.remove(chat.id)
+                            com.apvcode.devx.GenerationService.withdrawApproval(context, chat.id)
+                        }
+                    }
+
                     override fun activity(activity: ToolActivity?) {
                         viewModelScope.launch(Dispatchers.Main.immediate) {
                             assistant.activity = activity
@@ -720,30 +787,46 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // Thinking arrives first, then the answer; how long the thinking took is kept for the "Thinking" page.
                 var thinkingFrom = 0L
                 var savedAt = now()
+                // What came last: 0 nothing, 1 words of the answer, 2 thinking, 3 a step. A new paragraph starts after 2 and 3.
+                var lastKind = if (assistant.text.isNotEmpty()) 3 else 0
                 class Round {
                     val calls = ArrayList<Piece.ToolCall>()
                     val thinking = ArrayList<Piece.ThinkingBlock>()
                     val text = StringBuilder()
                     val reasoning = StringBuilder()
                 }
-                suspend fun runRound(sent: List<WireMessage>, extra: org.json.JSONObject?, offered: List<WireTool>): Round {
-                    val round = Round()
+                suspend fun runRound(round: Round, sent: List<WireMessage>, extra: org.json.JSONObject?, offered: List<WireTool>): Round {
                     api.stream(wire, key, ref.model, system, sent, extra, offered).collect { piece ->
+                        if (assistant.reconnect != 0) assistant.reconnect = 0
                         if (assistant.activity != null && piece !is Piece.ToolCall) assistant.activity = null
                         when (piece) {
                             is Piece.Reasoning -> {
                                 if (thinkingFrom == 0L) thinkingFrom = now()
                                 assistant.reasoning += piece.text
                                 round.reasoning.append(piece.text)
+                                lastKind = 2
                             }
                             is Piece.Text -> {
                                 if (thinkingFrom != 0L && assistant.thoughtSeconds == 0) {
                                     assistant.thoughtSeconds = ((now() - thinkingFrom) / 1000).toInt().coerceAtLeast(1)
                                 }
-                                assistant.text += piece.text
-                                round.text.append(piece.text)
+                                val glued = assistant.text.isNotEmpty() && !assistant.text.last().isWhitespace()
+                                if (TitleChunk.looksLikeSummary(piece.text, glued || lastKind == 2 && round.reasoning.endsWith("\n\n"))) {
+                                    // A gateway handed a thinking summary over as words of the answer: it belongs to the thinking.
+                                    if (thinkingFrom == 0L) thinkingFrom = now()
+                                    val title = piece.text.trim() + "\n\n"
+                                    assistant.reasoning += title
+                                    round.reasoning.append(title)
+                                    lastKind = 2
+                                } else {
+                                    // After thinking or a step the next words start a paragraph, they are not glued to the last ones.
+                                    if (lastKind != 1 && assistant.text.isNotEmpty() && !assistant.text.endsWith("\n")) assistant.text += "\n\n"
+                                    assistant.text += piece.text
+                                    round.text.append(piece.text)
+                                    lastKind = 1
+                                }
                             }
-                            is Piece.ToolCall -> round.calls += piece
+                            is Piece.ToolCall -> { round.calls += piece; lastKind = 3 }
                             is Piece.ThinkingBlock -> round.thinking += piece
                         }
                         // Keep what is written so far on disk, so a killed app loses almost nothing.
@@ -756,9 +839,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 var toolRounds = 0
+                var netTries = 0
                 while (true) {
+                    var attempt = Round()
                     val round = try {
-                        runRound(messages, params, tools)
+                        runRound(attempt, messages, params, tools)
                     } catch (e: ApiException) {
                         val nothingYet = assistant.text.isEmpty() && assistant.reasoning.isEmpty()
                         if (e.kind == ErrorKind.BadRequest && nothingYet && tools.isNotEmpty() && toolRounds == 0) {
@@ -772,8 +857,24 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             params = null
                             continue
                         }
+                        // The line broke (a tunnel, a bad signal): try again, and again, and go on from where the words stopped.
+                        val limit = when (e.kind) { ErrorKind.NoInternet, ErrorKind.Timeout -> MAX_NET_TRIES; ErrorKind.ProviderDown -> 3; else -> 0 }
+                        if (netTries < limit) {
+                            netTries++
+                            assistant.reconnect = netTries
+                            assistant.activity = null
+                            val partial = attempt.text.toString().trim()
+                            if (partial.isNotEmpty()) {
+                                messages += WireMessage("assistant", partial)
+                                messages.addContinuation(RECONNECT_NOTE)
+                            }
+                            save(chat)
+                            awaitConnection(RECONNECT_DELAYS_MS[(netTries - 1).coerceAtMost(RECONNECT_DELAYS_MS.lastIndex)])
+                            continue
+                        }
                         throw e
                     }
+                    netTries = 0
                     // A call that was written out as text instead of being made: take it as the call it meant to be.
                     var calls: List<Piece.ToolCall> = round.calls
                     var roundText = round.text.toString()
@@ -852,6 +953,45 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 launch { nameChat(chat, wire, key, ref.model, user.text.ifBlank { user.attachments.joinToString { it.name } }, assistant.text) }
             }
         }
+    }
+
+    /** A user turn that tells the model to go on: joined to the last one when that is a user turn too (turns must alternate). */
+    private fun MutableList<WireMessage>.addContinuation(note: String) {
+        val last = lastOrNull()
+        if (last != null && last.role == "user") {
+            this[lastIndex] = WireMessage("user", last.text + "\n\n" + note, last.images, last.documents)
+        } else {
+            this += WireMessage("user", note)
+        }
+    }
+
+    /** What the model is told when an answer that broke off is continued: the steps it had already taken. */
+    private fun continuationNote(done: Msg): String {
+        val steps = done.steps.joinToString("\n") { st ->
+            "- " + st.kind.name.lowercase() + (if (st.detail.isNotBlank()) ": " + st.detail else "") + (if (st.note.isNotBlank()) " (" + st.note + ")" else "")
+        }
+        return "(The connection broke while you were answering." +
+            (if (steps.isNotEmpty()) " The steps you had already taken:\n$steps\n" else " ") +
+            "Continue from where you stopped. Do not repeat what is done or what you have already said.)"
+    }
+
+    /** Waits before the next try: until the network is back if there is none, or for [ms]. */
+    private suspend fun awaitConnection(ms: Long) {
+        val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+        val offline = runCatching { cm?.activeNetwork == null }.getOrDefault(false)
+        if (!offline || cm == null) { delay(ms); return }
+        kotlinx.coroutines.withTimeoutOrNull(ms * 2) {
+            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
+                val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: android.net.Network) { if (cont.isActive) cont.resume(Unit) {} }
+                }
+                val ok = runCatching { cm.registerDefaultNetworkCallback(callback) }.isSuccess
+                if (!ok) cont.resume(Unit) {}
+                cont.invokeOnCancellation { runCatching { cm.unregisterNetworkCallback(callback) } }
+            }
+        }
+        // The network says it is back a moment before it carries anything.
+        delay(700)
     }
 
     /**
@@ -1001,7 +1141,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** True when the overview (of the person, or of a project) is missing or out of date and there is something to write it from. */
     fun memorySummaryStale(project: String? = null): Boolean {
         val store = memoryOf(project) ?: return false
-        if ((project == null && !Prefs.memory) || store.summarizing) return false
+        // A summary the person wrote is theirs: it is not rewritten behind their back.
+        if ((project == null && !Prefs.memory) || store.summarizing || store.summaryManual) return false
         val kept = chatStates.filter { !it.temporary && !it.locked && it.messages.isNotEmpty() && (project == null || it.project == project) }
         val info = project?.let { projectInfo[it] }
         val material = store.notes.isNotEmpty() || kept.isNotEmpty() || (info != null && (info.description.isNotBlank() || info.instructions.isNotBlank()))
@@ -1126,6 +1267,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         /** How many times in one answer the model may call tools. */
         const val MAX_TOOL_ROUNDS = 12
+
+        /** A broken line is tried again this many times, with these waits between (milliseconds), before the person is told. */
+        const val MAX_NET_TRIES = 12
+        val RECONNECT_DELAYS_MS = longArrayOf(1_000, 2_000, 3_000, 5_000, 8_000, 12_000, 15_000, 20_000, 20_000, 30_000, 30_000, 30_000)
+        const val RECONNECT_NOTE = "(The connection broke while you were answering. Continue from the exact place where you stopped. Do not repeat what you have already said.)"
 
         val MEMORY_WRITES = setOf("memory_save", "memory_update", "memory_delete")
 

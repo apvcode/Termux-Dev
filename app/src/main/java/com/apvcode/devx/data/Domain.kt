@@ -54,7 +54,7 @@ data class Source(val url: String, val title: String, val opened: Boolean = fals
     val host: String get() = runCatching { java.net.URI(url).host.orEmpty().removePrefix("www.") }.getOrDefault("")
 }
 
-enum class ToolKind { Search, Read, File, Memory, History, Skill }
+enum class ToolKind { Search, Read, File, Memory, History, Skill, Mcp }
 
 /** What the assistant is doing with a tool right now, for the line shown while it works. */
 data class ToolActivity(
@@ -98,6 +98,12 @@ class Msg(
 
     /** What the assistant did, step by step (each tool it used); kept, so that the steps can be read after the answer. */
     val steps = mutableStateListOf<ToolActivity>()
+
+    /** The assistant waits for the person to allow what it is about to do with a server. Not saved. */
+    var approval by mutableStateOf<PendingApproval?>(null)
+
+    /** The connection broke while answering and is being tried again: which try it is (0 when all is well). Not saved. */
+    var reconnect by mutableStateOf(0)
 
     /** The person stopped the answer: what was written until then, and the steps, stay. */
     var stopped by mutableStateOf(false)

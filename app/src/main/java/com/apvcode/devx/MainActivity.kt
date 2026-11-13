@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.apvcode.devx.data.AppLock.init(applicationContext)
         takeChatFrom(intent)
         com.apvcode.devx.remote.RemoteHub.init(applicationContext)
         com.apvcode.devx.remote.RemoteHub.memory = viewModel.memory
@@ -62,6 +63,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun takeChatFrom(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE) takeShare(intent)
         if (intent?.action == ACTION_OPEN_CHAT) requestedChat.value = intent.getStringExtra(EXTRA_CHAT_ID)
         if (intent?.action == ACTION_OPEN_REMOTE) {
             val host = intent.getStringExtra(EXTRA_HOST)
@@ -71,13 +73,26 @@ class MainActivity : ComponentActivity() {
         if (intent?.action == Intent.ACTION_VIEW) intent.dataString?.takeIf { it.startsWith("devx1:") }?.let { com.apvcode.devx.remote.PendingPairing.code = it }
     }
 
+    /** Words (with a title, if the other app gave one) and/or files from the Share menu. */
+    @Suppress("DEPRECATION")
+    private fun takeShare(intent: Intent) {
+        val words = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT)?.takeIf { it.isNotBlank() }, intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }).joinToString("\n\n")
+        val uris = if (intent.action == Intent.ACTION_SEND_MULTIPLE) intent.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty()
+        else listOfNotNull(intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM))
+        if (words.isNotEmpty() || uris.isNotEmpty()) com.apvcode.devx.data.PendingShare.item = com.apvcode.devx.data.PendingShare.Item(words, uris)
+    }
+
     override fun onStart() {
         super.onStart()
+        // Back after a while: the lock may shut. (The picture in the list of recent apps is hidden while a lock is on.)
+        com.apvcode.devx.data.AppLock.back()
+        if (android.os.Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!com.apvcode.devx.data.AppLock.enabled)
         AppState.foreground = true
     }
 
     override fun onStop() {
         AppState.foreground = false
+        com.apvcode.devx.data.AppLock.leave()
         // Leaving the app: the computers stay reachable, so that approvals and answers still arrive.
         com.apvcode.devx.remote.RemoteService.startIfNeeded(this)
         super.onStop()

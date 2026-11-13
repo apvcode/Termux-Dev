@@ -15,8 +15,8 @@ android {
         applicationId = "com.apvcode.devx"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0.0"
+        versionCode = 3
+        versionName = "2.1.0"
         // Python (Chaquopy) comes for the two kinds of processor that matter: phones and the emulator.
         ndk { abiFilters += ((project.findProperty("abis") as String?) ?: "arm64-v8a,x86_64").split(",") }
     }
@@ -63,6 +63,8 @@ chaquopy {
         version = "3.13"
         buildPython(localProperties.getProperty("python313") ?: "python3.13")
         pip {
+            // Offline or without working name lookup: -PpipLocal=<folder with the downloaded wheels> installs from there.
+            (project.findProperty("pipLocal") as String?)?.let { options("--no-index", "--find-links", it) }
             // What the document and picture skills use: pictures, XML, tables, Word, PowerPoint, Excel and PDF files.
             install("pillow")
             install("numpy")
