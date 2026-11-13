@@ -226,13 +226,21 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 title = chat.title,
                 project = chat.project,
                 // A locked chat shows nothing of what is in it.
-                preview = if (chat.locked) "" else chat.activePath().lastOrNull { it.text.isNotBlank() }?.text?.replace(Regex("[*`#>|]"), "")?.replace(Regex("\\s+"), " ")?.trim()?.take(90).orEmpty(),
+                // Read without being watched: the words of an answer that is being written must not make the list of chats (which the
+                // menu keeps ready) be built again with every little piece. It is made again when the answer is finished.
+                preview = if (chat.locked) "" else androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { previewOf(chat) },
                 time = age(chat.updatedAt),
                 status = if (chat.id in streaming) ChatStatus.Working else ChatStatus.Idle,
                 pinned = chat.pinned,
                 locked = chat.locked,
             )
         }
+
+    private val previewMarks = Regex("[*`#>|]")
+    private val previewSpaces = Regex("\\s+")
+
+    private fun previewOf(chat: Chat): String =
+        chat.activePath().lastOrNull { it.text.isNotBlank() }?.text?.replace(previewMarks, "")?.replace(previewSpaces, " ")?.trim()?.take(90).orEmpty()
 
     /** What the chosen model can do with reasoning; null when no model is chosen. */
     val reasoningCaps: ReasoningCaps? get() = capsFor(model)
@@ -1419,10 +1427,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         save(chat)
     }
 
+    // One save at a time and in order, so that an older copy can never be written over a newer one.
+    private val saver = Dispatchers.IO.limitedParallelism(1)
+
+    /** The chat is written to disk. Turning it into text (a long chat is a lot of it) is done off the main thread too. */
     private fun save(chat: Chat) {
         if (chat.temporary) return
-        val json = chat.toJson().toString()
-        viewModelScope.launch(Dispatchers.IO) { store.saveChatJson(chat.id, json) }
+        viewModelScope.launch(saver) { store.saveChatJson(chat.id, chat.toJson().toString()) }
     }
 
     private fun saveProviders() {

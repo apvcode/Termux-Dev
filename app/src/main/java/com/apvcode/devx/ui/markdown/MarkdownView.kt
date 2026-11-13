@@ -71,16 +71,27 @@ private const val FADE_CHARS = 14
  * (a streamed answer): the edge fades in and the layout never jumps, because the hidden
  * characters are already laid out. Code, tables and formulas appear whole when their turn comes.
  */
+/** A block with the list of formulas it was read together with (each piece of the text has its own). */
+private class Placed(val block: Md, val math: List<MathSpan>)
+
 @Composable
 fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boolean = false) {
     val smooth = remember { animate }
-    val doc = remember(markdown) { MarkdownParser.parse(markdown) }
-    // Where each block begins in the running count of characters.
-    val offsets = remember(doc) {
-        var at = 0
-        IntArray(doc.blocks.size).also { out -> doc.blocks.forEachIndexed { i, b -> out[i] = at; at += b.revealLength() } }
+    // The text is read in pieces; the pieces that are finished are read once and kept, so that only the end of an answer that
+    // is still being written is read again with every update.
+    val kept = remember { HashMap<String, MarkdownDoc>() }
+    val placed = remember(markdown) {
+        val pieces = MarkdownSegments.split(markdown)
+        val docs = pieces.map { kept.getOrPut(it) { MarkdownParser.parse(it) } }
+        kept.keys.retainAll(pieces.toSet())
+        docs.flatMap { d -> d.blocks.map { Placed(it, d.math) } }
     }
-    val total = remember(doc) { doc.blocks.sumOf { it.revealLength() } + FADE_CHARS }
+    // Where each block begins in the running count of characters.
+    val offsets = remember(placed) {
+        var at = 0
+        IntArray(placed.size).also { out -> placed.forEachIndexed { i, p -> out[i] = at; at += p.block.revealLength() } }
+    }
+    val total = remember(placed) { placed.sumOf { it.block.revealLength() } + FADE_CHARS }
     val reveal = remember { Animatable(if (smooth) 0f else total.toFloat()) }
     LaunchedEffect(total) {
         if (!smooth) {
@@ -96,11 +107,12 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boole
     }
     // The count of blocks that have begun to show: the layout is rebuilt only when a new block starts, not with every
     // character. The edge inside a block moves in the drawing (see [revealing]), so it costs no new layout.
-    val begun by remember(doc) { derivedStateOf { val v = reveal.value.toInt(); offsets.count { it < v } } }
+    val begun by remember(placed) { derivedStateOf { val v = reveal.value.toInt(); offsets.count { it < v } } }
 
     Column(modifier.fillMaxWidth()) {
         var previous: Md? = null
-        doc.blocks.forEachIndexed { i, block ->
+        placed.forEachIndexed { i, item ->
+            val block = item.block
             if (i < begun) {
                 val gap = when {
                     previous == null -> 0.dp
@@ -108,7 +120,14 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boole
                     else -> 12.dp
                 }
                 val start = offsets[i]
-                Box(Modifier.padding(top = gap)) { BlockView(block, doc.math) { reveal.value - start } }
+                val end = start + block.revealLength() + FADE_CHARS
+                androidx.compose.runtime.key(i) {
+                    // A block that has been shown whole stops following the animation: otherwise every paragraph of a long
+                    // answer would be drawn again with every frame, and the longer the answer the worse it would lag.
+                    val finished by remember { derivedStateOf { reveal.value >= end } }
+                    val follow: () -> Float = if (finished) ALL else { { reveal.value - start } }
+                    Box(Modifier.padding(top = gap)) { BlockView(block, item.math, follow) }
+                }
             }
             previous = block
         }
@@ -182,7 +201,10 @@ private class LayoutHolder { var layout: TextLayoutResult? = null }
  * edge are drawn whole, the line of the edge is drawn through a mask that fades to nothing at the edge, the rest is not
  * drawn. Only the drawing changes from frame to frame; the text is not rebuilt and not laid out again.
  */
-private fun Modifier.revealing(length: Int, fadePx: Float, shown: () -> Float, holder: LayoutHolder): Modifier = drawWithContent {
+private fun Modifier.revealing(length: Int, fadePx: Float, shown: () -> Float, holder: LayoutHolder): Modifier =
+    if (shown === ALL) this else revealingDraw(length, fadePx, shown, holder)
+
+private fun Modifier.revealingDraw(length: Int, fadePx: Float, shown: () -> Float, holder: LayoutHolder): Modifier = drawWithContent {
     val s = shown()
     val layout = holder.layout
     if (s >= length + FADE_CHARS || length == 0 || (layout != null && layout.layoutInput.layoutDirection == LayoutDirection.Rtl)) {
@@ -213,26 +235,23 @@ private fun Modifier.revealing(length: Int, fadePx: Float, shown: () -> Float, h
     val xo = if (lineOf(oldEdge) == line) xAt(oldEdge) else layout.getLineLeft(line)
     val fadeFrom = minOf(xo, xs).coerceAtLeast(0f)
 
-    if (top > 0f) clipRect(0f, 0f, size.width, top) { this@drawWithContent.drawContent() }
-    drawIntoCanvas { canvas ->
-        val bounds = androidx.compose.ui.geometry.Rect(0f, top, size.width, bottom)
-        canvas.saveLayer(bounds, androidx.compose.ui.graphics.Paint())
-        clipRect(bounds.left, bounds.top, bounds.right, bounds.bottom) { this@drawWithContent.drawContent() }
-        val w = size.width.coerceAtLeast(1f)
-        this@drawWithContent.drawRect(
-            brush = Brush.horizontalGradient(
-                0f to Color.Black,
-                (fadeFrom / w).coerceIn(0f, 1f) to Color.Black,
-                (xs / w).coerceIn(0f, 1f) to Color.Transparent,
-                1f to Color.Transparent,
-                startX = 0f, endX = size.width,
-            ),
-            topLeft = Offset(0f, top),
-            size = Size(size.width, bottom - top),
-            blendMode = BlendMode.DstIn,
-        )
-        canvas.restore()
-    }
+    // Everything down to the end of the line of the edge is drawn; what comes after is not. On that line the part to the right of
+    // the edge is covered with the background colour and the fade is a gradient of it: no offscreen layer is needed (on a phone
+    // each of those costs a whole extra pass of the graphics chip, with every frame).
+    val bg = DevxColors.Bg
+    clipRect(0f, 0f, size.width, bottom) { this@drawWithContent.drawContent() }
+    val w = size.width.coerceAtLeast(1f)
+    drawRect(
+        brush = Brush.horizontalGradient(
+            0f to bg.copy(alpha = 0f),
+            (fadeFrom / w).coerceIn(0f, 1f) to bg.copy(alpha = 0f),
+            (xs / w).coerceIn(0f, 1f) to bg,
+            1f to bg,
+            startX = 0f, endX = size.width,
+        ),
+        topLeft = Offset(0f, top),
+        size = Size(size.width, bottom - top),
+    )
 }
 
 private fun inlineMath(span: MathSpan, fontPx: Float, density: Density, color: Int): InlineTextContent {

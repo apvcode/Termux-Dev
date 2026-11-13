@@ -19,4 +19,7 @@ object PendingShare {
 object PendingAsk {
     var request by mutableStateOf(false)
     var focus by mutableStateOf(false)
+
+    /** The keyboard is asked for in the chat that is open (a pull upwards at the end of it): no new chat, no waiting. */
+    var keyboard by mutableStateOf(false)
 }

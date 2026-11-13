@@ -20,6 +20,10 @@ object Prefs {
         private set
     var language by mutableStateOf(AppLanguage.System)
         private set
+
+    /** The language the person speaks to the microphone in (a tag like "ru-RU"); empty follows the language of the app. */
+    var voiceLanguage by mutableStateOf("")
+        private set
     var onboarded by mutableStateOf(false)
         private set
 
@@ -62,6 +66,7 @@ object Prefs {
         nickname = p.getString("nickname", "").orEmpty()
         theme = runCatching { ThemeMode.valueOf(p.getString("theme", "") ?: "") }.getOrDefault(ThemeMode.Black)
         language = runCatching { AppLanguage.valueOf(p.getString("language", "") ?: "") }.getOrDefault(AppLanguage.System)
+        voiceLanguage = p.getString("voiceLanguage", "").orEmpty()
         onboarded = p.getBoolean("onboarded", false) || nickname.isNotBlank()
         thinkingGlow = p.getBoolean("thinkingGlow", false)
         webSearch = p.getBoolean("webSearch", true)
@@ -129,6 +134,11 @@ object Prefs {
     fun saveTheme(value: ThemeMode) {
         theme = value
         store?.edit()?.putString("theme", value.name)?.apply()
+    }
+
+    fun saveVoiceLanguage(tag: String) {
+        voiceLanguage = tag
+        store?.edit()?.putString("voiceLanguage", tag)?.apply()
     }
 
     fun saveLanguage(value: AppLanguage) {

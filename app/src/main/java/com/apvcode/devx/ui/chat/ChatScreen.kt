@@ -7,6 +7,7 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.animation.togetherWith
@@ -178,10 +179,19 @@ fun ChatScreen(
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { vm.attachMedia(it) }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.attachFiles(it) }
 
-    // What the speech recognition heard is added to the field.
-    val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val heard = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
-        if (!heard.isNullOrBlank()) draft = if (draft.isBlank()) heard else draft.trimEnd() + " " + heard
+    // Speaking instead of typing: our own listening bar (see VoiceBar); what is heard goes into the field when the person is done.
+    val voice = remember { com.apvcode.devx.data.VoiceInput(context) }
+    androidx.compose.runtime.DisposableEffect(voice) { onDispose { voice.release() } }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { voice.cancel() }
+    val startVoice = {
+        if (!voice.available()) {
+            android.widget.Toast.makeText(context, R.string.voice_missing, android.widget.Toast.LENGTH_LONG).show()
+        } else {
+            voice.start(com.apvcode.devx.data.VoiceInput.currentTag())
+        }
+    }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startVoice() else android.widget.Toast.makeText(context, R.string.voice_err_permission, android.widget.Toast.LENGTH_LONG).show()
     }
     // A picture in the phone's clipboard (copied from the gallery, a browser, a screenshot tool) is offered for pasting.
     val clipboardManager = remember { context.getSystemService(android.content.ClipboardManager::class.java) }
@@ -447,13 +457,63 @@ fun ChatScreen(
     }
     // The arrow shows when the end is well out of reach (a little hysteresis, so that it does not flicker while text grows).
     val showDown by remember { androidx.compose.runtime.derivedStateOf { distanceToBottom(listState) > 260f } }
+    // The keyboard comes and goes: the list is as tall as the room above it, so when that changes the chat is moved by the same
+    // amount. What was at the edge of the keyboard stays there, and when the keyboard goes away the chat is exactly where it was
+    // (without this the messages stay shifted and the reader has to scroll back down by hand).
+    // What is kept is how far the end of the chat is from the edge of the screen: it is the same before and after the keyboard moves.
+    // (When the list gets taller the list itself pulls the end back to the edge, so only what is still missing is added.)
+    LaunchedEffect(listState) {
+        var heightBefore = -1
+        var gapBefore = 0f
+        snapshotFlow { listState.layoutInfo.viewportSize.height to distanceToBottom(listState) }.collect { (height, gap) ->
+            if (heightBefore > 0 && height > 0 && height != heightBefore && !userScrolling) {
+                val plain = (heightBefore - height).toFloat()
+                val move = if (gapBefore == Float.MAX_VALUE || gap == Float.MAX_VALUE) plain else gap - gapBefore
+                if (move != 0f) listState.scrollBy(move)
+                heightBefore = height
+                return@collect
+            }
+            heightBefore = height
+            gapBefore = gap
+        }
+    }
+    // A pull upwards at the very end of the chat brings the keyboard up (and the finger does not have to go to the field).
+    val pullThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
+    val pullConnection = remember(listState) {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            var pulled = 0f
+            override fun onPostScroll(consumed: Offset, available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset {
+                if (source != androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) return Offset.Zero
+                if (available.y < 0f && !listState.canScrollForward) {
+                    pulled -= available.y
+                    if (pulled > pullThreshold) {
+                        pulled = 0f
+                        com.apvcode.devx.data.PendingAsk.keyboard = true
+                    }
+                } else if (available.y > 0f || consumed.y != 0f) pulled = 0f
+                return Offset.Zero
+            }
+            override suspend fun onPostFling(consumed: androidx.compose.ui.unit.Velocity, available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                pulled = 0f
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
+    }
 
     val haze = rememberHazeState()
     val sendOrigin = remember { SendOrigin() }
     var composerHeight by remember { mutableStateOf(0.dp) }
     val density = androidx.compose.ui.platform.LocalDensity.current
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides haze, LocalSendOrigin provides sendOrigin) {
+    // While the words of an answer are coming, the glass is plain (no blur behind it). The blur is drawn again with every frame
+    // the text moves, several times over (the header, the buttons, the field), and on a 120 Hz screen the graphics chip of the
+    // phone cannot keep up with that. When the answer is done the glass is as it was.
+    // (Worked out in a derived state: reading the text here would make this whole screen be built again with every piece of it.)
+    val lightGlass by remember { androidx.compose.runtime.derivedStateOf { vm.generating && vm.path.lastOrNull()?.let { it.role == Role.Assistant && it.text.isNotEmpty() } == true } }
+    // While the words are coming the screen is held at 60 Hz, so that frames come at an even pace (see SteadyFrames).
+    LaunchedEffect(lightGlass) { com.apvcode.devx.data.SteadyFrames.hold(context, lightGlass) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { com.apvcode.devx.data.SteadyFrames.hold(context, false) } }
+    androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides (if (lightGlass) null else haze), LocalSendOrigin provides sendOrigin) {
         Box(
             modifier
                 .fillMaxSize()
@@ -465,14 +525,14 @@ fun ChatScreen(
             // The chat under the cover is hidden from screen readers too, not only from the eyes.
             Box(Modifier.fillMaxSize().then(if (shut) Modifier.clearAndSetSemantics { } else Modifier)) {
             // While the answer is awaited the screen glows (until the first words arrive).
-            val awaiting = path.lastOrNull()?.let { it.role == Role.Assistant && it.text.isEmpty() && it.error == null } == true
+            val awaiting by remember { androidx.compose.runtime.derivedStateOf { vm.path.lastOrNull()?.let { it.role == Role.Assistant && it.text.isEmpty() && it.error == null } == true } }
             GenerationGlow(active = (com.apvcode.devx.data.Prefs.thinkingGlow && vm.generating && awaiting) || WelcomeCeremony.glow)
 
             if (path.isNotEmpty()) {
                 com.apvcode.devx.ui.components.ProvideAskToolbar(onAsk = vm::attachSnippet) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().hazeSource(haze),
+                    modifier = Modifier.fillMaxSize().nestedScroll(pullConnection).then(if (lightGlass) Modifier else Modifier.hazeSource(haze)),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset + 72.dp, bottom = composerHeight + 12.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
@@ -657,16 +717,20 @@ fun ChatScreen(
                 onDismissClip = { clipDismissedAt = clipImageAt },
                 onMic = {
                     keyboard?.hide()
-                    try {
-                        speech.launch(
-                            android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toLanguageTag())
-                                .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, context.getString(R.string.voice_prompt)),
-                        )
-                    } catch (e: android.content.ActivityNotFoundException) {
-                        android.widget.Toast.makeText(context, R.string.voice_missing, android.widget.Toast.LENGTH_LONG).show()
+                    focus.clearFocus()
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) startVoice()
+                    else micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                },
+                voice = voice,
+                onVoiceDone = {
+                    voice.finish { heard ->
+                        if (heard.isNotBlank()) draft = if (draft.isBlank()) heard else draft.trimEnd() + " " + heard
                     }
+                },
+                onVoiceCancel = { voice.cancel() },
+                onVoiceLanguage = { tag ->
+                    com.apvcode.devx.data.Prefs.saveVoiceLanguage(tag)
+                    voice.switchLanguage(tag)
                 },
             )
 
@@ -872,6 +936,10 @@ private fun Composer(
     attachOpen: Boolean,
     onToggleAttach: () -> Unit,
     onMic: () -> Unit,
+    voice: com.apvcode.devx.data.VoiceInput,
+    onVoiceDone: () -> Unit,
+    onVoiceCancel: () -> Unit,
+    onVoiceLanguage: (String) -> Unit,
     clipImage: Boolean = false,
     onPasteImage: () -> Unit = {},
     onDismissClip: () -> Unit = {},
@@ -900,6 +968,13 @@ private fun Composer(
         runCatching { fieldFocus.requestFocus() }
         fieldKeyboard?.show()
         com.apvcode.devx.data.PendingAsk.focus = false
+    }
+    // A pull upwards at the end of the chat: the keyboard comes up at once.
+    LaunchedEffect(com.apvcode.devx.data.PendingAsk.keyboard) {
+        if (!com.apvcode.devx.data.PendingAsk.keyboard) return@LaunchedEffect
+        com.apvcode.devx.data.PendingAsk.keyboard = false
+        runCatching { fieldFocus.requestFocus() }
+        fieldKeyboard?.show()
     }
     val canSend = (value.isNotBlank() || attachments.isNotEmpty()) && importing == 0
     Column(
@@ -963,38 +1038,44 @@ private fun Composer(
             ) {
                 ComposerAttachments(attachments, importing, fileOf, onRemoveAttachment, onOpen = onOpenAttachment)
             }
-            Row(Modifier.padding(start = 16.dp, end = 3.dp), verticalAlignment = Alignment.Bottom) {
-                // The text sits exactly in the middle of a one-line pill and grows upwards.
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .heightIn(min = 42.dp)
-                        .onGloballyPositioned { origin.field = it.boundsInWindow() },
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    BasicTextField(
-                        value = value,
-                        onValueChange = onValueChange,
-                        textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
-                        cursorBrush = SolidColor(DevxColors.Accent),
-                        maxLines = 6,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).focusRequester(fieldFocus).onFocusChanged { focused = it.isFocused },
-                        decorationBox = { inner ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (value.isEmpty()) {
-                                    Text(stringResource(R.string.chat_placeholder), style = DevxType.Body, color = DevxColors.TextSecondary, maxLines = 1)
+            androidx.compose.animation.Crossfade(targetState = voice.state != com.apvcode.devx.data.VoiceInput.State.Idle, animationSpec = tween(220), label = "composer-voice") { listening ->
+                if (listening) {
+                    VoiceBar(voice, onDone = onVoiceDone, onCancel = onVoiceCancel, onLanguage = onVoiceLanguage)
+                } else {
+                Row(Modifier.padding(start = 16.dp, end = 3.dp), verticalAlignment = Alignment.Bottom) {
+                    // The text sits exactly in the middle of a one-line pill and grows upwards.
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .heightIn(min = 42.dp)
+                            .onGloballyPositioned { origin.field = it.boundsInWindow() },
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        BasicTextField(
+                            value = value,
+                            onValueChange = onValueChange,
+                            textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
+                            cursorBrush = SolidColor(DevxColors.Accent),
+                            maxLines = 6,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).focusRequester(fieldFocus).onFocusChanged { focused = it.isFocused },
+                            decorationBox = { inner ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (value.isEmpty()) {
+                                        Text(stringResource(R.string.chat_placeholder), style = DevxType.Body, color = DevxColors.TextSecondary, maxLines = 1)
+                                    }
+                                    inner()
                                 }
-                                inner()
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
+                    // Speak instead of typing: the system's speech recognition opens, and what it hears goes into the field.
+                    Box(Modifier.size(42.dp).pressable(onClick = onMic), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Mic, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp))
+                    }
+                    Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+                        SendButton(canSend = canSend, generating = generating, onSend = sendWithFeel, onStop = onStop)
+                    }
                 }
-                // Speak instead of typing: the system's speech recognition opens, and what it hears goes into the field.
-                Box(Modifier.size(42.dp).pressable(onClick = onMic), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.Mic, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp))
-                }
-                Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
-                    SendButton(canSend = canSend, generating = generating, onSend = sendWithFeel, onStop = onStop)
                 }
             }
             }

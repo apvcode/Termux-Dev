@@ -10,6 +10,7 @@ import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.fadeIn
+import kotlinx.coroutines.flow.sample
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -190,8 +191,36 @@ private fun UserBubble(msg: Msg, vm: ChatViewModel, animate: Boolean, host: Mess
 @Composable
 private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host: MessageActionsHost, modifier: Modifier) {
     val streaming = vm.isStreaming(msg)
-    val blocks = remember(msg.text) { parseBlocks(msg.text) }
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // While the answer is written it is taken up about twelve times a second, not with every little piece that arrives: the
+    // words still come in smoothly (that is the job of the reveal), but the text is not parsed and laid out for each piece.
+    val text = sampledText(msg, streaming)
+    val blocks = remember(text) { parseBlocks(text) }
+    Column(modifier.fillMaxWidth()) {
+    // While the answer is being made there is always a sign of it, whatever the model does this moment (thinking, searching,
+    // waiting for the line). It stays at the top of the message, above the words, and does not travel down after the text;
+    // when the answer is whole, it folds away softly and the text settles into its place.
+    AnimatedVisibility(
+        visible = streaming && msg.error == null,
+        enter = fadeIn(tween(200)),
+        exit = fadeOut(tween(220)) + shrinkVertically(tween(360)),
+    ) {
+        Column(Modifier.padding(bottom = 12.dp)) {
+            when {
+                msg.reconnect > 0 -> ReconnectRow(msg.reconnect)
+                msg.activity != null -> ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
+                else -> {
+                    val headline = rememberThinkingHeadline(msg)
+                    ThinkingLabel(
+                        text = headline,
+                        enabled = msg.reasoning.isNotBlank() || msg.steps.isNotEmpty(),
+                        onClick = { host.onShowThinking(msg) },
+                    )
+                    if (msg.text.isEmpty() && msg.sources.isNotEmpty()) ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
+                }
+            }
+        }
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         blocks.forEach { block ->
             when (block) {
                 is Block.Text -> SelectionContainer { MarkdownText(block.markdown, animate = animate) }
@@ -217,29 +246,6 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
                 androidx.compose.animation.expandVertically(androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 360f)) + fadeIn(tween(240)),
             exit = androidx.compose.animation.slideOutVertically(tween(260)) { it / 3 } + androidx.compose.animation.scaleOut(tween(240), targetScale = 0.94f) + shrinkVertically(tween(280)) + fadeOut(tween(200)),
         ) { lastAsk?.let { ToolApprovalCard(it) } }
-        // While the answer is being made there is always a sign of it, whatever the model does this moment (thinking, searching,
-        // waiting for the line); when the answer is whole, it folds away softly and the text settles into its place.
-        AnimatedVisibility(
-            visible = streaming && msg.error == null,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(220)) + shrinkVertically(tween(360)),
-        ) {
-            Column {
-                when {
-                    msg.reconnect > 0 -> ReconnectRow(msg.reconnect)
-                    msg.activity != null -> ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
-                    else -> {
-                        val headline = rememberThinkingHeadline(msg)
-                        ThinkingLabel(
-                            text = headline,
-                            enabled = msg.reasoning.isNotBlank() || msg.steps.isNotEmpty(),
-                            onClick = { host.onShowThinking(msg) },
-                        )
-                        if (msg.text.isEmpty() && msg.sources.isNotEmpty()) ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
-                    }
-                }
-            }
-        }
         msg.error?.let { kind ->
             ErrorCard(
                 kind = kind,
@@ -253,6 +259,7 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
         if (!streaming && (msg.text.isNotBlank() || msg.error != null)) {
             AssistantActions(msg, vm, host)
         }
+    }
     }
 }
 
@@ -417,3 +424,16 @@ private fun whenLabel(context: Context, timestamp: Long): String {
 }
 
 /** The photos and files of a message: photos as tiles that open full screen, files as chips. */
+
+/** The text of a message; while [active] (it is being written) it follows the message at most every 80 ms. */
+@OptIn(kotlinx.coroutines.FlowPreview::class)
+@Composable
+private fun sampledText(msg: Msg, active: Boolean): String {
+    var shown by remember(msg.id) { mutableStateOf(msg.text) }
+    LaunchedEffect(msg.id, active) {
+        if (active) {
+            androidx.compose.runtime.snapshotFlow { msg.text }.sample(80).collect { shown = it }
+        }
+    }
+    return if (active) shown else msg.text
+}

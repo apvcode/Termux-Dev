@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
@@ -146,6 +147,20 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
             },
             onDismiss = { dialog = null },
         )
+        "voice" -> {
+            val app = stringResource(R.string.voice_lang_app)
+            val auto = stringResource(R.string.voice_lang_auto)
+            ChoiceDialog(
+                stringResource(R.string.settings_voice_title),
+                listOf("" to app, com.apvcode.devx.data.VoiceInput.AUTO to auto) + com.apvcode.devx.data.VoiceInput.LANGUAGES,
+                Prefs.voiceLanguage,
+                onPick = {
+                    Prefs.saveVoiceLanguage(it)
+                    dialog = null
+                },
+                onDismiss = { dialog = null },
+            )
+        }
         "theme" -> ChoiceDialog(
             stringResource(R.string.settings_theme_title),
             ThemeMode.values().map { it to themeNames.getValue(it) },
@@ -196,6 +211,14 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                     value = languageNames.getValue(Prefs.language),
                     showChevron = true,
                     onClick = { dialog = "language" },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    title = stringResource(R.string.settings_voice),
+                    icon = Icons.Outlined.Mic,
+                    value = com.apvcode.devx.data.VoiceInput.nameOf(Prefs.voiceLanguage, stringResource(R.string.voice_lang_app), stringResource(R.string.voice_lang_auto)),
+                    showChevron = true,
+                    onClick = { dialog = "voice" },
                 )
                 SettingsDivider()
                 SettingsRow(
