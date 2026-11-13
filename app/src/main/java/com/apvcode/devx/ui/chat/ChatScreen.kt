@@ -244,8 +244,8 @@ fun ChatScreen(
             val chat = vm.current
             if (chat != null) {
                 if (chat.locked) vm.setLocked(chat.id, false)
-                else if (com.apvcode.devx.data.AppLock.locksChats || keyguard?.isDeviceSecure == true) vm.setLocked(chat.id, true)
-                else android.widget.Toast.makeText(context, R.string.lock_need_screen_lock, android.widget.Toast.LENGTH_LONG).show()
+                else if (com.apvcode.devx.data.AppLock.locksChats) vm.setLocked(chat.id, true)
+                else android.widget.Toast.makeText(context, if (com.apvcode.devx.data.AppLock.enabled) R.string.lock_need_chats else R.string.lock_need_screen_lock, android.widget.Toast.LENGTH_LONG).show()
             }
         },
         onUploaded = { vm.current?.let { onShowUploaded(it.id) } },

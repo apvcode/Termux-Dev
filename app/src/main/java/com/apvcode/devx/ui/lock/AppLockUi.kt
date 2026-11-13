@@ -95,38 +95,35 @@ import kotlinx.coroutines.withContext
 
 // ───────────────────────── the pieces ─────────────────────────
 
-/** A padlock drawn by hand: [open] 0 is shut, 1 is open (the shackle lifts and swings aside). */
+/**
+ * A padlock drawn on a 24 by 24 grid (the Tabler one): [open] 0 is shut, 1 is open (the shackle lifts and swings aside).
+ * Everything sits on the middle line, so a shut padlock is straight.
+ */
 @Composable
 fun LockGlyph(open: Float, modifier: Modifier = Modifier, tint: Color = DevxColors.TextPrimary) {
     Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val stroke = w * 0.075f
-        val bodyW = w * 0.56f
-        val bodyH = h * 0.40f
-        val bodyLeft = (w - bodyW) / 2f
-        val bodyTop = h * 0.46f
-        val cx = w / 2f
-        val r = bodyW * 0.30f
-        val legLeft = cx - r
-        val legRight = cx + r
-        val archCenterY = h * 0.20f + r
-        val lift = open * h * 0.12f
+        val k = size.minDimension / 24f
+        val ox = (size.width - 24f * k) / 2f
+        val oy = (size.height - 24f * k) / 2f
+        fun p(x: Float, y: Float) = Offset(ox + x * k, oy + y * k)
+        val line = Stroke(1.9f * k, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        // The shackle: two legs and an arch of radius 4 over x 8..16; opening lifts it and turns it aside on its left foot.
         withTransform({
-            translate(0f, -lift)
-            rotate(-open * 16f, pivot = Offset(legLeft, bodyTop))
+            translate(0f, -open * 2.4f * k)
+            rotate(-open * 16f, pivot = p(8f, 11f))
         }) {
             val shackle = Path().apply {
-                moveTo(legLeft, bodyTop + stroke)
-                lineTo(legLeft, archCenterY)
-                arcTo(androidx.compose.ui.geometry.Rect(cx - r, archCenterY - r, cx + r, archCenterY + r), 180f, 180f, false)
-                lineTo(legRight, bodyTop + stroke - open * h * 0.10f)
+                moveTo(p(8f, 11f).x, p(8f, 11f).y)
+                lineTo(p(8f, 7f).x, p(8f, 7f).y)
+                arcTo(androidx.compose.ui.geometry.Rect(p(8f, 3f), p(16f, 11f)), 180f, 180f, false)
+                lineTo(p(16f, 11f - open * 3f).x, p(16f, 11f - open * 3f).y)
             }
-            drawPath(shackle, tint, style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawPath(shackle, tint, style = line)
         }
-        drawRoundRect(tint, Offset(bodyLeft, bodyTop), Size(bodyW, bodyH), CornerRadius(w * 0.10f), style = Stroke(stroke))
-        drawCircle(tint, stroke * 0.85f, Offset(cx, bodyTop + bodyH * 0.42f))
-        drawLine(tint, Offset(cx, bodyTop + bodyH * 0.5f), Offset(cx, bodyTop + bodyH * 0.72f), stroke * 0.85f, StrokeCap.Round)
+        // The body, with the keyhole in its middle.
+        drawRoundRect(tint, p(5f, 11f), Size(14f * k, 10f * k), CornerRadius(2f * k), style = line)
+        drawCircle(tint, 1.25f * k, p(12f, 15.4f))
+        drawLine(tint, p(12f, 15.9f), p(12f, 17.8f), 1.9f * k, StrokeCap.Round)
     }
 }
 

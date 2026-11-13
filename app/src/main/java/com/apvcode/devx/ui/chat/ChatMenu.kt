@@ -126,6 +126,9 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
             Icon(Icons.Outlined.MoreVert, stringResource(R.string.cd_more), tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp))
         }
         var page by remember(open) { mutableIntStateOf(0) }
+        // Counted in the background when the menu opens: it reads what the next request would carry.
+        var estimate by remember(open) { mutableStateOf<Int?>(null) }
+        LaunchedEffect(open) { if (open) estimate = runCatching { vm.contextEstimate(chat) }.getOrNull() }
         PopupMenu(expanded = open, onDismiss = { open = false }, offset = DpOffset((-4).dp, 0.dp)) {
             AnimatedContent(
                 targetState = page,
@@ -148,9 +151,9 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = if (chat.messages.isEmpty()) 6.dp else 0.dp),
                         )
-                        if (chat.messages.isNotEmpty()) {
+                        if (chat.messages.isNotEmpty() && estimate != null) {
                             Text(
-                                stringResource(R.string.menu_context, contextTokens(chat)),
+                                stringResource(R.string.menu_context, tokenLabel(estimate!!)),
                                 style = DevxType.Caption,
                                 color = DevxColors.TextDisabled,
                                 modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 6.dp),
@@ -164,6 +167,8 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                         MenuRow(
                             if (chat.locked) DevxIcons.LockOpen else DevxIcons.Lock,
                             stringResource(if (chat.locked) R.string.menu_unlock else R.string.menu_lock),
+                            // Locking needs the app lock to be on and to cover chats; a chat that is already locked can always be released.
+                            enabled = chat.locked || com.apvcode.devx.data.AppLock.locksChats,
                         ) { open = false; actions.onToggleLock() }
                         MenuRow(DevxIcons.FolderPlus, stringResource(R.string.menu_add_to_project), trailing = DevxIcons.ChevronRight) { page = 1 }
                         MenuRow(DevxIcons.Paperclip, stringResource(R.string.menu_uploaded)) { open = false; actions.onUploaded() }
@@ -474,9 +479,5 @@ fun ChatGoneOverlay(onClose: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** A rough size of what the model reads from this chat: about four letters to a token, counted over the branch that is shown. */
-internal fun contextTokens(chat: Chat): String {
-    val letters = chat.activePath().sumOf { it.text.length }
-    val tokens = (letters + 3) / 4
-    return if (tokens < 1000) tokens.toString() else String.format(java.util.Locale.US, "%.1fk", tokens / 1000.0)
-}
+private fun tokenLabel(tokens: Int): String =
+    if (tokens < 1000) tokens.toString() else String.format(java.util.Locale.US, "%.1fk", tokens / 1000.0)

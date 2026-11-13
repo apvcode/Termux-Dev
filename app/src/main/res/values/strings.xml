@@ -263,7 +263,8 @@
     <string name="locked_title">This chat is locked</string>
     <string name="locked_body">Unlock it with your screen lock.</string>
     <string name="locked_button">Unlock</string>
-    <string name="lock_need_screen_lock">Turn on the app lock in Settings first (or set a screen lock on the phone).</string>
+    <string name="lock_need_screen_lock">Turn on the app lock in Settings first.</string>
+    <string name="lock_need_chats">The app lock is set to the app only. Choose "Chats" or "Both" in its settings to lock chats.</string>
     <string name="lock_prompt_title">Unlock the chat</string>
     <string name="lock_prompt_body">Confirm with your screen lock.</string>
     <string name="home_added">The shortcut is being added to your home screen</string>

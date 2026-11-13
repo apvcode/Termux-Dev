@@ -1006,6 +1006,35 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         return path.take(end + 1).filter { it.role == Role.User }.flatMap { it.attachments }.filter { !it.isQuote }.distinctBy { it.id }
     }
 
+    /**
+     * A rough size, in tokens, of what the next request in this chat would carry: the system prompt (with memory, the
+     * project and the skills), the tools it offers, the whole conversation as it is sent, and the pictures. About four
+     * letters make a token; a picture is counted as a fixed amount. It is a guide, not the provider's own count.
+     */
+    suspend fun contextEstimate(chat: Chat): Int = withContext(Dispatchers.IO) {
+        val upTo = chat.activePath().lastOrNull() ?: return@withContext 0
+        val files = filesOf(chat, upTo)
+        val memoryOn = Prefs.memory && !chat.temporary
+        val projectName = chat.project?.takeIf { !chat.temporary && it in projectInfo }
+        val project = projectName?.let { projectInfo[it] }
+        val skillsOn = skills.enabled().isNotEmpty()
+        val tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn)
+        val system = SystemPrompt.forUser(
+            Prefs.nickname,
+            if (memoryOn) memory.forPrompt() else null,
+            project?.let { SystemPrompt.ProjectContext(projectName!!, it.description, it.instructions, if (memoryOn) it.memory.forPrompt() else null, if (memoryOn) it.memory.summary else null) },
+            if (skillsOn) skills.forPrompt() else null,
+            null,
+            if (memoryOn) memory.summary else null,
+        )
+        val messages = historyFor(chat, upTo, withTools = tools.isNotEmpty())
+        val letters = system.length +
+            tools.sumOf { it.name.length + it.description.length + it.parameters.toString().length } +
+            messages.sumOf { it.text.length }
+        val pictures = messages.sumOf { it.images.size } * 1_100 + messages.sumOf { it.documents.size } * 2_000
+        letters / 4 + pictures
+    }
+
     private fun historyFor(chat: Chat, upTo: Msg, withTools: Boolean = false): List<WireMessage> {
         val path = chat.activePath()
         val end = path.indexOfFirst { it.id == upTo.id }.let { if (it < 0) path.size - 1 else it }

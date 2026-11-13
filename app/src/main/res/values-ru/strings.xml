@@ -255,7 +255,8 @@
     <string name="locked_title">Этот чат заблокирован</string>
     <string name="locked_body">Откройте его блокировкой экрана.</string>
     <string name="locked_button">Разблокировать</string>
-    <string name="lock_need_screen_lock">Сначала включите блокировку приложения в Настройках (или поставьте блокировку экрана на телефоне).</string>
+    <string name="lock_need_screen_lock">Сначала включи блокировку приложения в настройках.</string>
+    <string name="lock_need_chats">Блокировка настроена только на приложение. Выбери «Чаты» или «Оба» в её настройках, чтобы закрывать чаты.</string>
     <string name="lock_prompt_title">Разблокировать чат</string>
     <string name="lock_prompt_body">Подтвердите блокировкой экрана.</string>
     <string name="home_added">Ярлык добавляется на главный экран</string>
