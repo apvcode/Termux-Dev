@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { RemoteHost, PairRequest } from './host.js';
 import { remoteDir } from './store.js';
+import { TerminalWorker } from './terminal-worker.js';
 import { DEVX_VERSION } from '../core/types.js';
 
 /** Where `devx remote ...` talks to the running host: a socket that only this user can open. */
@@ -70,7 +71,18 @@ export function serveControl(host: RemoteHost, onStop: () => void, dir = remoteD
   });
 
   const server = net.createServer((socket) => {
+    // A terminal that works in a chat: its messages are the events of that chat, and the phone's go back to it.
+    let terminal: TerminalWorker | null = null;
+    socket.on('close', () => { if (terminal) host.detachTerminal(terminal); terminal = null; });
     lines(socket, (msg) => {
+      if (msg.t === 'hello') {
+        // A new hello on the same line means the terminal moved to another chat.
+        if (terminal) host.detachTerminal(terminal);
+        terminal = new TerminalWorker((m) => write(socket, m as Line), { id: String(msg.id), cwd: String(msg.cwd ?? ''), title: String(msg.title ?? '') });
+        host.attachTerminal(terminal);
+        return;
+      }
+      if (msg.t && terminal) return terminal.handle(msg);
       const reply = (ok: boolean, r?: any, err?: string) => write(socket, { id: msg.id, ok, r, err });
       try {
         switch (msg.cmd) {

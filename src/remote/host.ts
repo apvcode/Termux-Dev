@@ -6,6 +6,7 @@ import path from 'path';
 import { fork, ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
 import { DEVX_VERSION } from '../core/types.js';
+import type { TerminalWorker } from './terminal-worker.js';
 import { SessionManager } from '../core/session.js';
 import { clearChatIndexCache, loadChatIndex, searchEntries } from '../core/chat-search.js';
 import { ALL_PROVIDERS } from '../cli/providers.js';
@@ -96,6 +97,8 @@ interface OpenSession {
   used: boolean;
   /** A permission, a question or a plan waits for an answer (orange on the phone). */
   pending: Set<string>;
+  /** The chat runs in a terminal; the host only passes things along. */
+  terminal?: boolean;
   /** Deltas waiting to be sent: many small pieces of text become one message every few milliseconds. */
   batch: { e: 'text' | 'reasoning'; d: string } | null;
   flush: NodeJS.Timeout | null;
@@ -422,7 +425,7 @@ export class RemoteHost {
     const open = new Map([...this.sessions].map((s) => [s.id, s]));
     const row = (e: (typeof entries)[number]) => ({
       id: e.id, title: e.title, cwd: e.cwd ?? null, model: e.model, updatedAt: e.updatedAt, createdAt: e.createdAt, messages: e.messageCount,
-      open: open.has(e.id), running: !!open.get(e.id)?.state?.running, status: this.statusOf(e.id),
+      open: open.has(e.id), running: !!open.get(e.id)?.state?.running, status: this.statusOf(e.id), terminal: !!open.get(e.id)?.terminal,
     });
     const q = (p.q ?? '').trim();
     if (q) {
@@ -431,7 +434,7 @@ export class RemoteHost {
     }
     const rows = entries.slice(0, p.limit ?? 200).map(row);
     // A chat that was just written in but is not saved yet is still shown; an empty new one is not.
-    for (const s of this.sessions) if (s.used && !rows.some((r) => r.id === s.id)) rows.unshift({ id: s.id, title: s.state?.title ?? 'New Session', cwd: s.cwd, model: String(s.state?.model ?? ''), updatedAt: Date.now(), createdAt: Date.now(), messages: 0, open: true, running: !!s.state?.running, status: this.statusOf(s.id) });
+    for (const s of this.sessions) if (s.used && !rows.some((r) => r.id === s.id)) rows.unshift({ id: s.id, title: s.state?.title ?? 'New Session', cwd: s.cwd, model: String(s.state?.model ?? ''), updatedAt: Date.now(), createdAt: Date.now(), messages: 0, open: true, running: !!s.state?.running, status: this.statusOf(s.id), terminal: !!s.terminal });
     return { sessions: rows };
   }
 
@@ -455,6 +458,37 @@ export class RemoteHost {
     const snap = await s.worker.call('snapshot', {});
     s.state = snap.state;
     return { s: s.id, ...snap, seq: s.seq };
+  }
+
+  /**
+   * A terminal tells the host it is working in a chat. If a background worker of the host has that chat open, the terminal
+   * takes over (the phones that look at it keep looking, now at the terminal's chat): two copies of one chat would drift apart.
+   */
+  attachTerminal(worker: TerminalWorker): void {
+    const { id, cwd, title } = worker.meta;
+    const old = this.byId(id);
+    const s: OpenSession = { worker, id, cwd, seq: old?.seq ?? 0, peers: old?.peers ?? new Set(), lastActive: Date.now(), used: true, pending: new Set(), terminal: true, batch: null, flush: null, state: null };
+    if (old) { this.sessions.delete(old); old.worker.onExit = () => {}; void old.worker.call('close').catch(() => null); setTimeout(() => old.worker.kill(), 500).unref(); }
+    worker.onEvent = (e) => this.onSessionEvent(s, e);
+    worker.onExit = () => {
+      this.sessions.delete(s);
+      for (const ctx of s.peers) { ctx.attached.delete(s); ctx.peer.send({ k: 'ev', s: s.id, n: ++s.seq, e: { e: 'gone' } }); }
+      this.onChange();
+      this.broadcastGlobal({ e: 'sessions' });
+    };
+    this.sessions.add(s);
+    for (const ctx of s.peers) ctx.attached.add(s);
+    // The phones that were looking at the old copy read the chat again, now from the terminal.
+    if (old && s.peers.size > 0) this.send(s, { e: 'undone' });
+    this.onChange();
+    clearChatIndexCache();
+    this.broadcastGlobal({ e: 'sessions' });
+  }
+
+  /** The terminal closed or moved to another chat. */
+  detachTerminal(worker: TerminalWorker): void {
+    const s = [...this.sessions].find((x) => x.worker === worker);
+    if (s) worker.onExit();
   }
 
   private async spawn(cwd: string, sessionId?: string, plan?: boolean): Promise<OpenSession> {
@@ -496,7 +530,7 @@ export class RemoteHost {
       s.pending.clear();
       if (!e.aborted) {
         if (e.failed) this.setMark(s.id, 'error');
-        else if (s.peers.size === 0) this.setMark(s.id, 'unread');
+        else if (s.peers.size === 0 && !s.terminal) this.setMark(s.id, 'unread');
       }
     }
     if (e.e === 'state') {
@@ -566,7 +600,7 @@ export class RemoteHost {
 
   private async reapIdle(): Promise<void> {
     for (const s of [...this.sessions]) {
-      if (s.peers.size > 0 || Date.now() - s.lastActive < IDLE_WORKER_MS) continue;
+      if (s.terminal || s.peers.size > 0 || Date.now() - s.lastActive < IDLE_WORKER_MS) continue;
       const busy = await s.worker.call('busy', {}, 5000).catch(() => ({ running: true }));
       if (busy.running || busy.background) { s.lastActive = Date.now(); continue; }
       void s.worker.call('close').catch(() => null);

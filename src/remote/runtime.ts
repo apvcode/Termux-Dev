@@ -278,28 +278,7 @@ export class SessionRuntime {
 
   /** The conversation so far, shaped for the phone, with what is going on right now. */
   snapshot(limit = 120): RtEvent {
-    const items: any[] = [];
-    const toolsById = new Map<string, any>();
-    for (const m of this.history.getMessages()) {
-      if (m.role === 'system') continue;
-      if (m.role === 'user') {
-        const text = m.content.split('\n\n--- Attached Files ---')[0];
-        if (text.startsWith(COMPACT_MARK)) { items.push({ k: 'compact', text: text.slice(COMPACT_MARK.length).trim() }); continue; }
-        items.push({ k: 'user', text, files: attachedNames(m.content), images: m.images?.length ?? 0, at: m.at });
-      } else if (m.role === 'assistant') {
-        if (m.reasoning?.text) items.push({ k: 'thought', text: clip(m.reasoning.text, 20000), sec: m.reasoning.sec });
-        // On screen the words come before the tools the model called after them.
-        if (m.content?.trim()) items.push({ k: 'assistant', text: m.content });
-        for (const c of m.tool_calls ?? []) {
-          const tool = { k: 'tool', id: c.id, name: c.name, args: clip(JSON.stringify(c.arguments ?? {}), TOOL_ARGS_CAP), desc: describe(c.name, c.arguments), result: null as string | null };
-          toolsById.set(c.id, tool);
-          items.push(tool);
-        }
-      } else if (m.role === 'tool' && m.tool_call_id) {
-        const t = toolsById.get(m.tool_call_id);
-        if (t) t.result = clip(m.content, TOOL_RESULT_CAP);
-      }
-    }
+    const items = snapshotItems(this.history.getMessages());
     const ordered = items;
     const more = Math.max(0, ordered.length - limit);
     return {
@@ -893,6 +872,33 @@ function isTextual(mime: string, name: string): boolean {
   if (mime.startsWith('text/')) return true;
   if (/(json|xml|yaml|javascript|typescript|csv|markdown|x-sh|toml)/.test(mime)) return true;
   return /\.(txt|md|json|ya?ml|toml|csv|log|py|js|ts|tsx|jsx|java|kt|c|h|cpp|rs|go|rb|php|sh|css|html|xml|sql|gradle|ini|cfg|conf|env)$/i.test(name);
+}
+
+/** The chat as the phone draws it: user messages, thoughts, answers and tools with what they returned. Also used for a chat that runs in a terminal. */
+export function snapshotItems(messages: Message[]): any[] {
+  const items: any[] = [];
+  const toolsById = new Map<string, any>();
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+    if (m.role === 'user') {
+      const text = m.content.split('\n\n--- Attached Files ---')[0];
+      if (text.startsWith(COMPACT_MARK)) { items.push({ k: 'compact', text: text.slice(COMPACT_MARK.length).trim() }); continue; }
+      items.push({ k: 'user', text, files: attachedNames(m.content), images: m.images?.length ?? 0, at: m.at });
+    } else if (m.role === 'assistant') {
+      if (m.reasoning?.text) items.push({ k: 'thought', text: clip(m.reasoning.text, 20000), sec: m.reasoning.sec });
+      // On screen the words come before the tools the model called after them.
+      if (m.content?.trim()) items.push({ k: 'assistant', text: m.content });
+      for (const c of m.tool_calls ?? []) {
+        const tool = { k: 'tool', id: c.id, name: c.name, args: clip(JSON.stringify(c.arguments ?? {}), TOOL_ARGS_CAP), desc: describe(c.name, c.arguments), result: null as string | null };
+        toolsById.set(c.id, tool);
+        items.push(tool);
+      }
+    } else if (m.role === 'tool' && m.tool_call_id) {
+      const t = toolsById.get(m.tool_call_id);
+      if (t) t.result = clip(m.content, TOOL_RESULT_CAP);
+    }
+  }
+  return items;
 }
 
 function attachedNames(content: string): string[] {

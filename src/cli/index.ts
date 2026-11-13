@@ -82,6 +82,8 @@ import {
 } from './ui.js';
 import { SettingsState, runSettings } from './settings.js';
 import { runMcpPanel } from './mcp-panel.js';
+import { TerminalLink } from '../remote/terminal-link.js';
+import { snapshotItems } from '../remote/runtime.js';
 import { renderResumedMessages } from './resume.js';
 import { askConfirm, askPlanDecision, printFarewell } from './confirm.js';
 import { Checkpoint, createCheckpoint, diffCheckpoint, restoreCheckpoint } from '../core/checkpoint.js';
@@ -1043,6 +1045,20 @@ export async function main() {
     contextBreakdown(history.getMessages(), getTools(planMode).map(t => t.definition), config.maxContextTokens || getModelContextLimit(config.model));
   let currentDraft = '';
   let autoTriggerPrompt = '';
+  // The chat is shared with phones: while `devx remote start` runs, a phone that opens this chat sees it live and can write in it.
+  const link = new TerminalLink({
+    items: () => snapshotItems(history.getMessages()),
+    state: () => {
+      const sess = sessionManager.getSession();
+      const ctx = currentContext();
+      return {
+        id: sess.id, title: sess.title, cwd: process.cwd(), model: config.model, provider: config.provider || '',
+        plan: planMode, yolo: !!config.autoApprove, extra: !!config.autoApprove && !!config.autoApproveAll,
+        cost: sessionCost.total, costEstimated: !!sessionCost.estimated, ctxUsed: ctx.inUse, ctxLimit: config.maxContextTokens || getModelContextLimit(config.model),
+      };
+    },
+  });
+  if (process.stdin.isTTY && process.stdout.isTTY) link.start();
   // Commands typed while the agent worked that change the conversation (/compact, /new ...): they run after the turn.
   const pendingCommands: string[] = [];
   // ctrl+p and ctrl+o while the agent works: reasoning and tool output, collapsed unless switched on.
@@ -1414,6 +1430,9 @@ export async function main() {
     }
 
     if (!autoTriggerPrompt && pendingCommands.length > 0) autoTriggerPrompt = pendingCommands.shift()!;
+    // A phone wrote in this chat while the terminal waited: it is taken up as if it had been typed here.
+    if (!autoTriggerPrompt && link.hasPending()) autoTriggerPrompt = link.takeFirst()!;
+    link.sync(sessionManager.getSession().id, sessionManager.getSession().title, history.getMessages().some((m) => m.role === 'user'));
 
     let answer = '';
     // Set when this turn starts by itself, from the news of a background task (not from the user).
@@ -1456,9 +1475,12 @@ export async function main() {
           const onNote = () => signal(config.backgroundAutoWake === false ? 'redraw' : 'wake');
           bg.on('change', onChange);
           bg.on('note', onNote);
+          // The phone wrote: the prompt closes (what is typed stays) and the message is answered.
+          link.onWake = () => signal('wake');
           return () => {
             bg.off('change', onChange);
             bg.off('note', onNote);
+            link.onWake = null;
           };
         },
       });
@@ -1482,7 +1504,7 @@ export async function main() {
         // The prompt was closed by news from a background task: the agent answers it. What was typed stays.
         currentDraft = inputStr.slice('__WAKE__:'.length);
         wakeNotes = bg.takeNotes();
-        if (!wakeNotes) continue;
+        if (!wakeNotes) continue; // (a phone message waits at the top of the loop)
         console.log(noteRows(wakeNotes).map((r) => renderNotice('info', r)).join('\n'));
         console.log();
         answer = wakeNotes;
@@ -2173,6 +2195,8 @@ export async function main() {
     const taskStartTime = Date.now();
     const abortController = new AbortController();
     let aborted = false;
+    link.sync(sessionManager.getSession().id, sessionManager.getSession().title, true);
+    link.turnStart(wakeNotes ? undefined : answer);
     let isConnecting = true;
     let spinnerActive = false;
     let thinkingActive = false;
@@ -2528,6 +2552,7 @@ export async function main() {
     };
 
     activeAbortHandler = stopGeneration;
+    link.onStop = () => stopGeneration();
     process.on('SIGINT', onSigInt);
     if (process.stdin.isTTY) {
       try {
@@ -2551,13 +2576,14 @@ export async function main() {
 
     try {
       for await (const event of agent.run(abortController.signal, {
-        takePending: async () => Promise.all(composer.takeQueued().map(queuedToMessage)),
-        hasPending: () => composer.hasQueued(),
+        takePending: async () => Promise.all([...composer.takeQueued(), ...link.takeAll()].map(queuedToMessage)),
+        hasPending: () => composer.hasQueued() || link.hasPending(),
         takeNotes: () => bg.takeNotes(),
         hasNotes: () => bg.hasNotes(),
       })) {
         // A panel the user opened (a command typed meanwhile) keeps the screen until it is closed.
         while (liveCommand) await liveCommand.catch(() => undefined);
+        link.agentEvent(event);
         if (aborted) {
           // The request that was cancelled is still billed by the provider: its estimate counts.
           if (event.type === 'usage') {
@@ -2850,6 +2876,7 @@ export async function main() {
 
       attachReasoning();
       const turnElapsedMs = Date.now() - turnStartTime;
+      link.onStop = null;
       if (cleanUi && !aborted) {
         const summaryRow = renderTurnSummary({
           ms: turnElapsedMs,
@@ -2881,6 +2908,8 @@ export async function main() {
 
       // Auto-save session
       await sessionManager.save(history.getMessages(), sessionCost.total, config.model, planMode, sessionCost.estimated);
+      // The phones that look at this chat are told the turn is over, after it is saved.
+      link.turnEnd({ ms: turnElapsedMs, tools: toolsExecutedCount, cost: sessionCost.total - costAtTurnStart, aborted, failed: null });
 
       // The first exchange names the chat. It runs in the background and never holds the prompt back.
       if (!aborted && !sessionManager.hasGeneratedTitle && titleAttempts < 2) {
