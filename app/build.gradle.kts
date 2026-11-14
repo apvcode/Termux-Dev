@@ -7,6 +7,17 @@ plugins {
     alias(libs.plugins.chaquopy)
 }
 
+// The key that signs the release APK lives outside the repository: in ~/.config/devx-android/signing.properties (storeFile,
+// storePassword, keyAlias, keyPassword), or in the file named by DEVX_SIGNING_PROPERTIES, or in keystore.properties here (not
+// committed). Without any of them the release is signed with the debug key, which is fine for trying it out but not for sharing.
+val signing = Properties().apply {
+    val file = System.getenv("DEVX_SIGNING_PROPERTIES")?.let { file(it) }
+        ?: file("${System.getProperty("user.home")}/.config/devx-android/signing.properties").takeIf { it.exists() }
+        ?: rootProject.file("keystore.properties").takeIf { it.exists() }
+    if (file != null && file.exists()) file.inputStream().use { load(it) }
+}
+val releaseKey = signing.getProperty("storeFile")?.let { file(it) }?.takeIf { it.exists() }
+
 android {
     namespace = "com.apvcode.devx"
     compileSdk = 35
@@ -21,10 +32,20 @@ android {
         ndk { abiFilters += ((project.findProperty("abis") as String?) ?: "arm64-v8a,x86_64").split(",") }
     }
 
+    signingConfigs {
+        if (releaseKey != null) {
+            create("release") {
+                storeFile = releaseKey
+                storePassword = signing.getProperty("storePassword")
+                keyAlias = signing.getProperty("keyAlias")
+                keyPassword = signing.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Local testing only: sign the release build with the debug key so it installs over debug.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

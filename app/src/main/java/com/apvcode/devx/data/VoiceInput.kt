@@ -23,7 +23,7 @@ import java.util.Locale
  * on listening through pauses until the person says it is done.
  */
 @Stable
-class VoiceInput(private val context: Context) {
+class VoiceInput(private val context: Context, private val keepWarm: Boolean = false) {
     enum class State { Idle, Listening, Failed }
 
     var state by mutableStateOf(State.Idle)
@@ -158,10 +158,10 @@ class VoiceInput(private val context: Context) {
     }
 
     private fun listen() {
-        val r = recognizer ?: SpeechRecognizer.createSpeechRecognizer(context).also {
-            it.setRecognitionListener(listener)
-            recognizer = it
-        }
+        // The assistant keeps one recogniser for all its talks (connecting to it again for every turn costs time).
+        val r = recognizer ?: (if (keepWarm) shared else null) ?: SpeechRecognizer.createSpeechRecognizer(if (keepWarm) context.applicationContext else context).also { if (keepWarm) shared = it }
+        r.setRecognitionListener(listener)
+        recognizer = r
         runCatching { r.startListening(intent()) }.onFailure { fail(R.string.voice_err_generic) }
     }
 
@@ -192,7 +192,7 @@ class VoiceInput(private val context: Context) {
         onFinished = null
         onHeard = null
         quick = false
-        runCatching { recognizer?.destroy() }
+        runCatching { if (keepWarm) recognizer?.cancel() else recognizer?.destroy() }
         recognizer = null
         heard = ""
         confirmed = ""
@@ -222,7 +222,7 @@ class VoiceInput(private val context: Context) {
     }
 
     private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onReadyForSpeech(params: Bundle?) { VoiceTrace.mark("microphone ready") }
 
         override fun onBeginningOfSpeech() {}
 
@@ -273,6 +273,7 @@ class VoiceInput(private val context: Context) {
                 SpeechRecognizer.ERROR_CLIENT -> if (finishing) deliver.run() else again(300)
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
                     runCatching { recognizer?.destroy() }
+                    if (keepWarm) shared = null
                     recognizer = null
                     again(450)
                 }
@@ -286,6 +287,9 @@ class VoiceInput(private val context: Context) {
     }
 
     companion object {
+        /** The recogniser of the voice assistant, kept between talks. */
+        @Volatile private var shared: SpeechRecognizer? = null
+
         const val LEVELS = 64
         private const val IDLE_LIMIT_MS = 45_000L
         // Added to the platform in API 31; the numbers are the same on every version that reports them.
@@ -306,6 +310,13 @@ class VoiceInput(private val context: Context) {
         fun fallbackTag(): String = when (Prefs.language) {
             AppLanguage.Russian -> "ru-RU"
             AppLanguage.English -> "en-US"
+            AppLanguage.German -> "de-DE"
+            AppLanguage.Spanish -> "es-ES"
+            AppLanguage.French -> "fr-FR"
+            AppLanguage.Japanese -> "ja-JP"
+            AppLanguage.Portuguese -> "pt-BR"
+            AppLanguage.Ukrainian -> "uk-UA"
+            AppLanguage.Chinese -> "zh-CN"
             AppLanguage.System -> Locale.getDefault().toLanguageTag()
         }
 

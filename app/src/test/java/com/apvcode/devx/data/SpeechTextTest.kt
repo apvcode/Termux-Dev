@@ -55,4 +55,13 @@ class SpeechTextTest {
     fun displayKeepsParagraphsAndDropsCode() {
         assertEquals("Первый абзац.\n\nВторой.", SpeechText.display("**Первый** абзац.\n\n```x\ncode\n```\nВторой."))
     }
+
+    @Test fun aLongSentenceIsSaidFromItsFirstClause() {
+        val text = "Сегодня в Москве пасмурно и довольно прохладно для начала ноября и позднего вечера, поэтому лучше взять куртку и зонт на всякий случай."
+        val first = SpeechText.next(text, 0, final = false)
+        assertEquals("Сегодня в Москве пасмурно и довольно прохладно для начала ноября и позднего вечера", first?.first)
+        // A short clause is not cut off: the sentence goes on to its end.
+        val short = SpeechText.next("Да, конечно, сейчас сделаю.", 0, final = true)
+        assertEquals("Да, конечно, сейчас сделаю.", short?.first)
+    }
 }

@@ -95,6 +95,13 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
         AppLanguage.System to stringResource(R.string.lang_system),
         AppLanguage.English to stringResource(R.string.lang_en),
         AppLanguage.Russian to stringResource(R.string.lang_ru),
+        AppLanguage.German to stringResource(R.string.lang_de),
+        AppLanguage.Spanish to stringResource(R.string.lang_es),
+        AppLanguage.French to stringResource(R.string.lang_fr),
+        AppLanguage.Japanese to stringResource(R.string.lang_ja),
+        AppLanguage.Portuguese to stringResource(R.string.lang_pt),
+        AppLanguage.Ukrainian to stringResource(R.string.lang_uk),
+        AppLanguage.Chinese to stringResource(R.string.lang_zh),
     )
     val themeNames = mapOf(
         ThemeMode.System to stringResource(R.string.theme_system),

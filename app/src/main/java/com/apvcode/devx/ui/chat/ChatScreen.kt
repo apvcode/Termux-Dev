@@ -42,6 +42,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -610,17 +611,21 @@ fun ChatScreen(
             AnimatedVisibility(
                 visible = path.isEmpty() && !vm.isTemporary && hello.isNotBlank(),
                 modifier = Modifier.align(Alignment.Center).padding(bottom = 96.dp),
-                enter = fadeIn(tween(900, delayMillis = 700)) +
-                    slideInVertically(tween(1100, delayMillis = 700, easing = FastOutSlowInEasing)) { it / 2 },
-                exit = fadeOut(tween(160)),
+                // A new chat: the greeting rises out of a blur, word by word. A sent message: it lifts, melts into the blur and goes.
+                enter = fadeIn(tween(700, delayMillis = 150, easing = FastOutSlowInEasing)) + slideInVertically(tween(900, easing = FastOutSlowInEasing)) { it / 4 },
+                exit = fadeOut(tween(520, easing = FastOutSlowInEasing)) + slideOutVertically(tween(620, easing = FastOutSlowInEasing)) { -it / 2 } +
+                    androidx.compose.animation.scaleOut(tween(620, easing = FastOutSlowInEasing), targetScale = 0.94f),
             ) {
-                Text(
-                    stringResource(R.string.hello_name, hello),
-                    style = DevxType.Large.copy(fontSize = 34.sp, lineHeight = 42.sp),
-                    color = DevxColors.TextPrimary,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 32.dp),
-                )
+                val dissolve by transition.animateFloat(transitionSpec = { tween(620, easing = FastOutSlowInEasing) }, label = "dissolve") { state ->
+                    if (state == androidx.compose.animation.EnterExitState.Visible) 0f else 1f
+                }
+                Box(
+                    Modifier.graphicsLayer {
+                        val blurPx = 22.dp.toPx() * dissolve
+                        if (android.os.Build.VERSION.SDK_INT >= 31 && blurPx > 0.5f) renderEffect = androidx.compose.ui.graphics.BlurEffect(blurPx, blurPx, androidx.compose.ui.graphics.TileMode.Decal)
+                        clip = false
+                    },
+                ) { RotatingGreeting(hello) }
             }
 
             // The empty screen of a temporary chat says what it is.
@@ -1061,15 +1066,9 @@ private fun Composer(
                 // The microphone and the send button share the corner: with nothing written the microphone is the one white button;
                 // with a message it steps aside, to the left of the arrow, and for a long message it rises above the arrow.
                 val showSend = canSend || generating
-                // For a long message the small microphone beside the arrow steps away and the field gets wider by the room it leaves. That is a
-                // loop: wider text may need one line fewer, and one line fewer brought the microphone back and made the field narrower again,
-                // over and over (the field jumped). So it steps away at three lines and comes back only when the text is one line or gone.
-                // The pill is never taller than its text: no empty room above the lines.
-                var raised by remember { mutableStateOf(false) }
-                LaunchedEffect(lines, showSend) {
-                    if (!showSend || lines <= 1) raised = false else if (lines >= 3) raised = true
-                }
-                val stacked = showSend && !generating && raised
+                // The microphone stays beside the arrow, so that the width of the field never depends on how many lines the text has (that
+                // made the field jump). The field is never taller than its text.
+                val stacked = false
                 val endPad by androidx.compose.animation.core.animateDpAsState(
                     if (showSend && !stacked) 90.dp else 48.dp, spring(dampingRatio = 0.85f, stiffness = 420f), label = "field-end",
                 )
@@ -1107,12 +1106,12 @@ private fun Composer(
                     }
                     // From the third line on, a button opens the full-screen editor.
                     androidx.compose.animation.AnimatedVisibility(
-                        visible = stacked && lines >= 2 && value.isNotBlank(),
+                        // Only from the third line: on two lines the pill is so low that this button would sit under the send button.
+                        visible = lines >= 3 && showSend && !generating,
                         modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 6.dp),
                         enter = fadeIn(tween(160)) + scaleIn(spring(dampingRatio = 0.6f, stiffness = 420f), initialScale = 0.5f),
-                        // When the text is sent or erased the pill is one line again at once, and a button that fades out up there would
-                        // slide over the send button: it goes away at that moment, without an animation.
-                        exit = if (lines >= 2 && value.isNotBlank()) fadeOut(tween(90)) else androidx.compose.animation.ExitTransition.None,
+                        // When the pill gets lower it goes away at once: a button that fades out up there slides under the send button.
+                        exit = androidx.compose.animation.ExitTransition.None,
                     ) {
                         Box(Modifier.size(34.dp).clip(CircleShape).pressable(scaleTo = 0.88f, onClick = { editorOpen = true }), contentAlignment = Alignment.Center) {
                             Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_arrows_diagonal), stringResource(R.string.editor_expand), tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))

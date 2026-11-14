@@ -9,3 +9,9 @@ captures/
 *.apk
 *.aab
 .DS_Store
+
+# Signing keys never go into the repository.
+keystore.properties
+*.keystore
+*.jks
+signing.properties

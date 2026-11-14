@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import android.speech.tts.UtteranceProgressListener
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -34,9 +35,14 @@ class Speaker(private val context: Context) {
     var lastWordAt = 0L
         private set
 
+    /** True once the speech engine has started (the list of voices can be read then). */
+    var engineReady by mutableStateOf(false)
+        private set
+
     private val handler = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
     private var ready = false
+    private var firstQueued = true
     private val waiting = ArrayList<Pair<String, String>>()
     private val active = HashSet<String>()
     private var counter = 0
@@ -53,9 +59,9 @@ class Speaker(private val context: Context) {
                 val engine = tts ?: return@post
                 runCatching {
                     engine.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                    engine.setSpeechRate(1.04f)
+                    engine.setSpeechRate(Prefs.voiceRate)
                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) { lastWordAt = SystemClock.elapsedRealtime() }
+                        override fun onStart(utteranceId: String?) { lastWordAt = SystemClock.elapsedRealtime(); VoiceTrace.mark("voice starts") }
                         override fun onDone(utteranceId: String?) { finished(utteranceId) }
                         @Deprecated("Deprecated in Java")
                         override fun onError(utteranceId: String?) { finished(utteranceId) }
@@ -65,6 +71,8 @@ class Speaker(private val context: Context) {
                     })
                 }
                 ready = true
+                engineReady = true
+                VoiceTrace.mark("speech engine ready")
                 val queued = ArrayList(waiting)
                 waiting.clear()
                 queued.forEach { (id, text) -> say(id, text) }
@@ -77,6 +85,7 @@ class Speaker(private val context: Context) {
         val piece = text.trim()
         if (piece.isEmpty() || unavailable) return
         val id = "u${counter++}"
+        if (firstQueued) { firstQueued = false; VoiceTrace.mark("first words to the voice") }
         active += id
         speaking = true
         if (ready) say(id, piece) else waiting += id to piece
@@ -88,9 +97,29 @@ class Speaker(private val context: Context) {
         val tag = localeFor(text)
         if (tag != languageTag) {
             languageTag = tag
-            runCatching { engine.setLanguage(Locale.forLanguageTag(tag)) }
+            applyVoice(engine, tag)
         }
         if (engine.speak(text, TextToSpeech.QUEUE_ADD, null, id) == TextToSpeech.ERROR) finished(id)
+    }
+
+    /** The voice for a language: the one the person chose, else the best the phone has (highest quality, then quickest to start). */
+    private fun applyVoice(engine: TextToSpeech, tag: String) {
+        val chosen = voicesFor(tag).let { list -> list.firstOrNull { it.name == Prefs.voiceName } ?: list.maxWithOrNull(compareBy<Voice>({ it.quality }, { -it.latency })) }
+        if (chosen != null) runCatching { engine.voice = chosen } else runCatching { engine.setLanguage(Locale.forLanguageTag(tag)) }
+    }
+
+    /** The installed voices of a language, best first. */
+    fun voicesFor(tag: String): List<Voice> {
+        val language = Locale.forLanguageTag(tag).language
+        val all = runCatching { tts?.voices }.getOrNull().orEmpty()
+        return all.filter { it.locale.language == language && !it.features.contains("notInstalled") }
+            .sortedWith(compareBy<Voice>({ -it.quality }, { it.latency }, { it.name }))
+    }
+
+    /** The speed or the voice was changed in the settings: it counts from the next words. */
+    fun refresh() {
+        languageTag = ""
+        runCatching { tts?.setSpeechRate(Prefs.voiceRate) }
     }
 
     /** Cuts the voice off at once and forgets what was waiting. */
@@ -135,14 +164,20 @@ class Speaker(private val context: Context) {
         runCatching { context.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request) }
     }
 
-    /** The language to read a piece in: Cyrillic is Russian; other letters take the phone's language, or English. */
+    /** The language to read a piece in: by the script (Cyrillic, kana, Han), else the app's language, else the phone's, else English. */
     private fun localeFor(text: String): String {
         val letters = text.filter { it.isLetter() }
         if (letters.isEmpty()) return languageTag.ifEmpty { "en-US" }
         val cyrillic = letters.count { it in 'Ѐ'..'ӿ' }
-        if (cyrillic * 2 >= letters.length) return if (Locale.getDefault().language == "uk") "uk-UA" else "ru-RU"
-        val phone = Locale.getDefault()
-        return if (phone.language in setOf("ru", "uk", "bg", "sr", "be")) "en-US" else phone.toLanguageTag()
+        if (cyrillic * 2 >= letters.length) {
+            val ukrainian = text.any { it in "іїєґІЇЄҐ" } || Prefs.language == AppLanguage.Ukrainian || (Prefs.language == AppLanguage.System && Locale.getDefault().language == "uk")
+            return if (ukrainian) "uk-UA" else "ru-RU"
+        }
+        if (letters.any { it in '぀'..'ヿ' }) return "ja-JP"
+        if (letters.count { it in '一'..'鿿' } * 2 >= letters.length) return "zh-CN"
+        val app = Prefs.language.tag?.let { Locale.forLanguageTag(it) }
+        val phone = app ?: Locale.getDefault()
+        return if (phone.language in setOf("ru", "uk", "bg", "sr", "be")) "en-US" else VoiceInput.fallbackTag().takeIf { app != null } ?: phone.toLanguageTag()
     }
 }
 
@@ -228,6 +263,8 @@ object SpeechText {
             val boundary = when {
                 c == '\n' -> true
                 c == '.' || c == '!' || c == '?' || c == '…' -> (if (i < raw.length) raw[i].isWhitespace() else final) && !listNumber.matches(sb.trim())
+                // A long sentence is said from its first clause on: the voice starts sooner.
+                (c == ',' || c == ';' || c == ':' || c == '—') && sb.length >= 70 && (i >= raw.length || raw[i].isWhitespace()) -> true
                 c == ' ' && sb.length >= 260 -> true
                 else -> false
             }

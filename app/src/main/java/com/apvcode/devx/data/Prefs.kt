@@ -8,7 +8,10 @@ import androidx.compose.runtime.setValue
 
 enum class ThemeMode { System, Black, Gray, Light }
 
-enum class AppLanguage(val tag: String?) { System(null), English("en"), Russian("ru") }
+enum class AppLanguage(val tag: String?) {
+    System(null), English("en"), Russian("ru"), German("de"), Spanish("es"), French("fr"),
+    Japanese("ja"), Portuguese("pt"), Ukrainian("uk"), Chinese("zh"),
+}
 
 /** Small personal settings: nickname, theme, language. Read on start, changed from Settings. */
 object Prefs {
@@ -47,6 +50,14 @@ object Prefs {
     /** Lets the assistant act on the phone: alarms, timers, reminders, apps, contacts, calendar, music. On until switched off. */
     var phoneTools by mutableStateOf(true)
     var twoGis by mutableStateOf(true)
+
+    /** How fast the assistant speaks (1.0 is the voice's own speed) and the voice chosen by name (empty: the best one the phone has). */
+    var voiceRate by mutableStateOf(1.05f)
+    var voiceName by mutableStateOf("")
+
+    /** The model of the voice assistant's talks (a quick one is best); null means the model chosen for chats. */
+    var voiceModel by mutableStateOf<ModelRef?>(null)
+        private set
     var folderUri by mutableStateOf<String?>(null)
     var galleryTools by mutableStateOf(true)
     var notificationTools by mutableStateOf(true)
@@ -92,6 +103,9 @@ object Prefs {
         terminal = p.getBoolean("terminal", true)
         phoneTools = p.getBoolean("phoneTools", true)
         twoGis = p.getBoolean("twoGis", true)
+        voiceRate = p.getFloat("voiceRate", 1.05f)
+        voiceName = p.getString("voiceName", "").orEmpty()
+        voiceModel = p.getString("voiceModelProvider", null)?.let { pr -> p.getString("voiceModelName", null)?.let { m -> ModelRef(pr, m) } }
         folderUri = p.getString("folderUri", null)
         galleryTools = p.getBoolean("galleryTools", true)
         notificationTools = p.getBoolean("notificationTools", true)
@@ -138,6 +152,23 @@ object Prefs {
     fun saveAssistantMuted(value: Boolean) {
         assistantMuted = value
         store?.edit()?.putBoolean("assistantMuted", value)?.apply()
+    }
+
+    fun saveVoiceRate(value: Float) {
+        voiceRate = value.coerceIn(0.7f, 1.5f)
+        store?.edit()?.putFloat("voiceRate", voiceRate)?.apply()
+    }
+
+    fun saveVoiceModel(ref: ModelRef?) {
+        voiceModel = ref
+        store?.edit()?.apply {
+            if (ref == null) { remove("voiceModelProvider"); remove("voiceModelName") } else { putString("voiceModelProvider", ref.providerId); putString("voiceModelName", ref.model) }
+        }?.apply()
+    }
+
+    fun saveVoiceName(value: String) {
+        voiceName = value
+        store?.edit()?.putString("voiceName", value)?.apply()
     }
 
     fun saveVoiceHandsFree(value: Boolean) {

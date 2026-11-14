@@ -128,7 +128,7 @@ class Toolbox(
         val args = runCatching { JSONObject(call.arguments.ifBlank { "{}" }) }.getOrDefault(JSONObject())
         return try {
             when (call.name) {
-                "web_search", "open_url" -> web.run(call.name, args, report)
+                "web_search", "open_url", "search_apps" -> web.run(call.name, args, report)
                 in work.names -> work.run(call.name, args, chatId, report)
                 in memory.names -> memory.run(call.name, args, report, chatId, project)
                 in skillTools.names -> skillTools.run(call.name, args, chatId, report)

@@ -111,7 +111,7 @@ private val Hair = Color.White.copy(alpha = 0.12f)
  */
 @Composable
 fun VoiceAssistantScreen(
-    vm: ChatViewModel,
+    vm: ChatViewModel?,
     listenAtStart: Boolean,
     say: String?,
     onClose: () -> Unit,
@@ -120,7 +120,8 @@ fun VoiceAssistantScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val session = remember { VoiceSession(context, vm, scope) }
+    val latestModel = androidx.compose.runtime.rememberUpdatedState(vm)
+    val session = remember { VoiceSession(context, { latestModel.value }, scope) }
     DisposableEffect(session) { onDispose { session.close() } }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { session.pause() }
 
@@ -133,7 +134,7 @@ fun VoiceAssistantScreen(
             kotlinx.coroutines.delay(500)
             session.submit(say, byVoice = true)
         } else if (listenAtStart) {
-            kotlinx.coroutines.delay(420)
+            com.apvcode.devx.data.VoiceTrace.mark("screen drawn, listening requested")
             session.listen()
         }
     }

@@ -100,6 +100,12 @@ class ParseBlocksTest {
         assertEquals("graph TD; A-->B", rich[1].json)
     }
 
+    @Test fun appCardsAreRichBlocks() {
+        val b = parseBlocks("Here:\n```devx-apps\n{\"store\":\"google_play\",\"ids\":[\"tech.ula\"]}\n```")
+        assertEquals(listOf("Text", "Rich"), b.map { it::class.simpleName })
+        assertEquals("apps", (b[1] as Block.Rich).kind)
+    }
+
     @Test fun quickRepliesAreABlockAtTheEnd() {
         val b = parseBlocks("Shall I book it?\n```devx-reply\n[\"Yes\",\"No\"]\n```")
         assertEquals(listOf("Text", "Replies"), b.map { it::class.simpleName })

@@ -31,7 +31,18 @@ import com.apvcode.devx.ui.theme.DevxTheme
 import java.util.Locale
 
 /** Devx as the phone's digital assistant: the system starts it when the person long-presses the power button or swipes from a corner. */
-class DevxInteractionService : VoiceInteractionService()
+class DevxInteractionService : VoiceInteractionService() {
+    // The system starts this service when Devx is the phone's assistant: the speech engine and the chat model are made ready now.
+    override fun onReady() {
+        super.onReady()
+        VoiceWarm.warm(application)
+    }
+
+    override fun onShutdown() {
+        VoiceWarm.cool()
+        super.onShutdown()
+    }
+}
 
 class DevxSessionService : VoiceInteractionSessionService() {
     override fun onNewSession(args: Bundle?): VoiceInteractionSession = DevxSession(this)
@@ -66,7 +77,8 @@ class DevxRecognitionService : RecognitionService() {
  * along the screen's edges, the answer in a card and the field to write in at the bottom. It shares the chats of the app.
  */
 class AssistantActivity : ComponentActivity() {
-    private val vm: ChatViewModel by lazy { SharedChat.acquire(application, "assistant") }
+    // The chat model is made in the background: the window opens at once and does not wait for it.
+    private var vm by mutableStateOf<ChatViewModel?>(null)
     private var started by mutableIntStateOf(0)
     private var say by mutableStateOf<String?>(null)
     private var permissionDone: ((Boolean) -> Unit)? = null
@@ -76,7 +88,9 @@ class AssistantActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.apvcode.devx.data.VoiceTrace.start("assistant window created")
         super.onCreate(savedInstanceState)
+        VoiceWarm.warm(application)
         AppLock.init(applicationContext)
         // The app is locked: the assistant would open the chats behind the lock. Let the lock screen come first.
         if (AppLock.locksApp && AppLock.locked) {
@@ -84,6 +98,11 @@ class AssistantActivity : ComponentActivity() {
             finish()
             return
         }
+        Thread {
+            val made = runCatching { SharedChat.acquire(application, "assistant") }.getOrNull()
+            com.apvcode.devx.data.VoiceTrace.mark("chat model made")
+            runOnUiThread { if (!isDestroyed) vm = made }
+        }.apply { name = "devx-assistant-model"; isDaemon = true }.start()
         takeSay(intent)
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
         window.setDimAmount(0f)
@@ -97,7 +116,7 @@ class AssistantActivity : ComponentActivity() {
                         listenAtStart = true,
                         say = say.also { say = null },
                         onClose = { finish() },
-                        onOpenChat = { openApp(MainActivity.ACTION_OPEN_CHAT, vm.currentId) },
+                        onOpenChat = { openApp(MainActivity.ACTION_OPEN_CHAT, vm?.currentId) },
                         onOpenSettings = { openApp(null, null) },
                     )
                 }
@@ -158,7 +177,7 @@ class AssistantActivity : ComponentActivity() {
     override fun onPause() {
         AppState.resumed = false
         // Closed in the middle of an answer: keep the app alive until the answer is finished and saved.
-        if (vm.busy) GenerationService.start(this)
+        if (vm?.busy == true) GenerationService.start(this)
         super.onPause()
     }
 
@@ -172,7 +191,7 @@ class AssistantActivity : ComponentActivity() {
         if (PermissionBridge.owner === this) PermissionBridge.asker = null
         if (isFinishing) {
             SharedChat.release("assistant")
-            if (SharedChat.idle && !vm.busy) GenerationService.stop(this)
+            if (SharedChat.idle && vm?.busy != true) GenerationService.stop(this)
         }
         super.onDestroy()
     }

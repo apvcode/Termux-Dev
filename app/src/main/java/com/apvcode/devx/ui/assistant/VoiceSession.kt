@@ -18,6 +18,7 @@ import com.apvcode.devx.ui.chat.ChatViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -29,9 +30,14 @@ enum class VoicePhase { Idle, Listening, Thinking, Speaking }
  * ordinary chat), reads the answer aloud as it is written, and listens again. All of it can also be done by typing.
  */
 @Stable
-class VoiceSession(private val context: Context, private val vm: ChatViewModel, private val scope: CoroutineScope) {
-    val voice = VoiceInput(context)
-    val speaker = Speaker(context)
+class VoiceSession(private val context: Context, private val vmSource: () -> ChatViewModel?, private val scope: CoroutineScope) {
+    /** The chat model is made while the window is already open (it takes a moment); what needs it waits for it. */
+    private val vm: ChatViewModel get() = vmSource() ?: error("the chat model is not ready")
+
+    private suspend fun awaitModel(): ChatViewModel = androidx.compose.runtime.snapshotFlow { vmSource() }.filterNotNull().first()
+
+    val voice = VoiceInput(context, keepWarm = true)
+    val speaker = com.apvcode.devx.assist.VoiceWarm.speaker(context).also { it.refresh() }
 
     /** The person switched the voice of the answers off: they are only shown. */
     var muted by mutableStateOf(Prefs.assistantMuted)
@@ -53,6 +59,14 @@ class VoiceSession(private val context: Context, private val vm: ChatViewModel, 
     /** Set by the screen: asks the system for the microphone. */
     var askForMic: (() -> Unit)? = null
 
+    init {
+        scope.launch {
+            val model = awaitModel()
+            androidx.compose.runtime.snapshotFlow { model.loaded }.first { it }
+            model.warmConnection()
+        }
+    }
+
     private var spokenTurn = false
     private var spokenIdx = 0
     private var turn: Job? = null
@@ -63,7 +77,7 @@ class VoiceSession(private val context: Context, private val vm: ChatViewModel, 
     val phase: VoicePhase
         get() = when {
             speaker.speaking -> VoicePhase.Speaking
-            vm.generating -> VoicePhase.Thinking
+            vmSource()?.generating == true -> VoicePhase.Thinking
             voice.state == VoiceInput.State.Listening -> VoicePhase.Listening
             else -> VoicePhase.Idle
         }
@@ -79,9 +93,10 @@ class VoiceSession(private val context: Context, private val vm: ChatViewModel, 
         if (closed) return
         if (!voice.available()) { noRecognizer = true; return }
         if (!PermissionBridge.has(context, Manifest.permission.RECORD_AUDIO)) { askForMic?.invoke(); return }
-        if (vm.generating) return
+        if (vmSource()?.generating == true) return
         micDenied = false
         speaker.stop()
+        tick()
         voice.start(VoiceInput.currentTag(), onSentence = { submit(it, byVoice = true) }, idleMs = 12_000)
     }
 
@@ -90,23 +105,34 @@ class VoiceSession(private val context: Context, private val vm: ChatViewModel, 
         voice.cancel()
     }
 
+    /** A small tap in the hand when the microphone opens: it says \"speak now\" with no delay (a sound would be picked up by the microphone). */
+    private fun tick() {
+        runCatching { context.getSystemService(android.os.Vibrator::class.java)?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_TICK)) }
+    }
+
     /** The orb was touched: what that means depends on what is going on. */
     fun tapOrb() {
         when (phase) {
             VoicePhase.Listening -> voice.finish { if (it.isNotBlank()) submit(it, true) }
             VoicePhase.Speaking -> { speaker.stop(); spokenTurn = false; listen() }
-            VoicePhase.Thinking -> vm.stop()
+            VoicePhase.Thinking -> vmSource()?.stop()
             VoicePhase.Idle -> listen()
         }
     }
 
     fun submit(text: String, byVoice: Boolean) {
         val t = text.trim()
-        if (t.isEmpty() || vm.generating || closed) return
-        // Opened from cold: the saved data may still be coming in.
-        if (!vm.loaded) {
+        if (t.isEmpty() || vmSource()?.generating == true || closed) return
+        com.apvcode.devx.data.VoiceTrace.mark("question sent")
+        // Opened from cold: the chat model and the saved data may still be coming in. The question is shown at once and sent when they are.
+        val model = vmSource()
+        if (model == null || !model.loaded) {
+            voice.cancel()
+            asked = t
+            reply = null
             scope.launch {
-                androidx.compose.runtime.snapshotFlow { vm.loaded }.first { it }
+                val ready = awaitModel()
+                androidx.compose.runtime.snapshotFlow { ready.loaded }.first { it }
                 submit(t, byVoice)
             }
             return
@@ -150,7 +176,9 @@ class VoiceSession(private val context: Context, private val vm: ChatViewModel, 
             found
         } ?: return
         reply = msg
+        var firstWords = true
         while (vm.generating) {
+            if (firstWords && msg.text.isNotEmpty()) { firstWords = false; com.apvcode.devx.data.VoiceTrace.mark("answer begins") }
             if (spokenTurn) feed(msg, final = false)
             delay(100)
         }
@@ -182,7 +210,7 @@ class VoiceSession(private val context: Context, private val vm: ChatViewModel, 
         closed = true
         turn?.cancel()
         voice.release()
-        speaker.shutdown()
-        vm.voiceMode = false
+        speaker.stop()
+        vmSource()?.voiceMode = false
     }
 }

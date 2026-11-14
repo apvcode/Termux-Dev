@@ -56,6 +56,7 @@ import com.apvcode.devx.data.McpTools
 import com.apvcode.devx.data.ImageTools
 import com.apvcode.devx.data.TitleChunk
 import com.apvcode.devx.data.Level
+import com.apvcode.devx.data.ProviderKind
 import com.apvcode.devx.data.ReasoningCaps
 import com.apvcode.devx.data.formatOf
 import com.apvcode.devx.data.resolveReasoning
@@ -455,7 +456,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val attachments = draftAttachments.toList()
         if ((trimmed.isEmpty() && attachments.isEmpty()) || generating || importing > 0) return
         val chat = current ?: Chat(newId(), (trimmed.ifEmpty { attachments.first().name }).take(40), null, now()).also {
-            it.model = defaultModel
+            // A talk with the voice assistant may use a quicker model of its own.
+            it.model = (if (voiceMode) Prefs.voiceModel else null) ?: defaultModel
             it.temporary = temporary
             it.project = draftProject?.takeIf { p -> !temporary && p in projects }
             chatStates += it
@@ -499,6 +501,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun stopChat(chatId: String) {
         jobs[chatId]?.cancel()
         streaming.remove(chatId)
+    }
+
+    /** Opens the connection to the provider of the default model ahead of the first question (the handshake takes a few hundred milliseconds). */
+    fun warmConnection() {
+        val ref = defaultModel ?: return
+        val provider = providers.firstOrNull { it.id == ref.providerId } ?: return
+        viewModelScope.launch(Dispatchers.IO) { runCatching { api.warm(provider) } }
     }
 
     /** The voice assistant is talking to the model: answers are short and spoken, and thinking is skipped. */
@@ -774,7 +783,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val caps = capsFor(ref)
         val level = levelFor(ref)
         // The voice assistant wants its answer fast: no long thinking.
-        val reasoningParams = if (!voiceMode && caps != null && level != null) caps.build(level) else null
+        val reasoningParams = if (voiceMode) {
+            // By voice the answer must start quickly: the least thinking the model allows ("off", else its lowest level). Gateways of
+            // OpenAI-style APIs that reason by default often ignore "off" but know a low effort, so that is asked as well.
+            val quick = caps?.takeIf { it.supported }?.let { c -> c.build(if (Level.Off in c.levels) Level.Off else c.levels.first()) }
+            if (caps != null && caps.supported && wire.kind == ProviderKind.OpenAI) (quick ?: org.json.JSONObject()).also { if (!it.has("reasoning_effort")) it.put("reasoning_effort", "low") } else quick
+        } else if (caps != null && level != null) caps.build(level) else null
 
         syncService()
         jobs[chat.id] = viewModelScope.launch {
@@ -787,9 +801,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 val memoryOn = Prefs.memory && !chat.temporary
                 val projectName = chat.project?.takeIf { !chat.temporary && it in projectInfo }
                 val project = projectName?.let { projectInfo[it] }
-                val skillsOn = skills.enabled().isNotEmpty()
-                var tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn, Prefs.phoneTools)
-                fun systemNow() = SystemPrompt.forUser(
+                // By voice the request is kept small (a small request is answered sooner): the phone, the web, the memory and the servers of
+                // the person; without files, the workshop, the terminal and the guides.
+                val byVoice = voiceMode
+                val skillsOn = !byVoice && skills.enabled().isNotEmpty()
+                var tools = toolbox.definitions(if (byVoice) emptyList() else files, Prefs.webSearch, !byVoice && Prefs.workTools, !byVoice && Prefs.terminal, memoryOn, project != null && !byVoice, skillsOn, Prefs.phoneTools)
+                fun systemNow() = if (byVoice) SystemPrompt.forVoice(
+                    Prefs.nickname,
+                    if (memoryOn) memory.forPrompt() else null,
+                    ref.model,
+                    if (memoryOn) memory.summary else null,
+                    if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
+                ) else SystemPrompt.forUser(
                     Prefs.nickname,
                     if (memoryOn) memory.forPrompt() else null,
                     project?.let { SystemPrompt.ProjectContext(projectName!!, it.description, it.instructions, if (memoryOn) it.memory.forPrompt() else null, if (memoryOn) it.memory.summary else null) },
@@ -1524,7 +1547,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         /** Tools that only look: several of them in one turn can run side by side. */
         val PARALLEL_SAFE = setOf(
-            "web_search", "open_url", "search_chats", "read_chat", "memory_list",
+            "web_search", "open_url", "search_apps", "search_chats", "read_chat", "memory_list",
             "list_files", "file_info", "read_pdf_pages", "render_pdf_page", "read_text", "search_in_file", "view_image", "list_pdf_images",
             "phone_info", "list_apps", "find_contact", "calendar_events", "list_reminders", "task_list", "get_brightness", "get_location", "find_places", "get_route", "get_weather", "list_photos", "read_notifications", "folder_list", "folder_read",
         )

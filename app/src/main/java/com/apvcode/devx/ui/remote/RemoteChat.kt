@@ -820,9 +820,13 @@ private fun PlanCardView(p: PlanCard, onDecide: (String) -> Unit) {
             if (p.steps.isNotEmpty()) p.steps.forEachIndexed { i, s -> Text("${i + 1}. $s", style = DevxType.Caption.copy(fontSize = 14.sp), color = DevxColors.TextSecondary) }
             if (p.files.isNotEmpty()) Text(p.files.joinToString("\n"), style = DevxType.Mono.copy(fontSize = 12.sp), color = DevxColors.TextDisabled)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PillButton(stringResource(R.string.remote_plan_change), onClick = { onDecide("edit") }, filled = false, modifier = Modifier.weight(1f))
-            PillButton(stringResource(R.string.remote_plan_go), onClick = { onDecide("go") }, modifier = Modifier.weight(1f))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PillButton(stringResource(R.string.remote_plan_change), onClick = { onDecide("edit") }, filled = false, modifier = Modifier.weight(1f))
+                PillButton(stringResource(R.string.remote_plan_go), onClick = { onDecide("go") }, modifier = Modifier.weight(1f))
+            }
+            // The context is shortened first (the talk that made the plan), then the plan goes to the agent and the work starts.
+            PillButton(stringResource(R.string.remote_plan_go_compact), onClick = { onDecide("compact") }, filled = false, modifier = Modifier.fillMaxWidth())
         }
     }
 }

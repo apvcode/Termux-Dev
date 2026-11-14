@@ -1058,4 +1058,44 @@
     <string name="fmt_formula">Формула</string>
     <string name="fmt_codeblock">Блок кода</string>
     <string name="fmt_link">Ссылка</string>
+    <string name="va_voice_speed">Скорость речи</string>
+    <string name="va_voice_speed_hint">Как быстро говорит помощник.</string>
+    <string name="va_voice">Голос</string>
+    <string name="va_voice_hint">Каким голосом телефона читаются ответы. Нажмите на голос, чтобы его послушать.</string>
+    <string name="va_voice_best">Лучший из доступных</string>
+    <string name="va_voice_best_hint">Самый естественный голос, который есть на телефоне для этого языка.</string>
+    <string name="va_voice_n">Голос %1$d</string>
+    <string name="va_voice_online">нужен интернет</string>
+    <string name="va_voice_sample">Привет, вот так я звучу. Могу поставить будильник, найти место или просто поговорить.</string>
+    <string name="va_model">Модель помощника</string>
+    <string name="va_model_hint">Быстрая небольшая модель отвечает голосом заметно раньше. Её используют разговоры голосового помощника.</string>
+    <string name="va_model_same">Как в чатах</string>
+    <string name="greet_morning">Доброе утро, %1$s</string>
+    <string name="greet_day">Добрый день, %1$s</string>
+    <string name="greet_evening">Добрый вечер, %1$s</string>
+    <string name="greet_night">Не спится, %1$s?</string>
+    <string-array name="greetings">
+        <item>Привет, %1$s</item>
+        <item>Что на уме?</item>
+        <item>Чем помочь, %1$s?</item>
+        <item>С чего начнём?</item>
+        <item>Слушаю тебя, %1$s</item>
+        <item>Спроси что угодно</item>
+        <item>Что сегодня делаем?</item>
+        <item>Есть идея, %1$s?</item>
+        <item>Давай подумаем вместе</item>
+        <item>Что нужно сделать?</item>
+        <item>Расскажи, что нужно</item>
+    </string-array>
+    <string name="menu_select">Выбрать</string>
+    <string name="select_pick">Выберите чаты</string>
+    <string name="select_count">Выбрано: %1$d</string>
+    <string name="select_all">Все</string>
+    <string name="select_none">Снять</string>
+    <string name="select_cancel">Отменить выбор</string>
+    <string name="dialog_delete_chats">Удалить чаты?</string>
+    <string name="dialog_delete_chats_text">Чатов будет удалено: %1$d, вместе с их файлами. Это нельзя отменить.</string>
+    <string name="apps_failed">Магазин не ответил. Попробуйте ещё раз чуть позже.</string>
+    <string name="apps_open">Открыть</string>
+    <string name="remote_plan_go_compact">Go и сжать контекст</string>
 </resources>

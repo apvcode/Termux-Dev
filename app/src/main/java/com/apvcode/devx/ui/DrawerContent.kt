@@ -7,6 +7,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.fadeIn
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.AnimatedContent
 import com.apvcode.devx.ui.components.pressable
@@ -98,6 +101,7 @@ import com.apvcode.devx.ui.theme.DevxType
 private sealed interface Ask {
     data class RenameChat(val chat: ChatSummary) : Ask
     data class DeleteChat(val chat: ChatSummary) : Ask
+    data class DeleteChats(val ids: List<String>) : Ask
     data class RenameProject(val name: String) : Ask
     data class DeleteProject(val name: String, val chats: Int) : Ask
     data object NewProject : Ask
@@ -122,6 +126,12 @@ fun DrawerContent(
     val width = (LocalConfiguration.current.screenWidthDp * 0.8f).dp
 
     var ask by remember { mutableStateOf<Ask?>(null) }
+    // Picking chats: tap them to tick, then archive or delete the lot.
+    var selecting by remember { mutableStateOf(false) }
+    val picked = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    fun toggle(id: String) { if (id in picked) picked.remove(id) else picked.add(id) }
+    fun stopSelecting() { selecting = false; picked.clear() }
+    androidx.activity.compose.BackHandler(enabled = selecting) { stopSelecting() }
     var projectsOpen by remember { mutableStateOf(true) }
     var chatsOpen by remember { mutableStateOf(true) }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
@@ -201,7 +211,7 @@ fun DrawerContent(
                     }
                     if (open) {
                         items(chats, key = { it.id }) { chat ->
-                            ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, Modifier.animateItem())
+                            ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, selecting, chat.id in picked, { toggle(chat.id) }, { selecting = true; if (chat.id !in picked) picked.add(chat.id) }, Modifier.animateItem())
                         }
                     }
                 }
@@ -220,7 +230,7 @@ fun DrawerContent(
             }
             if (chatsOpen) {
                 items(plainChats, key = { it.id }) { chat ->
-                    ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, Modifier.animateItem())
+                    ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, selecting, chat.id in picked, { toggle(chat.id) }, { selecting = true; if (chat.id !in picked) picked.add(chat.id) }, Modifier.animateItem())
                 }
             }
         }
@@ -235,35 +245,66 @@ fun DrawerContent(
             RemoteButton(onClick = { onNavigate(Screen.Computers) }, modifier = Modifier.padding(top = 8.dp))
         }
 
-        Row(
+        Box(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to panel.copy(alpha = 0f), 0.5f to panel.copy(alpha = 0.55f), 1f to panel.copy(alpha = 0.9f)))
                 .onSizeChanged { bottomHeight = with(density) { it.height.toDp() } }
                 .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                Modifier
-                    .weight(1f)
-                    .pressable(scaleTo = 0.95f) { onNewChat() }
-                    .clip(CircleShape)
-                    .background(DevxColors.Accent)
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(DevxIcons.ChatPlus, null, tint = DevxColors.OnAccent, modifier = Modifier.size(22.dp))
-                Text(stringResource(R.string.menu_new_chat), style = DevxType.Body, color = DevxColors.OnAccent)
+            // The buttons give way to the selection bar (and come back): one slides up while the other sinks.
+            AnimatedContent(
+                targetState = selecting,
+                transitionSpec = {
+                    (slideInVertically(spring(dampingRatio = 0.78f, stiffness = 420f)) { it / 2 } + fadeIn(tween(220, delayMillis = 60))) togetherWith
+                        (slideOutVertically(tween(200)) { it / 2 } + fadeOut(tween(140)))
+                },
+                label = "drawer-bottom",
+            ) { picking ->
+                if (picking) {
+                    val everyId = (plainChats + projectChats.values.flatten()).map { it.id }
+                    SelectionBar(
+                        count = picked.size,
+                        total = everyId.size,
+                        onCancel = { stopSelecting() },
+                        onToggleAll = {
+                            if (picked.size == everyId.size) picked.clear() else { picked.clear(); picked.addAll(everyId) }
+                        },
+                        onArchive = {
+                            picked.toList().forEach(vm::archiveChat)
+                            stopSelecting()
+                        },
+                        onDelete = { ask = Ask.DeleteChats(picked.toList()) },
+                    )
+                } else {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .pressable(scaleTo = 0.95f) { onNewChat() }
+                                .clip(CircleShape)
+                                .background(DevxColors.Accent)
+                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(DevxIcons.ChatPlus, null, tint = DevxColors.OnAccent, modifier = Modifier.size(22.dp))
+                            Text(stringResource(R.string.menu_new_chat), style = DevxType.Body, color = DevxColors.OnAccent)
+                        }
+                        RoundAction(DevxIcons.Clock, stringResource(R.string.menu_tasks)) { onNavigate(Screen.Tasks) }
+                        RoundAction(DevxIcons.Mcp, stringResource(R.string.menu_mcp)) { onNavigate(Screen.Mcp) }
+                        RoundAction(DevxIcons.Settings, stringResource(R.string.menu_settings)) { onNavigate(Screen.Settings) }
+                    }
+                }
             }
-            RoundAction(DevxIcons.Clock, stringResource(R.string.menu_tasks)) { onNavigate(Screen.Tasks) }
-            RoundAction(DevxIcons.Mcp, stringResource(R.string.menu_mcp)) { onNavigate(Screen.Mcp) }
-            RoundAction(DevxIcons.Settings, stringResource(R.string.menu_settings)) { onNavigate(Screen.Settings) }
         }
     }
     }
 
-    AskHost(ask, onDismiss = { ask = null }, vm = vm)
+    AskHost(ask, onDismiss = { ask = null }, vm = vm, onDeleted = { stopSelecting() })
 }
 
 // ---------- Rows ----------
@@ -447,6 +488,10 @@ private fun ChatItem(
     vm: ChatViewModel,
     onOpen: () -> Unit,
     onAsk: (Ask) -> Unit,
+    selecting: Boolean,
+    selected: Boolean,
+    onToggle: () -> Unit,
+    onStartSelect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -455,10 +500,12 @@ private fun ChatItem(
     Box(modifier.pressAnchor(press)) {
         ChatCard(
             chat,
-            onClick = onOpen,
+            selecting = selecting,
+            selected = selected,
+            onClick = if (selecting) onToggle else onOpen,
             onLongClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                menu = true
+                if (selecting) onToggle() else menu = true
             },
         )
         // The submenu "Add to project" swaps the content of the same popup.
@@ -479,6 +526,10 @@ private fun ChatItem(
           ) { shown ->
             Column {
             if (shown == 0) {
+                MenuRow(DevxIcons.ListCheck, stringResource(R.string.menu_select)) {
+                    menu = false
+                    onStartSelect()
+                }
                 MenuRow(DevxIcons.Pin, stringResource(if (chat.pinned) R.string.menu_unpin else R.string.menu_pin)) {
                     vm.togglePin(chat.id)
                     menu = false
@@ -529,47 +580,64 @@ private fun ChatItem(
 /** One chat as its own card: title, one line of preview, time, and an icon for its status. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatCard(chat: ChatSummary, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun ChatCard(chat: ChatSummary, selecting: Boolean, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
-    Column(
+    val lift by androidx.compose.animation.animateColorAsState(
+        if (selected) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.10f).compositeOver(DevxColors.Card) else DevxColors.Card,
+        tween(260), label = "card-color",
+    )
+    val border by androidx.compose.animation.animateColorAsState(if (selected) DevxColors.Accent.copy(alpha = 0.85f) else androidx.compose.ui.graphics.Color.Transparent, tween(260), label = "card-border")
+    Row(
         Modifier
             .fillMaxWidth()
             .pressable(scaleTo = 0.975f, haptic = false, onLongClick = onLongClick, onClick = onClick)
             .clip(shape)
-            .background(DevxColors.Card)
+            .background(lift)
+            .border(1.5.dp, border, shape)
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            when (chat.status) {
-                ChatStatus.Working -> Box(Modifier.size(8.dp).background(DevxColors.Success, CircleShape))
-                ChatStatus.Replied -> Icon(DevxIcons.ChatAlert, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(18.dp))
-                ChatStatus.Waiting -> Icon(DevxIcons.ChatQuestion, null, tint = DevxColors.Warning, modifier = Modifier.size(18.dp))
-                ChatStatus.Idle -> Unit
-            }
-            Text(
-                chat.title,
-                style = DevxType.BodyStrong,
-                color = DevxColors.TextPrimary,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-            if (chat.locked) {
-                Icon(DevxIcons.Lock, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(15.dp))
-            }
-            if (chat.pinned) {
-                Icon(DevxIcons.Pin, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(15.dp))
-            }
-            Text(chat.time, style = DevxType.Caption, color = DevxColors.TextDisabled)
+        // The mark of a pickable chat slides in from the left and pushes the words aside.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = selecting,
+            enter = androidx.compose.animation.expandHorizontally(spring(dampingRatio = 0.75f, stiffness = 420f), expandFrom = Alignment.Start) +
+                androidx.compose.animation.scaleIn(spring(dampingRatio = 0.5f, stiffness = 500f), initialScale = 0.3f) + fadeIn(tween(160)),
+            exit = androidx.compose.animation.shrinkHorizontally(tween(220), shrinkTowards = Alignment.Start) + androidx.compose.animation.scaleOut(tween(180), targetScale = 0.3f) + fadeOut(tween(140)),
+        ) {
+            SelectDot(selected, Modifier.padding(end = 12.dp))
         }
-        Text(chat.preview, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when (chat.status) {
+                    ChatStatus.Working -> Box(Modifier.size(8.dp).background(DevxColors.Success, CircleShape))
+                    ChatStatus.Replied -> Icon(DevxIcons.ChatAlert, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(18.dp))
+                    ChatStatus.Waiting -> Icon(DevxIcons.ChatQuestion, null, tint = DevxColors.Warning, modifier = Modifier.size(18.dp))
+                    ChatStatus.Idle -> Unit
+                }
+                Text(
+                    chat.title,
+                    style = DevxType.BodyStrong,
+                    color = DevxColors.TextPrimary,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                if (chat.locked) {
+                    Icon(DevxIcons.Lock, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(15.dp))
+                }
+                if (chat.pinned) {
+                    Icon(DevxIcons.Pin, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(15.dp))
+                }
+                Text(chat.time, style = DevxType.Caption, color = DevxColors.TextDisabled)
+            }
+            Text(chat.preview, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1)
+        }
     }
 }
 
 // ---------- Dialogs ----------
 
 @Composable
-private fun AskHost(ask: Ask?, onDismiss: () -> Unit, vm: ChatViewModel) {
+private fun AskHost(ask: Ask?, onDismiss: () -> Unit, vm: ChatViewModel, onDeleted: () -> Unit = {}) {
     when (ask) {
         null -> Unit
         Ask.NewProject -> RenameDialog(stringResource(R.string.dialog_new_project), "", onDismiss) { vm.createProject(it) }
@@ -585,6 +653,12 @@ private fun AskHost(ask: Ask?, onDismiss: () -> Unit, vm: ChatViewModel) {
             text = ask.chat.title,
             onDismiss = onDismiss,
         ) { vm.deleteChat(ask.chat.id) }
+        is Ask.DeleteChats -> ConfirmDelete(
+            icon = DevxIcons.ChatOff,
+            title = stringResource(R.string.dialog_delete_chats),
+            text = stringResource(R.string.dialog_delete_chats_text, ask.ids.size),
+            onDismiss = onDismiss,
+        ) { ask.ids.forEach(vm::deleteChat); onDeleted() }
         is Ask.DeleteProject -> ConfirmDelete(
             icon = DevxIcons.FolderOff,
             title = stringResource(R.string.dialog_delete_project),

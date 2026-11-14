@@ -13,9 +13,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.apvcode.devx.ui.components.pressable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -39,7 +45,7 @@ import com.apvcode.devx.ui.theme.DevxType
  * whether the microphone, speech recognition and the voice are there, how it behaves, how to call it and what it can do.
  */
 @Composable
-fun VoiceSettingsScreen(onBack: () -> Unit) {
+fun VoiceSettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
@@ -222,6 +228,70 @@ fun VoiceSettingsScreen(onBack: () -> Unit) {
                     checked = Prefs.notificationTools,
                     onCheckedChange = { Prefs.saveNotificationTools(it) },
                 )
+                SettingsDivider()
+                var modelPicker by remember { mutableStateOf(false) }
+                SettingsRow(
+                    title = stringResource(R.string.va_model),
+                    subtitle = stringResource(R.string.va_model_hint),
+                    value = Prefs.voiceModel?.model?.take(20) ?: stringResource(R.string.va_model_same),
+                    showChevron = true,
+                    onClick = { modelPicker = true },
+                )
+                if (modelPicker) {
+                    com.apvcode.devx.ui.chat.ModelPicker(
+                        vm = vm,
+                        onDismiss = { modelPicker = false },
+                        onOpenProviders = { modelPicker = false },
+                        onPick = { Prefs.saveVoiceModel(it); modelPicker = false },
+                        selected = Prefs.voiceModel,
+                        autoLabel = stringResource(R.string.va_model_same),
+                    )
+                }
+                SettingsDivider()
+                val speaker = remember { com.apvcode.devx.assist.VoiceWarm.speaker(context) }
+                SettingsRow(
+                    title = stringResource(R.string.va_voice_speed),
+                    subtitle = stringResource(R.string.va_voice_speed_hint),
+                    trailing = {
+                        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text("−", style = DevxType.Title, color = DevxColors.TextPrimary, modifier = Modifier.pressable(scaleTo = 0.9f, haptic = false) { Prefs.saveVoiceRate(Prefs.voiceRate - 0.05f); speaker.refresh() }.padding(horizontal = 14.dp, vertical = 6.dp))
+                            Text("%.2f×".format(Prefs.voiceRate), style = DevxType.Body, color = DevxColors.TextSecondary)
+                            Text("+", style = DevxType.Title, color = DevxColors.TextPrimary, modifier = Modifier.pressable(scaleTo = 0.9f, haptic = false) { Prefs.saveVoiceRate(Prefs.voiceRate + 0.05f); speaker.refresh() }.padding(horizontal = 14.dp, vertical = 6.dp))
+                        }
+                    },
+                )
+                SettingsDivider()
+                var voiceDialog by remember { mutableStateOf(false) }
+                SettingsRow(
+                    title = stringResource(R.string.va_voice),
+                    subtitle = stringResource(R.string.va_voice_hint),
+                    value = if (Prefs.voiceName.isBlank()) stringResource(R.string.va_voice_best) else Prefs.voiceName.take(18),
+                    showChevron = true,
+                    onClick = { voiceDialog = true },
+                )
+                if (voiceDialog) {
+                    val tag = java.util.Locale.getDefault().toLanguageTag()
+                    val voices = remember(speaker.engineReady) { speaker.voicesFor(tag) }
+                    com.apvcode.devx.ui.components.DevxDialog(stringResource(R.string.va_voice), onDismiss = { voiceDialog = false }) {
+                        androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 12.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                            @Composable
+                            fun Choice(label: String, detail: String?, selected: Boolean, onPick: () -> Unit) {
+                                SettingsRow(title = label, subtitle = detail, onClick = onPick, trailing = { if (selected) Text("✓", style = DevxType.Title, color = DevxColors.TextPrimary) })
+                            }
+                            Choice(stringResource(R.string.va_voice_best), stringResource(R.string.va_voice_best_hint), Prefs.voiceName.isBlank()) {
+                                Prefs.saveVoiceName(""); speaker.refresh(); speaker.speak(context.getString(R.string.va_voice_sample))
+                            }
+                            voices.forEachIndexed { i, v ->
+                                val quality = when { v.quality >= 500 -> "★★★"; v.quality >= 400 -> "★★"; else -> "★" }
+                                Choice(
+                                    stringResource(R.string.va_voice_n, i + 1) + "  " + quality,
+                                    v.name + (if (v.isNetworkConnectionRequired) " · " + stringResource(R.string.va_voice_online) else ""),
+                                    Prefs.voiceName == v.name,
+                                ) { Prefs.saveVoiceName(v.name); speaker.refresh(); speaker.speak(context.getString(R.string.va_voice_sample)) }
+                            }
+                        }
+                    }
+                }
                 SettingsDivider()
                 SettingsSwitchRow(
                     title = stringResource(R.string.settings_voice_hands_free),

@@ -90,6 +90,11 @@ class Api {
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
 
+    /** Opens (and keeps in the pool) a connection to the provider, so that the first real request does not wait for the handshake. */
+    suspend fun warm(provider: Provider) = withContext(Dispatchers.IO) {
+        client.newCall(Request.Builder().url(provider.baseUrl.trimEnd('/')).head().build()).execute().close()
+    }
+
     /** The ids of the models the provider offers. */
     suspend fun listModels(provider: Provider, key: String): List<String> = listModelEntries(provider, key).map { it.id }
 
@@ -175,6 +180,8 @@ class Api {
             .post(body.toString().toRequestBody(json))
             .build()
         val call = client.newCall(request)
+        VoiceTrace.mark("request sent (${body.toString().length / 1024} KB, ${tools.size} tools)")
+        var firstPiece = true
         @OptIn(kotlinx.coroutines.InternalCoroutinesApi::class)
         val handle = currentCoroutineContext()[Job]?.invokeOnCompletion(onCancelling = true) { call.cancel() }
         val splitter = ThinkSplitter()
@@ -182,10 +189,12 @@ class Api {
         // Gemini behind some gateways puts its thought summaries at the head of the answer.
         val summaries = if (model.lowercase().contains("gemini")) ThoughtSummaryFilter() else null
         suspend fun pass(piece: Piece) {
+            if (firstPiece) { firstPiece = false; VoiceTrace.mark("first piece of the answer") }
             if (summaries != null && piece is Piece.Text) summaries.feed(piece.text).forEach { emit(it) } else emit(piece)
         }
         try {
             call.execute().use { response ->
+                VoiceTrace.mark("provider answered (headers)")
                 if (!response.isSuccessful) throw httpError(response.code, response.body?.string().orEmpty())
                 val source = response.body?.source() ?: throw ApiException(ErrorKind.ProviderDown, response.code, "Empty answer")
                 while (true) {

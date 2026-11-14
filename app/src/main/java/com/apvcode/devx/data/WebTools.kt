@@ -19,6 +19,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 import org.json.JSONTokener
 import org.jsoup.Jsoup
 import java.net.InetAddress
@@ -47,6 +48,17 @@ class WebTools(context: Context) {
 
     fun definitions(): List<WireTool> = listOf(
         tool(
+            "search_apps",
+            "Search a store for apps: Google Play (default) or F-Droid. Gives each app's id, name, maker, one line about it, stars and installs. " +
+                "To show them to the person as cards they can open and install from, write a devx-apps block with the ids of the best matches (see the instructions).",
+            schema(
+                "query" to str("What to look for: a name or a kind of app."),
+                "store" to str("google_play (default) or f_droid."),
+                "limit" to int("How many apps (default 4, at most 8)."),
+                required = listOf("query"),
+            ),
+        ),
+        tool(
             "web_search",
             "Search the internet (one search is usually enough; take the best results and read them together). Use it when you need current or recent information, when you are not sure of a fact, " +
                 "for documentation, versions, prices, news, or anything you may not know. Gives titles, addresses and short excerpts; " +
@@ -68,7 +80,29 @@ class WebTools(context: Context) {
 
     suspend fun run(name: String, args: JSONObject, report: ToolReport): ToolOutcome = when (name) {
         "web_search" -> search(args.optString("query").trim(), report)
+        "search_apps" -> searchApps(args, report)
         else -> open(args.optString("url").trim(), args.optInt("offset", 0), report)
+    }
+
+    // ---------- apps in a store ----------
+
+    private suspend fun searchApps(args: JSONObject, report: ToolReport): ToolOutcome {
+        val query = args.optString("query").trim()
+        if (query.isEmpty()) return ToolOutcome("Give the words to search for.")
+        val store = AppStores.normalise(args.optString("store", AppStores.PLAY))
+        report.activity(ToolActivity(ToolKind.Search, AppStores.label(store) + ": " + query))
+        val limit = args.optInt("limit", 4).coerceIn(1, 8)
+        val ids = AppStores.search(store, query, limit)
+        if (ids.isEmpty()) return ToolOutcome("Nothing found in ${AppStores.label(store)} for \"$query\".")
+        val apps = AppStores.detailsOf(store, ids).filterNotNull()
+        if (apps.isEmpty()) return ToolOutcome("The store did not answer. Try again, or search the web instead.")
+        return ToolOutcome(
+            UNTRUSTED + "${AppStores.label(store)} results for \"$query\":\n\n" + apps.mapIndexed { i, a ->
+                "${i + 1}. ${a.name} (id: ${a.id}) by ${a.developer.ifBlank { "unknown" }}" +
+                    (a.rating?.let { " · ★%.1f".format(Locale.US, it) } ?: "") + (a.ratings?.let { " (${it} ratings)" } ?: "") +
+                    (a.installs?.let { " · $it installs" } ?: "") + (a.price?.let { " · $it" } ?: "") + "\n   " + a.summary
+            }.joinToString("\n\n") + "\n\nTo show these as cards: a devx-apps block with {\"store\":\"${store}\",\"ids\":[...]}.",
+        )
     }
 
     // ---------- search ----------

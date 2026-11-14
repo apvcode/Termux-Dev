@@ -10,6 +10,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.webkit.JavascriptInterface
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -58,6 +59,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil3.compose.AsyncImage
 import com.apvcode.devx.R
+import com.apvcode.devx.data.AppStores
+import com.apvcode.devx.data.StoreApp
 import com.apvcode.devx.model.Block
 import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.theme.DevxColors
@@ -98,6 +101,7 @@ fun RichBlock(block: Block.Rich, modifier: Modifier = Modifier) {
         "contact" -> ContactBlock(block.json, modifier)
         "link" -> LinkBlock(block.json, modifier)
         "mermaid" -> MermaidBlock(block.json, modifier)
+        "apps" -> AppsBlock(block.json, modifier)
     }
 }
 
@@ -519,4 +523,113 @@ fun MermaidBlock(code: String, modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth().height(heightDp.dp),
         )
     }
+}
+
+
+// ───────────────────────── apps of a store ─────────────────────────
+
+private class AppRef(val store: String, val id: String)
+
+/**
+ * Apps found in a store, as cards: the store's mark on top, then for each app its picture, name, maker, a line about it, the stars and
+ * the installs; a tap opens its page in the store (where it can be installed), and an installed app has a button to open it.
+ * {"store":"google_play","ids":["tech.ula","..."]}, or {"store":"google_play","query":"terminal","limit":3}.
+ */
+@Composable
+fun AppsBlock(json: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val spec = remember(json) { runCatching { JSONObject(json) }.getOrNull() }
+    var apps by remember(json) { mutableStateOf<List<StoreApp>?>(null) }
+    var failed by remember(json) { mutableStateOf(false) }
+    val store = remember(json) { AppStores.normalise(spec?.optString("store").orEmpty()) }
+    LaunchedEffect(json) {
+        if (spec == null) { failed = true; return@LaunchedEffect }
+        val refs = ArrayList<AppRef>()
+        spec.optJSONArray("ids")?.let { a -> for (i in 0 until minOf(a.length(), 8)) a.optString(i).takeIf { it.isNotBlank() }?.let { refs += AppRef(store, it) } }
+        spec.optJSONArray("apps")?.let { a -> for (i in 0 until minOf(a.length(), 8)) a.optJSONObject(i)?.let { o -> o.optString("id").takeIf { it.isNotBlank() }?.let { refs += AppRef(AppStores.normalise(o.optString("store", store)), it) } } }
+        if (refs.isEmpty()) spec.optString("query").takeIf { it.isNotBlank() }?.let { q -> AppStores.search(store, q, spec.optInt("limit", 3).coerceIn(1, 8)).forEach { refs += AppRef(store, it) } }
+        val found = refs.groupBy { it.store }.flatMap { (st, rs) -> AppStores.detailsOf(st, rs.map { it.id }).filterNotNull() }
+        apps = found
+        if (found.isEmpty()) failed = true
+    }
+    val shape = RoundedCornerShape(22.dp)
+    Column(modifier.fillMaxWidth().clip(shape).background(DevxColors.Card)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            androidx.compose.material3.Icon(if (store == AppStores.FDROID) com.apvcode.devx.ui.components.DevxIcons.Download else com.apvcode.devx.ui.components.DevxIcons.GooglePlay, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp))
+            Text(AppStores.label(store), style = DevxType.BodyStrong, color = DevxColors.TextPrimary)
+        }
+        val list = apps
+        when {
+            list == null && !failed -> repeat(spec?.optJSONArray("ids")?.length()?.coerceIn(1, 3) ?: 2) { AppSkeleton() }
+            list.isNullOrEmpty() -> Text(stringResource(R.string.apps_failed), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp))
+            else -> list.forEachIndexed { i, app ->
+                if (i > 0) androidx.compose.material3.HorizontalDivider(color = DevxColors.Outline, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                AppRow(app) { openStore(context, app) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppSkeleton() {
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "skeleton")
+    val a by pulse.animateFloat(0.25f, 0.6f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(800), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
+    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.10f * a)))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.width(150.dp).height(14.dp).clip(RoundedCornerShape(7.dp)).background(Color.White.copy(alpha = 0.10f * a)))
+            Box(Modifier.width(110.dp).height(11.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.07f * a)))
+            Box(Modifier.width(190.dp).height(11.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.07f * a)))
+        }
+    }
+}
+
+@Composable
+private fun AppRow(app: StoreApp, onOpen: () -> Unit) {
+    val context = LocalContext.current
+    val installed = remember(app.id) { runCatching { context.packageManager.getLaunchIntentForPackage(app.id) != null }.getOrDefault(false) }
+    Row(
+        Modifier.fillMaxWidth().pressable(scaleTo = 0.985f, haptic = false, onClick = onOpen).padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(DevxColors.CardInner)) {
+            if (app.icon != null) AsyncImage(model = app.icon, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(56.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(app.name, style = DevxType.BodyStrong, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (app.developer.isNotBlank()) Text(app.developer, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (app.summary.isNotBlank()) Text(app.summary, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                app.rating?.let { Chip("%.1f ★".format(Locale.US, it)) }
+                app.installs?.let { Chip("⤓ $it") }
+                app.price?.takeIf { it != "free" }?.let { Chip(it) }
+                if (installed) Text(
+                    stringResource(R.string.apps_open),
+                    style = DevxType.Caption, color = DevxColors.OnAccent,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(DevxColors.Accent)
+                        .pressable(scaleTo = 0.94f, haptic = false) { runCatching { context.packageManager.getLaunchIntentForPackage(app.id)?.let { context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } }
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
+        }
+        Box(Modifier.size(38.dp).clip(CircleShape).background(DevxColors.CardInner), contentAlignment = Alignment.Center) {
+            Text("›", style = DevxType.Title, color = DevxColors.TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun Chip(text: String) {
+    Text(text, style = DevxType.Caption, color = DevxColors.TextPrimary, modifier = Modifier.clip(RoundedCornerShape(50)).background(DevxColors.CardInner).padding(horizontal = 9.dp, vertical = 4.dp))
+}
+
+/** The store's page of the app: in the Play app for Google Play (its page has the Install button), else in the browser. */
+private fun openStore(context: Context, app: StoreApp) {
+    val intents = buildList {
+        if (app.store == AppStores.PLAY) add(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${app.id}")))
+        add(Intent(Intent.ACTION_VIEW, Uri.parse(app.url)))
+    }
+    for (i in intents) { if (runCatching { context.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return }
+    Toast.makeText(context, R.string.rich_cannot_open, Toast.LENGTH_SHORT).show()
 }
