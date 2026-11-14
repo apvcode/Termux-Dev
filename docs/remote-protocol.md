@@ -75,7 +75,7 @@ Methods: `hello {name, memory}`; `sessions.list {q?}`; `session.open {id? | cwd?
 `session.detach`; `session.delete {id}`; `session.reset`; `session.send {s,text,files:[uid]}`; `session.stop`; `session.mode {plan,yolo,extra}`;
 `session.model {provider,model}`; `session.effort {level}`; `session.rename`; `session.compact`; `session.undo`; `session.info`; `session.tasks`;
 `session.stopTask`; `session.trust`; `session.snapshot`; `session.expand {line}`; `commands.list`; `perm.answer {s,id,answer}`;
-`ask.answer {s,id,answers}`; `plan.decide {s,id,choice}`; `dirs.list {path?}`; `providers.list`; `models.list {provider?}`;
+`ask.answer {s,id,answers}`; `plan.decide {s,id,choice}` (choice: `go`, `compact` = shorten the context first and then go, or `edit`); `dirs.list {path?}`; `providers.list`; `models.list {provider?}`;
 `provider.add`; `provider.key`; `provider.remove`; `upload.begin/chunk/end` (base64 chunks of up to 32 KB; 25 MB at most);
 `file.get {s,id,offset,len}` (a piece of a picture or file of the chat, see below); `media.resolve {s,paths}`.
 

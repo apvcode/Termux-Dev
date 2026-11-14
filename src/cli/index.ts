@@ -23,7 +23,7 @@ import { REWIND_CURRENT, messageDraft, rewindItems, userEntries } from './rewind
 import { runPicker } from './picker.js';
 import { runFinder, runTextInput } from './finder.js';
 import { renderWelcome } from './welcome.js';
-import { savePlanFile } from '../core/planfile.js';
+import { savePlanFile, planToMarkdown } from '../core/planfile.js';
 import { BASE_TITLE, RESTORE_TERMINAL_TITLE, SAVE_TERMINAL_TITLE, cleanTitle, generateChatTitle, provisionalTitle, terminalTitleSequence } from '../core/title.js';
 import { runDoctor } from './doctor.js';
 
@@ -1135,6 +1135,61 @@ export async function main() {
   };
 
   /**
+   * Shortens the conversation: the model writes a summary of it, and the summary replaces the messages. [keep] is text that must
+   * stay whole next to the summary (the approved plan). Returns false when nothing was compacted (too short, or it failed).
+   */
+  const compactContext = async (keep?: string): Promise<boolean> => {
+    const msgs = history.getMessages();
+    if (msgs.length <= 2) {
+      log.info('Conversation is already short, no compaction needed.');
+      return false;
+    }
+
+    const s = new UiSpinner();
+    s.start('Compacting conversation context with AI...');
+    try {
+      await refreshFormats(config).catch(() => null);
+      const provider = sideProvider();
+      // The request itself must fit the window: shorten a copy of the history first.
+      const forSummary = new History();
+      for (const m of msgs) forSummary.addMessage({ ...m, images: undefined });
+      forSummary.pruneToLimit(Math.floor((config.maxContextTokens || 100000) * 0.7));
+      const compactPrompt = {
+        messages: [
+          ...forSummary.getMessages(),
+          {
+            role: 'user' as const,
+            content: 'Write a short, structured summary of our conversation so far: what the user wants, decisions made, files created or changed, and what is left to do. Plain text, no filler.'
+          }
+        ]
+      };
+      const res = await provider.chat(compactPrompt);
+      s.stop();
+      if (!res.content || !res.content.trim()) throw new Error('the model returned an empty summary');
+
+      const sysPrompt = await buildSystemPrompt(planMode);
+      history.clear();
+      history.addMessage({ role: 'system', content: sysPrompt });
+      // A user message, not an assistant one: the Anthropic format cannot start with the assistant.
+      history.addMessage({
+        role: 'user',
+        content: `${COMPACT_MARK} Summary of our conversation so far:\n${res.content}` + (keep ? `\n\n${keep}` : '')
+      });
+      const item: TranscriptItem = { kind: 'compact', summary: res.content };
+      transcript.push(item);
+      // Saved at once: leaving devx (or resuming the chat) right after must not bring the long conversation back.
+      await sessionManager.save(history.getMessages(), sessionCost.total, config.model, planMode, sessionCost.estimated).catch(() => undefined);
+      console.log();
+      console.log(renderItem(item, { cols: process.stdout.columns || 80, thinkingExpanded, outputExpanded }).join('\n'));
+      return true;
+    } catch (err: any) {
+      s.stop();
+      log.error(`Compaction failed: ${err.message}`);
+      return false;
+    }
+  };
+
+  /**
    * The commands that only show or change a setting: they need nothing of the conversation that is
    * running, so they also work while the agent is at work (see `runDuringTurn`). Returns false when
    * `cmd` is not one of them.
@@ -1850,50 +1905,7 @@ export async function main() {
         continue;
       }
       if (cmd === '/compact') {
-        const msgs = history.getMessages();
-        if (msgs.length <= 2) {
-          log.info('Conversation is already short, no compaction needed.');
-          continue;
-        }
-
-        const s = new UiSpinner();
-        s.start('Compacting conversation context with AI...');
-        try {
-          await refreshFormats(config).catch(() => null);
-          const provider = sideProvider();
-          // The request itself must fit the window: shorten a copy of the history first.
-          const forSummary = new History();
-          for (const m of msgs) forSummary.addMessage({ ...m, images: undefined });
-          forSummary.pruneToLimit(Math.floor((config.maxContextTokens || 100000) * 0.7));
-          const compactPrompt = {
-            messages: [
-              ...forSummary.getMessages(),
-              {
-                role: 'user' as const,
-                content: 'Write a short, structured summary of our conversation so far: what the user wants, decisions made, files created or changed, and what is left to do. Plain text, no filler.'
-              }
-            ]
-          };
-          const res = await provider.chat(compactPrompt);
-          s.stop();
-          if (!res.content || !res.content.trim()) throw new Error('the model returned an empty summary');
-
-          const sysPrompt = await buildSystemPrompt(planMode);
-          history.clear();
-          history.addMessage({ role: 'system', content: sysPrompt });
-          // A user message, not an assistant one: the Anthropic format cannot start with the assistant.
-          history.addMessage({
-            role: 'user',
-            content: `${COMPACT_MARK} Summary of our conversation so far:\n${res.content}`
-          });
-          const item: TranscriptItem = { kind: 'compact', summary: res.content };
-          transcript.push(item);
-          console.log();
-          console.log(renderItem(item, { cols: process.stdout.columns || 80, thinkingExpanded, outputExpanded }).join('\n'));
-        } catch (err: any) {
-          s.stop();
-          log.error(`Compaction failed: ${err.message}`);
-        }
+        await compactContext();
         continue;
       }
       if (cmd === '/session' && parts[1]?.toLowerCase() !== 'del') {
@@ -2969,12 +2981,17 @@ export async function main() {
           console.log();
           const choice = await askPlanDecision();
 
-          if (choice === 'go') {
+          if (choice === 'go' || choice === 'compact') {
             planMode = false;
             // The approved plan is kept in the project: it survives /clear and a restart.
             if (approvedPlan) await savePlanFile(process.cwd(), approvedPlan).catch(() => null);
             const newSys = await buildSystemPrompt(false);
             history.updateSystemPrompt(newSys);
+            // "Go and compact": the talk that made the plan is shortened first, and the plan stays whole next to the summary.
+            if (choice === 'compact') {
+              const planText = typeof approvedPlan === 'string' ? approvedPlan : approvedPlan ? planToMarkdown(approvedPlan) : '';
+              await compactContext(planText ? `APPROVED PLAN (carry it out):\n${planText}` : undefined);
+            }
             log.success(t('plan.started'));
             currentDraft = '';
             autoTriggerPrompt = 'Go!';

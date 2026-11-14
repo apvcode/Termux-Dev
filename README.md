@@ -55,8 +55,8 @@ The terminal interface is built around a framed prompt that carries the status i
 
 - **Dual-Brain Architecture (PLAN & AGENT Modes):**  
   Instantly toggle between **PLAN** (safe architect, interactive requirements questionnaire, no code dumps) and **AGENT** (autonomous file edits, terminal commands, auto-installer).
-- **One-Click Plan Approval (`[Go / Other]`):**  
-  When an architectural plan is finalized, review and confirm with `Go` to immediately unleash the coder agent.
+- **One-Click Plan Approval (`[Go / Go and compact context / Other]`):**  
+  When an architectural plan is finalized, review and confirm with `Go` to immediately unleash the coder agent. `Go and compact context` first summarizes the long planning conversation and carries the approved plan out in a short, fresh context (it works the same from the phone).
 - **Multimodal Vision Attachments:**  
   Paste screenshots straight from the clipboard with `Ctrl+V` or `Alt+V` (also `/image`, or a pasted file path). They appear as badges like `[Image #1 203kb]` and are sent to the model as real images, unless the model is known to read text only. Needs `wl-clipboard` on Wayland, `xclip` on X11, `pngpaste` on macOS.
 - **The agent can look at images on disk:**  
@@ -193,7 +193,11 @@ devx
 
 ## Remote control from your phone
 
-devx 2.0 can be driven from the devx Android app. A small host runs in the background on your computer; the phone connects to it, and sees and controls the same sessions: every chat, live replies and reasoning, approval cards, questions, the plan, plan/agent/YOLO modes, the model and provider, context and cost, `/compact` and the other commands. Files and photos can be sent from the phone. Everything works with the terminal closed.
+**Get the app:** the Android APK, `devx-android-x.y.z.apk`, is attached to each [release](https://github.com/apvcode/Termux-Dev/releases/latest) (open it on the phone and allow installing from this source). In the app, a phone is removed from the computer with `/phones` in devx or `devx remote revoke <name>`.
+
+devx 2.0 can be driven from the devx Android app. A small host runs in the background on your computer; the phone connects to it, and sees and controls the same sessions: every chat, live replies and reasoning, approval cards, questions, the plan, plan/agent/YOLO modes, the model and provider, context and cost, `/compact` and the other commands. Files and photos can be sent from the phone, and the agent can send files and pictures back: they show up in the phone chat as cards. Everything works with the terminal closed.
+
+The app is also a pocket assistant of its own: it chats with any provider you add, answers by voice (set it as the phone's assistant and the power button opens it), sets alarms and timers, finds places, runs scheduled tasks, and shows answers as cards, tables, charts, maps and app cards. It speaks the same nine languages as devx.
 
 ```
 devx remote start     # start the host (keeps running without a terminal)
@@ -228,6 +232,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 | **`/copy`** | Copy the **last answer** of the AI to the clipboard, in full (works over ssh too) |
 | **`/rename`** | Rename the chat: `/rename <name>`, or without a name the AI names it again (`/title` is the same) |
 | **`/permissions`** | What is allowed without asking (`Session` / `Always` on an approval card); `/permissions clear` resets it |
+| **`/phones`** | The phones paired with devx Remote: pick one to remove it, it is disconnected at once and cannot connect again until it is paired anew |
 | **`/rewind`** | Go back to one of **your messages**: the chat after it is removed (the model forgets it too), the message returns to the input line to be edited; the files can go back as well (with git) |
 | **`/tasks`** | Background tasks: list, `/tasks <id>` for output, `/tasks stop <id\|all>`, `/tasks clear` |
 | **`/undo`** | Revert all file changes from the last AI turn |
@@ -242,7 +247,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 | **`/model`** | Switch model for the active provider with live search |
 | **`/effort [level]`** | Set the reasoning effort. Only the levels the current model supports are offered (see [Reasoning effort](#reasoning-effort)) |
 | **`/provider`** | Switch provider (OpenRouter, Gemini, Groq, DeepSeek, Local) |
-| **`/compact`** | Compact and summarize chat context tokens |
+| **`/compact`** | Compact and summarize chat context tokens (the compacted chat is saved at once, so `/resume` gives the short one) |
 | **`/clear`** | Clear the context and start a new session (the old one stays saved, see `/resume`) |
 | **`/init`** | Generate `AGENTS.md` developer guide in project root |
 | **`/help`** | Display all available commands |

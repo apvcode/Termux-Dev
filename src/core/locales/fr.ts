@@ -180,6 +180,7 @@ export const fr: Messages = {
   'plan.files': 'Fichiers',
   'plan.ready': 'Le plan est prêt. Commencer le travail ?',
   'plan.go': 'Go : passer en mode AGENT et commencer',
+  'plan.goCompact': 'Go et compacter : raccourcir le contexte, puis passer en mode AGENT et commencer',
   'plan.edit': 'Modifier le plan (rester en mode PLAN)',
   'plan.editHint': 'Dites quoi changer : le plan reste en mode PLAN et sera refait.',
   'plan.started': 'Mode AGENT : travail sur le plan approuvé',

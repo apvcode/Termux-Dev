@@ -180,6 +180,7 @@ export const ja: Messages = {
   'plan.files': 'ファイル',
   'plan.ready': 'プランができました。作業を始めますか？',
   'plan.go': 'Go: AGENT モードに切り替えて開始',
+  'plan.goCompact': 'Go とコンテキスト圧縮: 文脈を要約してから AGENT モードで開始',
   'plan.edit': 'プランを変更（PLAN モードのまま）',
   'plan.editHint': '変更したい点を伝えてください。PLAN モードのままプランを作り直します。',
   'plan.started': 'AGENT モード: 承認されたプランに沿って作業中',

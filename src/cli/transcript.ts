@@ -2,7 +2,7 @@ import { Message } from '../core/types.js';
 import { getActionDescription } from '../core/loop.js';
 import { formatDiffBox } from './diff.js';
 import { renderMarkdown } from './markdown.js';
-import { palette, renderPlanCard, renderResultLine, renderTaskCard, renderToolLine, renderUserEcho, summarizeToolResult } from './ui.js';
+import { GutterWriter, palette, renderPlanCard, renderResultLine, renderTaskCard, renderToolLine, renderUserEcho, summarizeToolResult } from './ui.js';
 import { displayWidth, truncateWidth, wrapText } from './width.js';
 import { t } from '../core/i18n.js';
 import { toStringList } from '../tools/plan.js';
@@ -52,9 +52,14 @@ export function toolResultRows(name: string, result: string, opts: { cols: numbe
   return summarizeToolResult(name, result, cols, opts.expanded);
 }
 
-export function assistantRows(text: string): string[] {
-  const rows = renderMarkdown(text).replace(/\s+$/, '').split('\n');
-  return rows.map((row, i) => (i === 0 ? '  ' + palette.accent('●') + ' ' : '    ') + row);
+export function assistantRows(text: string, cols: number = process.stdout.columns || 80): string[] {
+  // Wrapped like the live answer (words kept whole, a wrapped line continues under its text, not under its marker):
+  // a long row left to the terminal breaks in the middle of a word and loses its indent.
+  let out = '';
+  const gutter = new GutterWriter('  ' + palette.accent('●') + ' ', '    ', (chunk) => { out += chunk; }, () => Math.min(cols - 1, 100));
+  gutter.write(renderMarkdown(text).replace(/\s+$/, ''));
+  gutter.flush();
+  return out.replace(/\s+$/, '').split('\n');
 }
 
 /** `  ∴ thought for 0.3s · 112 tok  (ctrl+p to expand)`, the hint dropped and the rest cut when the screen is narrow. */
@@ -101,7 +106,7 @@ export function renderItem(item: TranscriptItem, opts: ViewOptions): string[] {
     case 'thought':
       return thoughtRows(item, opts);
     case 'assistant':
-      return assistantRows(item.text);
+      return assistantRows(item.text, opts.cols);
     case 'tool': {
       const rows = renderToolLine(item.desc, opts.cols, opts.outputExpanded).split('\n');
       if (item.result !== undefined) rows.push(...toolResultRows(item.name, item.result, { cols: opts.cols, expanded: opts.outputExpanded, diffColors: opts.diffColors }));

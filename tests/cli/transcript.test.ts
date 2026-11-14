@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { TranscriptItem, gapBetween, messagesToItems, renderTranscript, toolResultRows } from '../../src/cli/transcript.js';
+import { TranscriptItem, assistantRows, gapBetween, messagesToItems, renderTranscript, toolResultRows } from '../../src/cli/transcript.js';
 import { setActiveTheme } from '../../src/cli/theme.js';
 import { displayWidth, stripAnsi } from '../../src/cli/width.js';
 
@@ -160,5 +160,21 @@ describe('the summary after /compact', () => {
       { role: 'user', content: '[CONVERSATION COMPACTED] Summary of our conversation so far:\nThe user wants a login page.' },
     ] as any);
     expect(got).toEqual([{ kind: 'compact', summary: 'The user wants a login page.' }]);
+  });
+});
+
+describe('assistantRows wraps like the live answer', () => {
+  const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
+
+  it('keeps every row inside the screen and a wrapped list item under its text', () => {
+    const text = '- Path traversal in the attachments route is closed, a redirect is given instead of reading the file\n\nA long paragraph that goes on and on and certainly does not fit into forty-eight columns of a phone.';
+    const rows = assistantRows(text, 48).map(strip);
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(47);
+    const item = rows.findIndex((r) => r.includes('•'));
+    expect(item).toBeGreaterThanOrEqual(0);
+    // the continuation of the item starts under its text (past the bullet), not at the gutter
+    expect(rows[item + 1].startsWith('      ')).toBe(true);
+    // words are not cut in the middle
+    expect(rows.join(' ')).toContain('attachments route');
   });
 });

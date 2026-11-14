@@ -89,13 +89,22 @@ describe('asking what to do with the plan', () => {
     const done = askPlanDecision();
     expect(text()).toContain('The plan is ready. Start working on it?');
     expect(text()).toContain('Go: switch to AGENT mode and start');
+    expect(text()).toContain('Go and compact: shorten the context, then switch to AGENT mode and start');
     expect(text()).toContain('Change the plan (stay in PLAN mode)');
     press('\r');
     expect(await done).toBe('go');
   });
 
-  it('the second choice or Esc keeps the plan in PLAN mode', async () => {
+  it('the second choice starts the work after the context is compacted', async () => {
+    const done = askPlanDecision();
+    press('\x1b[B');
+    press('\r');
+    expect(await done).toBe('compact');
+  });
+
+  it('the last choice or Esc keeps the plan in PLAN mode', async () => {
     let done = askPlanDecision();
+    press('\x1b[B');
     press('\x1b[B');
     press('\r');
     expect(await done).toBe('edit');

@@ -22,7 +22,7 @@ import { getBackgroundManager } from '../core/background.js';
 import { globalSnapshotManager } from '../core/snapshot.js';
 import { Checkpoint, createCheckpoint, diffCheckpoint, restoreCheckpoint } from '../core/checkpoint.js';
 import { generateChatTitle, provisionalTitle } from '../core/title.js';
-import { savePlanFile } from '../core/planfile.js';
+import { savePlanFile, planToMarkdown } from '../core/planfile.js';
 import { effectiveReasoning, isLevel, withEffort } from '../core/reasoning.js';
 import { modelAcceptsImages } from '../core/vision.js';
 import { CustomCommandManager } from '../core/commands.js';
@@ -645,10 +645,15 @@ export class SessionRuntime {
     this.planWaiters.delete(id);
     this.live.plan = null;
     this.emit({ e: 'plan_done', id, choice });
-    if (choice === 'go') {
+    if (choice === 'go' || choice === 'compact') {
       this.planMode = false;
       await savePlanFile(this.opts.cwd, approved as any).catch(() => null);
       this.history.updateSystemPrompt(await this.systemPrompt());
+      // "Go and compact": the talk that made the plan is shortened first, and the plan stays whole next to the summary.
+      if (choice === 'compact') {
+        const planText = typeof approved === 'string' ? approved : planToMarkdown(approved as any);
+        await this.compactHistory(`APPROVED PLAN (carry it out):\n${planText}`);
+      }
       this.emitState();
       await this.send('Go!');
     }
@@ -657,7 +662,7 @@ export class SessionRuntime {
   decidePlan(id: string, choice: string): boolean {
     const w = this.planWaiters.get(id);
     if (!w) return false;
-    w(choice === 'go' ? 'go' : 'edit');
+    w(choice === 'go' || choice === 'compact' ? choice : 'edit');
     return true;
   }
 
@@ -730,6 +735,11 @@ export class SessionRuntime {
 
   async compact(): Promise<{ ok: boolean; text: string }> {
     if (this.running) return { ok: false, text: 'Wait until the answer is finished, or stop it first.' };
+    return this.compactHistory();
+  }
+
+  /** The summary replaces the messages. [keep] is text that stays whole next to it (the approved plan). */
+  private async compactHistory(keep?: string): Promise<{ ok: boolean; text: string }> {
     const msgs = this.history.getMessages();
     if (msgs.length <= 2) return { ok: false, text: 'The conversation is already short.' };
     try {
@@ -747,7 +757,7 @@ export class SessionRuntime {
       if (!res.content?.trim()) throw new Error('the model returned an empty summary');
       this.history.clear();
       this.history.addMessage({ role: 'system', content: await this.systemPrompt() });
-      this.history.addMessage({ role: 'user', content: `${COMPACT_MARK} Summary of our conversation so far:\n${res.content}` });
+      this.history.addMessage({ role: 'user', content: `${COMPACT_MARK} Summary of our conversation so far:\n${res.content}` + (keep ? `\n\n${keep}` : '') });
       this.lastCtxUsed = 0;
       await this.save();
       this.emit({ e: 'compact', summary: res.content });

@@ -189,6 +189,7 @@ export const en = {
   'plan.files': 'Files',
   'plan.ready': 'The plan is ready. Start working on it?',
   'plan.go': 'Go: switch to AGENT mode and start',
+  'plan.goCompact': 'Go and compact: shorten the context, then switch to AGENT mode and start',
   'plan.edit': 'Change the plan (stay in PLAN mode)',
   'plan.editHint': 'Say what to change: the plan stays in PLAN mode and is redone.',
   'plan.started': 'AGENT mode: working on the approved plan',

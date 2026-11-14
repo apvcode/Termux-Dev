@@ -180,6 +180,7 @@ export const zh: Messages = {
   'plan.files': '文件',
   'plan.ready': '计划已就绪。开始执行吗？',
   'plan.go': 'Go：切换到 AGENT 模式并开始',
+  'plan.goCompact': 'Go 并压缩上下文：先压缩对话上下文，再切换到 AGENT 模式并开始',
   'plan.edit': '修改计划（留在 PLAN 模式）',
   'plan.editHint': '说明要改什么：计划保持在 PLAN 模式并会重做。',
   'plan.started': 'AGENT 模式：按已批准的计划执行',

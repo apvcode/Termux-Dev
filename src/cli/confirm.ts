@@ -48,18 +48,19 @@ export function printFarewell(message: string, kind: 'info' | 'ok' | 'warn' = 'i
   console.log();
 }
 
-/** The plan is ready: start on it (Go) or change it. Esc means "change": nothing starts by accident. */
-export async function askPlanDecision(): Promise<'go' | 'edit'> {
+/** The plan is ready: start on it (Go), start on it after the context is shortened, or change it. Esc means "change": nothing starts by accident. */
+export async function askPlanDecision(): Promise<'go' | 'compact' | 'edit'> {
   const cols = process.stdout.columns || 80;
   console.log();
   for (const line of wrapWords(t('plan.ready'), Math.max(20, cols - 8))) console.log('  ' + palette.bold(palette.text(line)));
-  const answer = await runPicker<'go' | 'edit'>({
+  const answer = await runPicker<'go' | 'compact' | 'edit'>({
     title: 'plan',
     items: [
       { value: 'go', label: t('plan.go') },
+      { value: 'compact', label: t('plan.goCompact') },
       { value: 'edit', label: t('plan.edit') },
     ],
     current: 'go',
   });
-  return answer === 'go' ? 'go' : 'edit';
+  return answer === 'go' || answer === 'compact' ? answer : 'edit';
 }
