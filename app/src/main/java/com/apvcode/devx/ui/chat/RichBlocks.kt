@@ -98,6 +98,9 @@ import kotlin.math.tan
 /** Finds the picture behind a source the assistant wrote: set by the message screen, which knows the chat. */
 val LocalImageResolver = compositionLocalOf<(String) -> Any?> { { null } }
 
+/** Finds a picture that has to be fetched first (a picture of the computer in a Devx Remote chat): called when the resolver has none. */
+val LocalImageLoader = compositionLocalOf<suspend (String) -> Any?> { { null } }
+
 /** gallery:<id>, folder:<path>, artifact:<id>, attachment:<name> or an https address. */
 fun resolveImageSource(vm: ChatViewModel, context: Context, src: String): Any? {
     val s = src.trim()
@@ -397,7 +400,10 @@ fun ImageBlock(json: String, modifier: Modifier = Modifier) {
 
 @Composable
 private fun ImageItem(src: String, caption: String?, resolver: (String) -> Any?, modifier: Modifier, wide: Boolean, onOpen: (Any) -> Unit) {
-    val model = remember(src) { resolver(src) }
+    val loader = LocalImageLoader.current
+    val model by androidx.compose.runtime.produceState<Any?>(initialValue = remember(src) { resolver(src) }, src) {
+        if (value == null) value = loader(src)
+    }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (model == null) {
             Text(stringResource(R.string.rich_image_missing, src), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(DevxColors.Card).padding(14.dp))
@@ -407,7 +413,7 @@ private fun ImageItem(src: String, caption: String?, resolver: (String) -> Any?,
                 contentScale = if (wide) ContentScale.Fit else ContentScale.Crop,
                 modifier = (if (wide) Modifier.fillMaxWidth().heightIn(max = 420.dp) else Modifier.height(190.dp).size(width = 150.dp, height = 190.dp))
                     .clip(RoundedCornerShape(20.dp)).background(DevxColors.CardInner)
-                    .pressable(scaleTo = 0.98f, haptic = false) { onOpen(model) },
+                    .pressable(scaleTo = 0.98f, haptic = false) { model?.let(onOpen) },
             )
         }
         if (caption != null) Text(caption, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -503,6 +509,43 @@ fun ChartBlock(json: String, modifier: Modifier = Modifier) {
                     }
                 }
             }
+        }
+    }
+}
+
+
+// ───────────────────────── quick answers ─────────────────────────
+
+/** Short answers under a question: a tap sends the words as the person's message, and the row is spent. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun RepliesBlock(json: String, onSend: (String) -> Unit, modifier: Modifier = Modifier) {
+    val options = remember(json) {
+        runCatching {
+            val raw = json.trim()
+            if (raw.startsWith("[")) JSONArray(raw).let { a -> (0 until a.length()).map { a.optString(it) } }
+            else JSONObject(raw).optJSONArray("options")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty()
+        }.getOrElse { json.lines().map { it.trim().trimStart('-', '*', ' ') } }.map { it.trim() }.filter { it.isNotEmpty() }.take(6)
+    }
+    var chosen by remember(json) { mutableStateOf<String?>(null) }
+    if (options.isEmpty()) return
+    androidx.compose.foundation.layout.FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { option ->
+            val picked = chosen == option
+            Text(
+                option,
+                style = DevxType.Body,
+                color = if (picked) DevxColors.OnAccent else if (chosen != null) DevxColors.TextDisabled else DevxColors.TextPrimary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (picked) DevxColors.Accent else Color.Transparent)
+                    .border(BorderStroke(1.dp, if (picked) DevxColors.Accent else DevxColors.Outline), RoundedCornerShape(50))
+                    .pressable(enabled = chosen == null, scaleTo = 0.95f, haptic = false) {
+                        chosen = option
+                        onSend(option)
+                    }
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            )
         }
     }
 }

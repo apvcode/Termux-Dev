@@ -527,7 +527,7 @@ private fun ChatList(session: RemoteSession, pin: PinState, topPad: androidx.com
                 when (item) {
                     is RItem.User -> UserItem(item, animate, onSelect)
                     is RItem.Assistant -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SelectionContainer { MarkdownText(item.text, animate = animate) }
+                        RemoteAssistantText(item.text, animate, session)
                         val next = items.getOrNull(items.indexOf(item) + 1)
                         if ((next != null || !running) && (next == null || next is RItem.Summary || next is RItem.User)) AssistantActions(item.text, onSelect)
                     }

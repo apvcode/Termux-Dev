@@ -328,6 +328,7 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
                 is Block.Map -> RevealBlock(animate) { MapBlock(block.json) }
                 is Block.Image -> RevealBlock(animate) { ImageBlock(block.json) }
                 is Block.Chart -> RevealBlock(animate) { ChartBlock(block.json) }
+                is Block.Replies -> RevealBlock(animate) { RepliesBlock(block.json, host.onSend) }
                 is Block.Approval -> ApprovalCard(block.command)
                 Block.Building -> BuildingCard()
             }
@@ -375,7 +376,7 @@ private fun ReconnectRow(attempt: Int) {
 
 /** Shown while a card or a picture is still being written by the model. */
 @Composable
-private fun BuildingCard() {
+internal fun BuildingCard() {
     val shape = RoundedCornerShape(20.dp)
     Row(
         Modifier
@@ -393,7 +394,7 @@ private fun BuildingCard() {
 
 /** A non-text block that rises and fades in once. */
 @Composable
-private fun RevealBlock(animate: Boolean, content: @Composable () -> Unit) {
+internal fun RevealBlock(animate: Boolean, content: @Composable () -> Unit) {
     val progress = remember { Animatable(if (animate) 0f else 1f) }
     LaunchedEffect(Unit) {
         if (animate) progress.animateTo(1f, tween(420, easing = FastOutSlowInEasing))

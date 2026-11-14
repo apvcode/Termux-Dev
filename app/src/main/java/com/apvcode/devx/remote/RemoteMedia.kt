@@ -43,6 +43,18 @@ object RemoteMedia {
         }
     }
 
+    /** A picture of the computer that an answer names by its path: the computer is asked to make it fetchable, then it is fetched. */
+    suspend fun fetchPath(context: Context, session: RemoteSession, path: String): File? {
+        val item = withContext(Dispatchers.IO) {
+            runCatching {
+                session.conn.call("media.resolve", JSONObject().put("s", session.id).put("paths", org.json.JSONArray().put(path)), 20_000).optJSONArray("items")?.optJSONObject(0)
+            }.getOrNull()
+        } ?: return null
+        if (item.has("error") || !item.has("id")) return null
+        val media = RItem.Media(0, item.optString("id"), item.optString("name"), item.optString("mime"), item.optLong("size"), false)
+        return fetch(context, session, media)
+    }
+
     private suspend fun download(context: Context, session: RemoteSession, m: RItem.Media, onProgress: (Float) -> Unit): File? {
         val target = cacheFile(context, m)
         val part = File(target.path + ".part")

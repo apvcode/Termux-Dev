@@ -93,6 +93,12 @@ class ParseBlocksTest {
         assertEquals(listOf("Text", "Building"), parseBlocks("x\n```devx-map\n{\"mark").map { if (it is Block.Building) "Building" else it::class.simpleName })
     }
 
+    @Test fun quickRepliesAreABlockAtTheEnd() {
+        val b = parseBlocks("Shall I book it?\n```devx-reply\n[\"Yes\",\"No\"]\n```")
+        assertEquals(listOf("Text", "Replies"), b.map { it::class.simpleName })
+        assertEquals("[\"Yes\",\"No\"]", (b[1] as Block.Replies).json)
+    }
+
     @Test fun unfinishedCardIsBuilding() {
         val b = parseBlocks("Here:\n```devx-card\n{\"type\":\"ca")
         assertEquals(listOf("Text", "Building"), b.map { if (it is Block.Building) "Building" else it::class.simpleName })

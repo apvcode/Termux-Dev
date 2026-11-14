@@ -44,6 +44,7 @@ fun parseBlocks(text: String): List<Block> {
                 info == "devx-map" -> if (closed) Block.Map(content) else Block.Building
                 info == "devx-image" -> if (closed) Block.Image(content) else Block.Building
                 info == "devx-chart" -> if (closed) Block.Chart(content) else Block.Building
+                info == "devx-reply" -> if (closed) Block.Replies(content) else Block.Building
                 info == "devx-file" && closed -> Block.File(content.trim())
                 info == "devx-file" -> Block.Building
                 info == "svg" && !closed -> Block.Building
