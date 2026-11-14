@@ -1,6 +1,7 @@
 package com.apvcode.devx.ui.chat
 
 import com.apvcode.devx.data.Artifact
+import com.apvcode.devx.data.PhoneTools
 import com.apvcode.devx.data.WorkTools
 import com.apvcode.devx.data.ArtifactStore
 import com.apvcode.devx.data.Workspace
@@ -52,6 +53,7 @@ import com.apvcode.devx.data.ToolApproval
 import com.apvcode.devx.data.PendingApproval
 import com.apvcode.devx.data.ApprovalDecision
 import com.apvcode.devx.data.McpTools
+import com.apvcode.devx.data.ImageTools
 import com.apvcode.devx.data.TitleChunk
 import com.apvcode.devx.data.Level
 import com.apvcode.devx.data.ReasoningCaps
@@ -118,6 +120,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         MemoryTools(memory, { projectInfo[it]?.memory }) { chatDigests() },
         SkillTools(skills, workspace),
         McpTools(mcp),
+        ImageTools(context, attachmentStore, artifacts),
+        PhoneTools(context),
     )
 
     /** A file the assistant handed over, by its id (null if it is gone). */
@@ -299,7 +303,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             for (uri in take) {
                 try {
-                    attachmentStore.importImage(uri, if (many) 1280 else 1600, if (many) 80 else 86)?.let { draftAttachments += it }
+                    attachmentStore.importImage(uri, if (many) 1280 else 1600, if (many) 80 else 86, if (many) 2560 else 4096)?.let { draftAttachments += it }
                 } finally {
                     importing -= 1
                 }
@@ -328,13 +332,24 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     } else {
                         val file = attachmentStore.importFile(uri)
                         if (file == null) Toast.makeText(context, context.getString(R.string.attach_unsupported), Toast.LENGTH_SHORT).show()
-                        else draftAttachments += file
+                        else draftAttachments += uniquelyNamed(file)
                     }
                 } finally {
                     importing -= 1
                 }
             }
         }
+    }
+
+    /** Two files with one name could not be told apart by the model (the tools find a file by its name): the second becomes "name (2)". */
+    private fun uniquelyNamed(file: Attachment): Attachment {
+        val taken = (draftAttachments.map { it.name } + current?.messages.orEmpty().flatMap { m -> m.attachments.map { it.name } }).map { it.lowercase() }.toSet()
+        if (file.name.lowercase() !in taken) return file
+        val base = file.name.substringBeforeLast('.', file.name)
+        val ext = file.name.substringAfterLast('.', "").let { if (it.isEmpty() || it == file.name) "" else ".$it" }
+        var n = 2
+        while ("$base ($n)$ext".lowercase() in taken) n++
+        return file.copy(name = "$base ($n)$ext")
     }
 
     /** What the gallery picker returns: photos and videos together. Photos are shrunk, videos are kept whole. */
@@ -740,7 +755,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 val projectName = chat.project?.takeIf { !chat.temporary && it in projectInfo }
                 val project = projectName?.let { projectInfo[it] }
                 val skillsOn = skills.enabled().isNotEmpty()
-                var tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn)
+                var tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn, Prefs.phoneTools)
                 fun systemNow() = SystemPrompt.forUser(
                     Prefs.nickname,
                     if (memoryOn) memory.forPrompt() else null,
@@ -748,6 +763,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     if (skillsOn) skills.forPrompt() else null,
                     ref.model,
                     if (memoryOn) memory.summary else null,
+                    phone = if (Prefs.phoneTools) PhoneTools.promptSection() else null,
                 )
                 if (Prefs.workTools || Prefs.terminal) withContext(Dispatchers.IO) { workspace.syncUploads(chat.id, files, attachmentStore) }
                 var messages = withContext(Dispatchers.IO) { historyFor(chat, user, withTools = tools.isNotEmpty()) }.toMutableList()
@@ -1057,7 +1073,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val projectName = chat.project?.takeIf { !chat.temporary && it in projectInfo }
         val project = projectName?.let { projectInfo[it] }
         val skillsOn = skills.enabled().isNotEmpty()
-        val tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn)
+        val tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn, Prefs.phoneTools)
         val system = SystemPrompt.forUser(
             Prefs.nickname,
             if (memoryOn) memory.forPrompt() else null,
@@ -1065,6 +1081,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             if (skillsOn) skills.forPrompt() else null,
             null,
             if (memoryOn) memory.summary else null,
+            phone = if (Prefs.phoneTools) PhoneTools.promptSection() else null,
         )
         val messages = historyFor(chat, upTo, withTools = tools.isNotEmpty())
         val letters = system.length +
@@ -1113,7 +1130,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                     AttachmentKind.Image ->
-                        if (m.id in recent) images += WireImage(a.mime, attachmentStore.readBase64(a).also { bytes += it.length }) else skipped += a.name
+                        if (m.id in recent) {
+                            images += WireImage(a.mime, attachmentStore.readBase64(a).also { bytes += it.length })
+                            // A reduced copy is what the model sees: it is told the name and that the full one can be looked at closer.
+                            if (withTools && attachmentStore.originalOf(a) != attachmentStore.fileOf(a)) {
+                                text += "\n\n[Photo: ${a.name}. The picture is a reduced copy; the full-size one is kept: if something is too small, dark or unclear, look closer with edit_image (cut out an area, rotate, brighten) instead of guessing.]"
+                            }
+                        } else skipped += a.name
                     AttachmentKind.File ->
                         text += "\n\n[Attached file: ${a.name}, ${a.size / 1024} KB. The app cannot read this type of file, so only its name and size are known.]"
                     AttachmentKind.Video ->
@@ -1126,8 +1149,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     AttachmentKind.Pdf ->
                         if (withTools) {
                             val pages = attachmentStore.pdfPages(a)
-                            text += "\n\n[Attached file: ${a.name}: PDF, ${pages?.let { "$it pages" } ?: "pages unknown"}, ${a.size / 1024} KB. Its contents are not included: use the file tools (read_pdf_pages, search_in_file, render_pdf_page) to read what you need.]"
-                        } else if (m.id in recent) documents += WireDocument(a.name, a.mime, attachmentStore.readBase64(a).also { bytes += it.length }) else skipped += a.name
+                            text += "\n\n[Attached file: ${a.name}: PDF, ${pages?.let { "$it pages" } ?: "pages unknown"}, ${a.size / 1024} KB. Its contents are not included: use the file tools (read_pdf_pages, search_in_file, render_pdf_page; list_pdf_images and edit_image for the pictures inside) to read what you need.]"
+                        } else if (m.id in recent && a.size <= WHOLE_PDF_MAX) documents += WireDocument(a.name, a.mime, attachmentStore.readBase64(a).also { bytes += it.length }) else skipped += a.name
                 }
             }
             if (skipped.isNotEmpty()) text += "\n\n[Attached earlier and not sent again: ${skipped.joinToString()}]"
@@ -1468,7 +1491,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         /** Tools that only look: several of them in one turn can run side by side. */
         val PARALLEL_SAFE = setOf(
             "web_search", "open_url", "search_chats", "read_chat", "memory_list",
-            "list_files", "file_info", "read_pdf_pages", "render_pdf_page", "read_text", "search_in_file", "view_image",
+            "list_files", "file_info", "read_pdf_pages", "render_pdf_page", "read_text", "search_in_file", "view_image", "list_pdf_images",
+            "phone_info", "list_apps", "find_contact", "calendar_events", "list_reminders",
         )
 
         /** The most characters of one excerpt that "Ask Devx" keeps. */
@@ -1476,6 +1500,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         /** Anthropic accepts 32 MB per request; stay below it. */
         const val MAX_REQUEST_BYTES = 30_000_000L
+        /** Without the file tools a PDF goes whole inside the request: a bigger one is not sent (and not even read into memory). */
+        const val WHOLE_PDF_MAX = 20L * 1024 * 1024
     }
 
     // ---------- small things ----------

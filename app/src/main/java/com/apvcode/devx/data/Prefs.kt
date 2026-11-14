@@ -13,6 +13,7 @@ enum class AppLanguage(val tag: String?) { System(null), English("en"), Russian(
 /** Small personal settings: nickname, theme, language. Read on start, changed from Settings. */
 object Prefs {
     private var store: SharedPreferences? = null
+    internal val raw: SharedPreferences? get() = store
 
     var nickname by mutableStateOf("")
         private set
@@ -43,6 +44,10 @@ object Prefs {
     var terminal by mutableStateOf(true)
         private set
 
+    /** Lets the assistant act on the phone: alarms, timers, reminders, apps, contacts, calendar, music. On until switched off. */
+    var phoneTools by mutableStateOf(true)
+        private set
+
     /** The assistant remembers the person across chats and may search the past ones. On until switched off. */
     var memory by mutableStateOf(true)
         private set
@@ -63,6 +68,7 @@ object Prefs {
         if (store != null) return
         val p = context.applicationContext.getSharedPreferences("devx_prefs", Context.MODE_PRIVATE)
         store = p
+        Persona.load(p)
         nickname = p.getString("nickname", "").orEmpty()
         theme = runCatching { ThemeMode.valueOf(p.getString("theme", "") ?: "") }.getOrDefault(ThemeMode.Black)
         language = runCatching { AppLanguage.valueOf(p.getString("language", "") ?: "") }.getOrDefault(AppLanguage.System)
@@ -72,6 +78,7 @@ object Prefs {
         webSearch = p.getBoolean("webSearch", true)
         workTools = p.getBoolean("workTools", true)
         terminal = p.getBoolean("terminal", true)
+        phoneTools = p.getBoolean("phoneTools", true)
         memory = p.getBoolean("memory", true)
         remoteMemory = p.getBoolean("remoteMemory", true)
         remoteKeepAlive = p.getBoolean("remoteKeepAlive", true)
@@ -108,6 +115,11 @@ object Prefs {
     fun saveTerminal(value: Boolean) {
         terminal = value
         store?.edit()?.putBoolean("terminal", value)?.apply()
+    }
+
+    fun savePhoneTools(value: Boolean) {
+        phoneTools = value
+        store?.edit()?.putBoolean("phoneTools", value)?.apply()
     }
 
     fun saveThinkingGlow(value: Boolean) {

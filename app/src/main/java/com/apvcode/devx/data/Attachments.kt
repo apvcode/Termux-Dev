@@ -41,6 +41,7 @@ class AttachmentStore(private val context: Context) {
     fun delete(a: Attachment) {
         fileOf(a).delete()
         if (a.kind == AttachmentKind.Video) thumbOf(a).delete()
+        if (a.kind == AttachmentKind.Image) File(dir, a.file.substringBeforeLast('.') + ".orig.jpg").delete()
     }
 
     fun readBase64(a: Attachment): String = Base64.encodeToString(fileOf(a).readBytes(), Base64.NO_WRAP)
@@ -55,19 +56,31 @@ class AttachmentStore(private val context: Context) {
         return Attachment(id, AttachmentKind.Text, name, "text/plain", out.name, out.length())
     }
 
-    /** A photo, turned upright, scaled so its long side is at most [maxEdge], saved as JPEG. */
-    suspend fun importImage(uri: Uri, maxEdge: Int, quality: Int): Attachment? = withContext(Dispatchers.IO) {
-        try {
+    /**
+     * A photo, turned upright, scaled so its long side is at most [maxEdge], saved as JPEG: that is the copy that goes
+     * into the request. A bigger original is kept too (up to [keepEdge]) for [originalOf]: the assistant zooms into it
+     * with edit_image when something in the reduced copy is too small to read.
+     */
+    suspend fun importImage(uri: Uri, maxEdge: Int, quality: Int, keepEdge: Int = KEEP_EDGE): Attachment? = withContext(Dispatchers.IO) {
+        // Out of memory with the big original: try again keeping only the reduced copy.
+        importImageAt(uri, maxEdge, quality, keepEdge) ?: if (keepEdge > maxEdge) importImageAt(uri, maxEdge, quality, maxEdge) else null
+    }
+
+    private fun importImageAt(uri: Uri, maxEdge: Int, quality: Int, keepEdge: Int): Attachment? {
+        val id = UUID.randomUUID().toString()
+        val out = File(dir, "$id.jpg")
+        val original = File(dir, "$id.orig.jpg")
+        return try {
             val resolver = context.contentResolver
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
             var sample = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxEdge * 2) sample *= 2
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > keepEdge.coerceAtLeast(maxEdge)) sample *= 2
             var bitmap = resolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
-            } ?: return@withContext null
+            } ?: return null
 
             val orientation = runCatching {
                 resolver.openInputStream(uri)?.use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
@@ -80,27 +93,45 @@ class AttachmentStore(private val context: Context) {
                 ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
                 ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
             }
-            val longSide = maxOf(bitmap.width, bitmap.height)
-            if (longSide > maxEdge) {
-                val scale = maxEdge.toFloat() / longSide
-                matrix.postScale(scale, scale)
-            }
             if (!matrix.isIdentity) {
                 val turned = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
                 if (turned !== bitmap) bitmap.recycle()
                 bitmap = turned
             }
+            // A picture with see-through parts (a PNG) would turn black as a JPEG: it goes onto white.
+            bitmap = onWhite(bitmap)
 
-            val id = UUID.randomUUID().toString()
-            val out = File(dir, "$id.jpg")
-            FileOutputStream(out).use { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, it) }
+            // The original first (it is only kept when it is bigger than the copy the model gets).
+            val longSide = maxOf(bitmap.width, bitmap.height)
+            if (keepEdge > maxEdge && longSide > maxEdge) {
+                val kept = scaledTo(bitmap, keepEdge)
+                FileOutputStream(original).use { kept.compress(Bitmap.CompressFormat.JPEG, KEEP_QUALITY, it) }
+                if (kept !== bitmap) kept.recycle()
+            }
+            val small = scaledTo(bitmap, maxEdge)
+            FileOutputStream(out).use { small.compress(Bitmap.CompressFormat.JPEG, quality, it) }
+            if (small !== bitmap) small.recycle()
             bitmap.recycle()
             Attachment(id, AttachmentKind.Image, displayName(uri) ?: "photo.jpg", "image/jpeg", out.name, out.length())
         } catch (e: Exception) {
+            out.delete(); original.delete()
             null
         } catch (e: OutOfMemoryError) {
+            out.delete(); original.delete()
             null
         }
+    }
+
+    /** The photo as big as it was kept (for zooming into); the same file as [fileOf] when no bigger copy exists. */
+    fun originalOf(a: Attachment): File =
+        File(dir, a.file.substringBeforeLast('.') + ".orig.jpg").takeIf { a.kind == AttachmentKind.Image && it.isFile } ?: fileOf(a)
+
+    private fun onWhite(bitmap: Bitmap): Bitmap {
+        if (!bitmap.hasAlpha()) return bitmap
+        val flat = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(flat).apply { drawColor(android.graphics.Color.WHITE); drawBitmap(bitmap, 0f, 0f, null) }
+        bitmap.recycle()
+        return flat
     }
 
     /** A video: copied as it is, with a picture from its beginning and its length. Too big ones come back as null. */
@@ -171,6 +202,19 @@ class AttachmentStore(private val context: Context) {
         }
     }
 
+    /** One frame of a video, as big as it is, at [seconds] from the start (null if it cannot be taken). */
+    fun videoFrameAt(a: Attachment, seconds: Double): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(fileOf(a).absolutePath)
+            retriever.getFrameAtTime((seconds.coerceAtLeast(0.0) * 1_000_000).toLong(), MediaMetadataRetriever.OPTION_CLOSEST)
+        } catch (e: Exception) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
     private fun scaledTo(bitmap: Bitmap, maxEdge: Int): Bitmap {
         val longSide = maxOf(bitmap.width, bitmap.height)
         if (longSide <= maxEdge) return bitmap
@@ -189,7 +233,7 @@ class AttachmentStore(private val context: Context) {
      * Any file at all. A PDF goes along as a document. Word, Excel, PowerPoint and OpenDocument files
      * and SQLite databases are read into text (what is in them is what the model gets). Plain text
      * stays text. Everything else is kept whole as a file: the model is told its name and size,
-     * and the person can still send it on from the chat. Only a file over [MAX_FILE] is refused.
+     * and the person can still send it on from the chat. Only a file over [MAX_FILE] (a PDF: [MAX_PDF]) is refused.
      */
     suspend fun importFile(uri: Uri): Attachment? = withContext(Dispatchers.IO) {
         try {
@@ -201,18 +245,15 @@ class AttachmentStore(private val context: Context) {
 
             if (mime == "application/pdf" || extension == "pdf") {
                 val out = File(dir, "$id.pdf")
-                resolver.openInputStream(uri)?.use { input -> FileOutputStream(out).use { input.copyTo(it) } } ?: return@withContext null
-                if (out.length() > MAX_PDF) {
-                    out.delete()
-                    return@withContext null
-                }
+                // Copied with a limit: a file over it is refused before it fills the phone.
+                if (!copyLimited(uri, out, MAX_PDF)) return@withContext null
                 return@withContext Attachment(id, AttachmentKind.Pdf, name, "application/pdf", out.name, out.length())
             }
 
             if (extension in OFFICE_EXTENSIONS || extension in DATABASE_EXTENSIONS) {
                 val temp = File(context.cacheDir, "import_$id.$extension")
                 try {
-                    if (copyLimited(uri, temp, MAX_FILE)) {
+                    if (copyLimited(uri, temp, MAX_OFFICE)) {
                         val text = if (extension in DATABASE_EXTENSIONS) databaseSummary(temp) else FileText.office(temp, extension, MAX_TEXT)
                         if (text != null) {
                             val out = File(dir, "$id.txt")
@@ -306,12 +347,17 @@ class AttachmentStore(private val context: Context) {
 
     private companion object {
         const val MAX_TEXT = 400_000
-        const val MAX_PDF = 20L * 1024 * 1024
+        const val MAX_PDF = 200L * 1024 * 1024
         const val MAX_VIDEO = 150L * 1024 * 1024
-        const val MAX_FILE = 50L * 1024 * 1024
+        const val MAX_FILE = 200L * 1024 * 1024
+        /** Word, Excel and databases are read into memory to be turned into text, so they stay smaller. */
+        const val MAX_OFFICE = 50L * 1024 * 1024
         val OFFICE_EXTENSIONS = setOf("docx", "docm", "xlsx", "xlsm", "pptx", "odt", "ods", "odp")
         val DATABASE_EXTENSIONS = setOf("db", "sqlite", "sqlite3", "db3")
         const val VIDEO_FRAMES = 6
+        /** The long side of the photo that is kept beside the reduced copy, and its JPEG quality. */
+        const val KEEP_EDGE = 4096
+        const val KEEP_QUALITY = 90
         val TEXT_EXTENSIONS = setOf(
             "txt", "md", "markdown", "json", "csv", "tsv", "xml", "yaml", "yml", "toml", "ini", "log", "kt", "kts", "java",
             "py", "js", "ts", "tsx", "jsx", "c", "h", "cpp", "hpp", "cs", "go", "rs", "rb", "php", "sh", "bash", "sql",

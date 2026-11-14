@@ -61,12 +61,14 @@ class Toolbox(
     private val memory: MemoryTools,
     private val skillTools: SkillTools,
     private val mcp: McpTools,
+    private val images: ImageTools,
+    private val phone: PhoneTools,
 ) {
     init {
         runCatching { PDFBoxResourceLoader.init(context.applicationContext) }
     }
 
-    fun definitions(files: List<Attachment>, webOn: Boolean, workOn: Boolean = false, terminalOn: Boolean = false, memoryOn: Boolean = false, inProject: Boolean = false, skillsOn: Boolean = false): List<WireTool> {
+    fun definitions(files: List<Attachment>, webOn: Boolean, workOn: Boolean = false, terminalOn: Boolean = false, memoryOn: Boolean = false, inProject: Boolean = false, skillsOn: Boolean = false, phoneOn: Boolean = false): List<WireTool> {
         val out = ArrayList<WireTool>()
         if (files.isNotEmpty()) {
             out += tool("list_files", "List the files attached to this conversation, with their type and size (and the number of pages of a PDF).", schema())
@@ -107,14 +109,16 @@ class Toolbox(
             )
             out += tool(
                 "view_image",
-                "Look at an attached picture (or the first picture of a video) again.",
+                "Look at an attached picture (or the first picture of a video) again, as it was sent. To see a part closer or change how it looks, use edit_image.",
                 schema("name" to str("The picture's name.")),
             )
+            out += images.definitions(files)
         }
         if (webOn) out += web.definitions()
         if (workOn || terminalOn) out += work.definitions(workOn, terminalOn)
         if (memoryOn) out += memory.definitions(inProject)
         if (skillsOn) out += skillTools.definitions(copyToo = workOn || terminalOn)
+        if (phoneOn) out += phone.definitions()
         // The servers the person added: always there when they are connected.
         out += mcp.definitions()
         return out
@@ -128,6 +132,7 @@ class Toolbox(
                 in work.names -> work.run(call.name, args, chatId, report)
                 in memory.names -> memory.run(call.name, args, report, chatId, project)
                 in skillTools.names -> skillTools.run(call.name, args, chatId, report)
+                in phone.names -> phone.run(call.name, args, report)
                 else -> if (mcp.isMcp(call.name)) mcp.run(call.name, args, report) else withContext(Dispatchers.IO) { runFileTool(call.name, args, files, report) }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -159,6 +164,7 @@ class Toolbox(
             "read_text" -> readText(file, args.optInt("offset", 0), args.optInt("length", 12_000))
             "search_in_file" -> search(file, args.optString("query"))
             "view_image" -> viewImage(file)
+            in images.names -> images.run(name, args, file, report)
             else -> ToolOutcome("Unknown tool: $name")
         }
     }
@@ -181,8 +187,8 @@ class Toolbox(
             }
             AttachmentKind.Image -> {
                 val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(store.fileOf(a).absolutePath, o)
-                "picture, ${o.outWidth}x${o.outHeight}, $size"
+                BitmapFactory.decodeFile(store.originalOf(a).absolutePath, o)
+                "picture, ${o.outWidth}x${o.outHeight}, $size (edit_image can zoom into it)"
             }
             AttachmentKind.Video -> "video, ${a.durationMs / 1000} s, $size"
             AttachmentKind.File -> "file (${a.mime}), $size; its contents cannot be read"
@@ -269,7 +275,8 @@ class Toolbox(
             }
             AttachmentKind.Pdf -> PDDocument.load(store.fileOf(a)).use { doc ->
                 val stripper = PDFTextStripper().apply { sortByPosition = true }
-                for (page in 1..doc.numberOfPages.coerceAtMost(500)) {
+                if (doc.numberOfPages > SEARCH_PAGES) out.append("(only the first $SEARCH_PAGES of ${doc.numberOfPages} pages are searched: use read_pdf_pages for the rest)\n")
+                for (page in 1..doc.numberOfPages.coerceAtMost(SEARCH_PAGES)) {
                     if (found >= 20) break
                     stripper.startPage = page
                     stripper.endPage = page
@@ -298,6 +305,7 @@ class Toolbox(
 
     private companion object {
         const val MAX_TOOL_TEXT = 20_000
+        const val SEARCH_PAGES = 500
     }
 }
 

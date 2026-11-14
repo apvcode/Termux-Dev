@@ -111,15 +111,17 @@ fun ComputerScreen(hostId: String, onBack: () -> Unit, onOpenSession: (String) -
     LaunchedEffect(conn.state, query) { if (conn.state == LinkState.Online) { if (query.isNotBlank()) delay(250); refresh() } }
     LaunchedEffect(conn) { conn.global.collectLatest { if (it.optString("e") == "sessions") { delay(300); if (conn.state == LinkState.Online) refresh() } } }
 
-    val visual = conn.state.visual()
+    // Idle is only the first moment, before the connection has started.
+    val waiting = conn.trying || conn.state == LinkState.Idle
+    val visual = if (conn.state == LinkState.Idle) LinkVisual.Connecting else conn.visual()
     Box(Modifier.fillMaxSize().background(DevxColors.Bg)) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         RemoteTopBar(
             conn.computer.name, onBack,
-            subtitle = when (conn.state) {
-                LinkState.Online -> stringResource(R.string.remote_online) + (conn.host?.optString("version")?.takeIf { it.isNotEmpty() }?.let { " · devx $it" } ?: "")
-                LinkState.Connecting -> stringResource(R.string.remote_connecting)
-                else -> stringResource(R.string.remote_offline)
+            subtitle = when {
+                conn.state == LinkState.Online -> stringResource(R.string.remote_online) + (conn.host?.optString("version")?.takeIf { it.isNotEmpty() }?.let { " · devx $it" } ?: "")
+                waiting -> stringResource(R.string.remote_connecting)
+                else -> stringResource(R.string.remote_offline_seen, relativeTime(conn.computer.lastSeen))
             },
             status = visual,
             trailing = { CircleIconButton(Icons.Outlined.MoreVert, null, { menu = true }) },
@@ -129,13 +131,19 @@ fun ComputerScreen(hostId: String, onBack: () -> Unit, onOpenSession: (String) -
                 item {
                     Column(Modifier.fillMaxWidth().animateContentSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         LinkHero(visual, Modifier.padding(top = 4.dp))
-                        if (conn.state == LinkState.Connecting) {
+                        if (waiting) {
                             Text(stringResource(R.string.remote_reaching_computer), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = TextAlign.Center)
+                            // Which of the two tries this is.
+                            Text(
+                                stringResource(R.string.remote_attempt, (conn.attempts + 1).coerceAtMost(com.apvcode.devx.remote.MAX_TRIES), com.apvcode.devx.remote.MAX_TRIES),
+                                style = DevxType.Caption, color = DevxColors.TextDisabled, textAlign = TextAlign.Center,
+                            )
                         } else {
                             Text(stringResource(R.string.remote_offline_title), style = DevxType.Title, color = DevxColors.TextPrimary)
-                            Text(stringResource(R.string.remote_offline_body, conn.computer.name), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = TextAlign.Center)
+                            Text(stringResource(R.string.remote_offline_seen_long, relativeTime(conn.computer.lastSeen)), style = DevxType.Body, color = DevxColors.TextPrimary, textAlign = TextAlign.Center)
+                            Text(stringResource(R.string.remote_offline_body, conn.computer.name, com.apvcode.devx.remote.MAX_TRIES), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = TextAlign.Center)
                             if (conn.revoked) Text(stringResource(R.string.remote_err_removed), style = DevxType.Caption, color = DevxColors.Danger, textAlign = TextAlign.Center)
-                            PillButton(stringResource(R.string.remote_try_now), onClick = { conn.nudge() }, filled = false)
+                            PillButton(stringResource(R.string.remote_try_now), onClick = { conn.nudge() })
                         }
                     }
                 }

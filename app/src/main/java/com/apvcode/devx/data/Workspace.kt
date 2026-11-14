@@ -35,7 +35,7 @@ class Workspace(context: Context) {
         for ((name, a) in wanted) {
             val link = File(uploads, name)
             if (link.exists() || Files.isSymbolicLink(link.toPath())) continue
-            val source = store.fileOf(a)
+            val source = store.originalOf(a)
             runCatching { Files.createSymbolicLink(link.toPath(), source.toPath()) }
                 .onFailure { runCatching { source.copyTo(link) } }
         }

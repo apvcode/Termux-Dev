@@ -24,42 +24,66 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /**
- * Keeps the connection to the computers while the app is in the background, and tells the person when the agent
- * needs them (a permission, a question, a plan) or has finished. A quiet notification says that it runs.
+ * Keeps the connection to the computer the person is in (its list of chats, or one chat) while the app is in the background,
+ * and tells them when the agent needs them (a permission, a question, a plan) or has finished. A quiet notification says
+ * "connected to <computer>" and has a button to disconnect. It exists only while that connection does: it is started when the
+ * person opens a computer, and gone when they leave it, disconnect, or close the app.
  */
 class RemoteService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val titles = HashMap<String, String>()
-    private val watched = HashSet<String>()
+    private var watching: String? = null
+    private var watcher: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val hostId = intent?.getStringExtra(EXTRA_HOST) ?: RemoteLink.host
+        val computer = hostId?.let { RemoteHub.store.find(it) }
+        if (hostId == null || computer == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         GenerationService.ensureChannels(this)
-        val names = RemoteHub.store.items.joinToString(", ") { it.name }
+        val disconnect = PendingIntent.getBroadcast(
+            this, 0,
+            Intent(this, RemoteDisconnectReceiver::class.java).setAction(RemoteDisconnectReceiver.ACTION),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val notification = NotificationCompat.Builder(this, GenerationService.CHANNEL_WORK)
             .setSmallIcon(R.drawable.ic_desktop)
             .setContentTitle(getString(R.string.remote_title))
-            .setContentText(getString(R.string.remote_service_text, names))
+            .setContentText(getString(R.string.remote_service_text, computer.name))
             .setOngoing(true).setSilent(true).setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setContentIntent(GenerationService.openApp(this, null))
+            .addAction(0, getString(R.string.remote_disconnect), disconnect)
             .build()
         val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0
         runCatching { ServiceCompat.startForeground(this, ID, notification, type) }
-        watch()
+        watch(hostId)
         return START_NOT_STICKY
     }
 
-    private fun watch() {
-        for (c in RemoteHub.store.items) {
-            if (!watched.add(c.hostId)) continue
-            val conn = RemoteHub.connection(c.hostId) ?: continue
-            conn.start()
-            scope.launch { conn.events.collect { onEvent(c.hostId, conn, it) } }
-        }
+    /** The person swiped the app away: nothing of it keeps running. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        RemoteLink.disconnect(this)
+        RemoteHub.stopAll()
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
+    private fun watch(hostId: String) {
+        if (watching == hostId) return
+        watcher?.cancel()
+        watching = hostId
+        val conn = RemoteHub.connection(hostId) ?: return
+        conn.start()
+        watcher = scope.launch { conn.events.collect { onEvent(hostId, conn, it) } }
     }
 
     private fun onEvent(hostId: String, conn: RemoteConnection, ev: SessionEvent) {
@@ -108,16 +132,81 @@ class RemoteService : Service() {
 
     companion object {
         private const val ID = 7
+        const val EXTRA_HOST = "host"
 
-        /** Starts the keep-alive when the app goes to the background, if the person wants it and a computer is paired. */
-        fun startIfNeeded(context: Context) {
-            if (!Prefs.remoteKeepAlive) return
-            if (!RemoteHubReady.ready || RemoteHub.store.items.isEmpty()) return
-            runCatching { androidx.core.content.ContextCompat.startForegroundService(context, Intent(context, RemoteService::class.java)) }
+        /** Starts the keep-alive (and its notification) for the computer the person has just opened. Returns whether it was started. */
+        fun startFor(context: Context, hostId: String): Boolean {
+            if (!Prefs.remoteKeepAlive) return false
+            if (!RemoteHubReady.ready || RemoteHub.store.find(hostId) == null) return false
+            return runCatching {
+                androidx.core.content.ContextCompat.startForegroundService(context, Intent(context, RemoteService::class.java).putExtra(EXTRA_HOST, hostId))
+            }.isSuccess
         }
 
         fun stop(context: Context) { context.stopService(Intent(context, RemoteService::class.java)) }
     }
+}
+
+/**
+ * Which computer the person is connected to right now: the one whose list of chats (or a chat) is open. Only then is a
+ * connection held in the background, and only then is there a notification. Leaving it, pressing "Disconnect" or closing the
+ * app ends it.
+ */
+object RemoteLink {
+    @Volatile
+    var host: String? = null
+        private set
+
+    /** The notification's "Disconnect" was pressed: the screen of the computer leaves (it counts the presses). */
+    var dropped by androidx.compose.runtime.mutableIntStateOf(0)
+        private set
+
+    /** The computer the person disconnected by hand: the list of computers does not reconnect it by itself. */
+    var offHost by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+
+    /** The person opened a computer. */
+    fun connect(context: Context, hostId: String) {
+        if (offHost == hostId) offHost = null
+        if (host == hostId) return
+        host = hostId
+        // The others that were reached (the list of computers tries them all) are let go.
+        RemoteHub.stopOthers(hostId)
+        RemoteHub.connection(hostId)?.let { it.start(); it.nudge() }
+        if (!RemoteService.startFor(context, hostId)) RemoteService.stop(context)
+    }
+
+    /**
+     * The person left the computer's own screens: no notification, and nothing is held in the background. The connection itself is
+     * not cut here (the list of computers shows it); it ends when the whole remote section is left, or the app goes away.
+     */
+    fun disconnect(context: Context) {
+        host = null
+        RemoteService.stop(context)
+    }
+
+    /** "Disconnect" in the notification: that computer is cut off and stays so until it is opened again. */
+    fun disconnectByPerson(context: Context) {
+        val had = host
+        disconnect(context)
+        if (had != null) {
+            offHost = had
+            RemoteHub.connection(had)?.stop()
+        }
+        dropped++
+    }
+
+    /** True while a computer is held in the background by the keep-alive service. */
+    val held: Boolean get() = host != null && Prefs.remoteKeepAlive
+}
+
+/** The "Disconnect" button of the notification. */
+class RemoteDisconnectReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action == ACTION) RemoteLink.disconnectByPerson(context.applicationContext)
+    }
+
+    companion object { const val ACTION = "com.apvcode.devx.REMOTE_DISCONNECT" }
 }
 
 /** Whether RemoteHub.init has run (the service may start before it, after a restart of the process). */

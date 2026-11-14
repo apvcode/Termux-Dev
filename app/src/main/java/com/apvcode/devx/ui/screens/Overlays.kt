@@ -248,23 +248,41 @@ fun VideoViewer(file: java.io.File, onClose: () -> Unit, modifier: Modifier = Mo
  */
 @Composable
 fun ThinkingScreen(msg: com.apvcode.devx.data.Msg, streaming: Boolean, onClose: () -> Unit, modifier: Modifier = Modifier) {
-    val list = androidx.compose.foundation.lazy.rememberLazyListState()
-    var follow by remember { mutableStateOf(true) }
-    LaunchedEffect(list) {
-        androidx.compose.runtime.snapshotFlow { list.isScrollInProgress }.collect { moving ->
-            // When the finger lets go: keep following only if it was left at the very end.
-            if (!moving) follow = !list.canScrollForward
-        }
+    // The keyboard of the chat goes away as the page opens.
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    LaunchedEffect(Unit) {
+        focus.clearFocus()
+        keyboard?.hide()
     }
     // Everything in the order it happened: thoughts, then the step they led to, then more thoughts. The thoughts are cut
     // into small pieces, and only the pieces on the screen are drawn: a long train of thought must not slow the page down.
     val text = msg.reasoning
     val steps = msg.steps.toList()
     val items = remember(text, steps) { thinkingItems(text, steps) }
+    // The page opens at its very end, where the latest thoughts are (the first item is the heading, so the last one is [items.size]).
+    val list = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = items.size)
+    var follow by remember { mutableStateOf(true) }
+    // Until the end has been reached the list is not shown, so that nobody sees it jump down.
+    var placed by remember { mutableStateOf(false) }
+    val shown by androidx.compose.animation.core.animateFloatAsState(if (placed) 1f else 0f, androidx.compose.animation.core.tween(140), label = "thinking-shown")
+    LaunchedEffect(Unit) {
+        if (items.isNotEmpty()) {
+            list.scrollToItem(items.size)
+            list.scrollBy(100_000f)
+        }
+        placed = true
+    }
+    LaunchedEffect(list) {
+        androidx.compose.runtime.snapshotFlow { list.isScrollInProgress }.collect { moving ->
+            // When the finger lets go: keep following only if it was left at the very end.
+            if (!moving) follow = !list.canScrollForward
+        }
+    }
     val activeLast = streaming && msg.activity != null
     LaunchedEffect(items.size, text.length / 300) {
         if (follow && streaming && items.isNotEmpty()) {
-            list.scrollToItem(items.lastIndex)
+            list.scrollToItem(items.size)
             list.scrollBy(100_000f)
         }
     }
@@ -287,7 +305,7 @@ fun ThinkingScreen(msg: com.apvcode.devx.data.Msg, streaming: Boolean, onClose: 
         SelectionContainer(Modifier.weight(1f)) {
             androidx.compose.foundation.lazy.LazyColumn(
                 state = list,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = shown },
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {

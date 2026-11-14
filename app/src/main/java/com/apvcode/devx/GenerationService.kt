@@ -61,6 +61,12 @@ class GenerationService : Service() {
         return START_NOT_STICKY
     }
 
+    /** The person swiped the app away: it does not go on working in the background. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         runCatching { wake?.takeIf { it.isHeld }?.release() }
         wake = null

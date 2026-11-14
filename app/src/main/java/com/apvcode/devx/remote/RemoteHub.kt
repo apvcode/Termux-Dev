@@ -92,6 +92,10 @@ object RemoteHub {
     @Synchronized
     fun stopAll() = connections.values.forEach { it.stop() }
 
+    /** Every connection but this one is let go. */
+    @Synchronized
+    fun stopOthers(hostId: String) = connections.filterKeys { it != hostId }.values.forEach { it.stop() }
+
     fun sessionOf(conn: RemoteConnection, id: String) = RemoteSession(conn, id, scope)
 
     /** The scope for work that must outlive a screen. */

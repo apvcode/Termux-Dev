@@ -23,10 +23,22 @@ class MainActivity : ComponentActivity() {
     private val requestedChat = mutableStateOf<String?>(null)
     private val viewModel: com.apvcode.devx.ui.chat.ChatViewModel by viewModels()
 
+    /** A permission the assistant's tools asked for (contacts, calendar): the answer goes back to the tool. */
+    private var permissionDone: ((Boolean) -> Unit)? = null
+    private val permissionLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        permissionDone?.invoke(granted)
+        permissionDone = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.apvcode.devx.data.AppLock.init(applicationContext)
         takeChatFrom(intent)
+        com.apvcode.devx.data.PermissionBridge.asker = { permission, done ->
+            permissionDone?.invoke(false)
+            permissionDone = done
+            permissionLauncher.launch(permission)
+        }
         com.apvcode.devx.remote.RemoteHub.init(applicationContext)
         com.apvcode.devx.remote.RemoteHub.memory = viewModel.memory
         setContent {
@@ -65,6 +77,9 @@ class MainActivity : ComponentActivity() {
     private fun takeChatFrom(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE) takeShare(intent)
         if (intent?.action == ACTION_ASK) com.apvcode.devx.data.PendingAsk.request = true
+        if (intent?.action == ACTION_VOICE) com.apvcode.devx.data.PendingAsk.voice = true
+        if (intent?.action == ACTION_TEMP) com.apvcode.devx.data.PendingAsk.temporary = true
+        if (intent?.action == ACTION_COMPUTERS) com.apvcode.devx.data.PendingAsk.computers = true
         if (intent?.action == ACTION_OPEN_CHAT) requestedChat.value = intent.getStringExtra(EXTRA_CHAT_ID)
         if (intent?.action == ACTION_OPEN_REMOTE) {
             val host = intent.getStringExtra(EXTRA_HOST)
@@ -94,9 +109,23 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         AppState.foreground = false
         com.apvcode.devx.data.AppLock.leave()
-        // Leaving the app: the computers stay reachable, so that approvals and answers still arrive.
-        com.apvcode.devx.remote.RemoteService.startIfNeeded(this)
+        // The widgets show the chats and honour the lock: bring them up to date as the app goes.
+        runCatching { Widgets.refreshAll(this) }
+        // Leaving the app: only a computer the person is connected to (with its notification) stays reachable, so that approvals
+        // and answers still arrive. Every other connection ends with the screen.
+        if (!com.apvcode.devx.remote.RemoteLink.held) com.apvcode.devx.remote.RemoteHub.stopAll()
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        com.apvcode.devx.data.PermissionBridge.asker = null
+        // The app is closed (not turned, not sent to the background): nothing of it goes on working.
+        if (isFinishing) {
+            com.apvcode.devx.remote.RemoteLink.disconnect(this)
+            com.apvcode.devx.remote.RemoteHub.stopAll()
+            GenerationService.stop(this)
+        }
+        super.onDestroy()
     }
 
     override fun onResume() {
@@ -116,6 +145,9 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_ASK = "com.apvcode.devx.ASK"
+        const val ACTION_VOICE = "com.apvcode.devx.VOICE"
+        const val ACTION_TEMP = "com.apvcode.devx.TEMP"
+        const val ACTION_COMPUTERS = "com.apvcode.devx.COMPUTERS"
         const val ACTION_OPEN_CHAT = "com.apvcode.devx.OPEN_CHAT"
         const val EXTRA_CHAT_ID = "chatId"
         const val ACTION_OPEN_REMOTE = "com.apvcode.devx.OPEN_REMOTE"

@@ -60,13 +60,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, Skills, SkillEdit, Assistant, AppLock }
+enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, Skills, SkillEdit, Assistant, AppLock, Persona }
 
 private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.AddConnection, Screen.Computer -> Screen.Computers
     Screen.RemoteChat -> Screen.Computer
     Screen.ProviderEdit -> Screen.Providers
-    Screen.Providers, Screen.Notifications, Screen.About, Screen.Memory, Screen.Skills, Screen.Assistant, Screen.AppLock -> Screen.Settings
+    Screen.Providers, Screen.Notifications, Screen.About, Screen.Memory, Screen.Skills, Screen.Assistant, Screen.AppLock, Screen.Persona -> Screen.Settings
     Screen.MemorySummary, Screen.MemoryNotes -> Screen.Memory
     Screen.ProjectEdit, Screen.ProjectKnowledge, Screen.ProjectSummary -> Screen.Project
     Screen.SkillEdit -> Screen.Skills
@@ -198,6 +198,26 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
         screen = Screen.Chat; overlay = null; drawerState.close()
         com.apvcode.devx.data.PendingAsk.focus = true
     }
+    // The same from the widgets: a chat that starts listening, a temporary one, the computers.
+    LaunchedEffect(com.apvcode.devx.data.PendingAsk.voice) {
+        if (!com.apvcode.devx.data.PendingAsk.voice) return@LaunchedEffect
+        vm.newChat()
+        screen = Screen.Chat; overlay = null; drawerState.close()
+        // The chat screen picks the flag up and opens the microphone once it is on the screen.
+    }
+    LaunchedEffect(com.apvcode.devx.data.PendingAsk.temporary) {
+        if (!com.apvcode.devx.data.PendingAsk.temporary) return@LaunchedEffect
+        com.apvcode.devx.data.PendingAsk.temporary = false
+        vm.newChat()
+        if (!vm.isTemporary) vm.toggleTemporary()
+        screen = Screen.Chat; overlay = null; drawerState.close()
+        com.apvcode.devx.data.PendingAsk.focus = true
+    }
+    LaunchedEffect(com.apvcode.devx.data.PendingAsk.computers) {
+        if (!com.apvcode.devx.data.PendingAsk.computers) return@LaunchedEffect
+        com.apvcode.devx.data.PendingAsk.computers = false
+        screen = Screen.Computers; overlay = null; drawerState.close()
+    }
     LaunchedEffect(requestedChat) {
         val id = requestedChat ?: return@LaunchedEffect
         if (vm.chatExists(id)) {
@@ -224,7 +244,25 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
         if (com.apvcode.devx.remote.PendingPairing.code != null) { screen = Screen.AddConnection; overlay = null; drawerState.close() }
     }
     // Back in the app: the computers are tried at once, without waiting for the next round.
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) { com.apvcode.devx.remote.RemoteHub.nudgeAll() }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
+        com.apvcode.devx.remote.RemoteLink.host?.let { h -> com.apvcode.devx.remote.RemoteHub.connection(h)?.let { it.start(); it.nudge() } }
+    }
+    // The connection to a computer (and its notification) exists only while its list of chats or one of its chats is open.
+    val remoteContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(screen, remoteHost) {
+        val host = remoteHost
+        if ((screen == Screen.Computer || screen == Screen.RemoteChat) && host != null) {
+            com.apvcode.devx.remote.RemoteLink.connect(remoteContext, host)
+        } else {
+            com.apvcode.devx.remote.RemoteLink.disconnect(remoteContext)
+            // Out of the whole remote section: no computer is tried any more.
+            if (screen != Screen.Computers && screen != Screen.AddConnection) com.apvcode.devx.remote.RemoteHub.stopAll()
+        }
+    }
+    // "Disconnect" in the notification pressed while the app is open on the computer: back to the list of computers.
+    LaunchedEffect(com.apvcode.devx.remote.RemoteLink.dropped) {
+        if (com.apvcode.devx.remote.RemoteLink.dropped > 0 && (screen == Screen.Computer || screen == Screen.RemoteChat)) screen = Screen.Computers
+    }
 
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
     BackHandler(enabled = screen != Screen.Chat && !drawerState.isOpen) {
@@ -315,7 +353,9 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         onSkills = { screen = Screen.Skills },
                         onAssistant = { screen = Screen.Assistant },
                         onAppLock = { screen = Screen.AppLock },
+                        onPersona = { screen = Screen.Persona },
                     )
+                    Screen.Persona -> com.apvcode.devx.ui.screens.PersonaScreen(onBack = { screen = Screen.Settings })
                     Screen.AppLock -> com.apvcode.devx.ui.lock.AppLockScreen(onBack = { screen = Screen.Settings })
                     Screen.Providers -> ProvidersScreen(
                         vm,

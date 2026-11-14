@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.apvcode.devx.R
@@ -78,7 +79,7 @@ fun TasksScreen(onBack: () -> Unit) {
 }
 
 @Composable
-fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit, onProviders: () -> Unit, onNotifications: () -> Unit, onAbout: () -> Unit, onMemory: () -> Unit, onSkills: () -> Unit, onAssistant: () -> Unit, onAppLock: () -> Unit = {}) {
+fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit, onProviders: () -> Unit, onNotifications: () -> Unit, onAbout: () -> Unit, onMemory: () -> Unit, onSkills: () -> Unit, onAssistant: () -> Unit, onAppLock: () -> Unit = {}, onPersona: () -> Unit = {}) {
     var dialog by remember { mutableStateOf<String?>(null) }
     // Backup: everything of the person's in one file, and back (keys and tokens stay behind: they belong to this phone).
     val appContext = androidx.compose.ui.platform.LocalContext.current
@@ -185,13 +186,15 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                 )
             }
         }
+        item { SectionLabel(stringResource(R.string.settings_personal)) }
         item {
             SettingsGroup {
                 SettingsRow(
-                    title = stringResource(R.string.settings_providers),
-                    icon = Icons.Outlined.Cloud,
+                    title = stringResource(R.string.settings_character),
+                    icon = androidx.compose.ui.graphics.vector.ImageVector.vectorResource(R.drawable.ic_c_mood_smile),
+                    value = com.apvcode.devx.data.Persona.current()?.let { stringResource(it.title) } ?: stringResource(R.string.persona_style_custom),
                     showChevron = true,
-                    onClick = onProviders,
+                    onClick = onPersona,
                 )
                 SettingsDivider()
                 SettingsRow(
@@ -200,51 +203,6 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                     value = if (Prefs.memory) null else stringResource(R.string.settings_pin_value),
                     showChevron = true,
                     onClick = onMemory,
-                )
-            }
-        }
-        item {
-            SettingsGroup {
-                SettingsRow(
-                    title = stringResource(R.string.settings_language),
-                    icon = Icons.Outlined.Language,
-                    value = languageNames.getValue(Prefs.language),
-                    showChevron = true,
-                    onClick = { dialog = "language" },
-                )
-                SettingsDivider()
-                SettingsRow(
-                    title = stringResource(R.string.settings_voice),
-                    icon = Icons.Outlined.Mic,
-                    value = com.apvcode.devx.data.VoiceInput.nameOf(Prefs.voiceLanguage, stringResource(R.string.voice_lang_app), stringResource(R.string.voice_lang_auto)),
-                    showChevron = true,
-                    onClick = { dialog = "voice" },
-                )
-                SettingsDivider()
-                SettingsRow(
-                    title = stringResource(R.string.settings_appearance),
-                    icon = Icons.Outlined.Palette,
-                    value = themeNames.getValue(Prefs.theme),
-                    showChevron = true,
-                    onClick = { dialog = "theme" },
-                )
-                SettingsDivider()
-                SettingsRow(
-                    title = stringResource(R.string.settings_notifications),
-                    icon = Icons.Outlined.Notifications,
-                    showChevron = true,
-                    onClick = onNotifications,
-                )
-            }
-        }
-        item { SectionLabel(stringResource(R.string.settings_assistant)) }
-        item {
-            SettingsGroup {
-                SettingsRow(
-                    title = stringResource(R.string.settings_abilities),
-                    icon = com.apvcode.devx.ui.components.DevxIcons.Brain,
-                    showChevron = true,
-                    onClick = onAssistant,
                 )
                 SettingsDivider()
                 SettingsRow(
@@ -256,7 +214,60 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                 )
             }
         }
-        item { SectionLabel(stringResource(R.string.settings_security)) }
+        item { SectionLabel(stringResource(R.string.settings_assistant)) }
+        item {
+            SettingsGroup {
+                SettingsRow(
+                    title = stringResource(R.string.settings_providers),
+                    icon = Icons.Outlined.Cloud,
+                    showChevron = true,
+                    onClick = onProviders,
+                )
+                SettingsDivider()
+                SettingsRow(
+                    title = stringResource(R.string.settings_abilities),
+                    icon = com.apvcode.devx.ui.components.DevxIcons.Brain,
+                    showChevron = true,
+                    onClick = onAssistant,
+                )
+            }
+        }
+        item { SectionLabel(stringResource(R.string.settings_general)) }
+        item {
+            SettingsGroup {
+                SettingsRow(
+                    title = stringResource(R.string.settings_language),
+                    icon = Icons.Outlined.Language,
+                    value = languageNames.getValue(Prefs.language),
+                    showChevron = true,
+                    onClick = { dialog = "language" },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    title = stringResource(R.string.settings_appearance),
+                    icon = Icons.Outlined.Palette,
+                    value = themeNames.getValue(Prefs.theme),
+                    showChevron = true,
+                    onClick = { dialog = "theme" },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    title = stringResource(R.string.settings_voice),
+                    icon = Icons.Outlined.Mic,
+                    value = com.apvcode.devx.data.VoiceInput.nameOf(Prefs.voiceLanguage, stringResource(R.string.voice_lang_app), stringResource(R.string.voice_lang_auto)),
+                    showChevron = true,
+                    onClick = { dialog = "voice" },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    title = stringResource(R.string.settings_notifications),
+                    icon = Icons.Outlined.Notifications,
+                    showChevron = true,
+                    onClick = onNotifications,
+                )
+            }
+        }
+        item { SectionLabel(stringResource(R.string.settings_data)) }
         item {
             SettingsGroup {
                 SettingsRow(
@@ -266,10 +277,7 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                     showChevron = true,
                     onClick = onAppLock,
                 )
-            }
-        }
-        item {
-            SettingsGroup {
+                SettingsDivider()
                 SettingsRow(
                     title = stringResource(R.string.backup_create),
                     subtitle = stringResource(R.string.backup_create_hint),
@@ -326,6 +334,13 @@ fun AssistantScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Un
                 )
                 SettingsDivider()
                 SettingsSwitchRow(
+                    title = stringResource(R.string.settings_phone),
+                    subtitle = stringResource(R.string.settings_phone_hint),
+                    checked = Prefs.phoneTools,
+                    onCheckedChange = { Prefs.savePhoneTools(it) },
+                )
+                SettingsDivider()
+                SettingsSwitchRow(
                     title = stringResource(R.string.settings_glow),
                     subtitle = stringResource(R.string.settings_glow_hint),
                     checked = Prefs.thinkingGlow,
@@ -374,6 +389,19 @@ fun AboutScreen(onBack: () -> Unit) {
                     title = stringResource(R.string.about_version),
                     icon = com.apvcode.devx.ui.components.DevxIcons.Eye,
                     value = com.apvcode.devx.BuildConfig.VERSION_NAME,
+                )
+                SettingsDivider()
+                val context = androidx.compose.ui.platform.LocalContext.current
+                SettingsRow(
+                    title = stringResource(R.string.about_github),
+                    icon = com.apvcode.devx.ui.components.DevxIcons.BrandGithub,
+                    value = "apvcode",
+                    showChevron = true,
+                    onClick = {
+                        runCatching {
+                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/apvcode")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                    },
                 )
             }
         }

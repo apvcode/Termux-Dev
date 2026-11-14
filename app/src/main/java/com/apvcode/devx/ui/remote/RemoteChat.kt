@@ -419,10 +419,23 @@ internal fun ContextRing(used: Int, limit: Int, onClick: () -> Unit) {
 
 @Composable
 private fun OfflineBanner(conn: com.apvcode.devx.remote.RemoteConnection, modifier: Modifier) {
-    val connecting = conn.state == LinkState.Connecting
-    Row(modifier.padding(top = 2.dp).clip(CircleShape).background(DevxColors.Card).border(1.dp, DevxColors.Outline, CircleShape).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        StatusDot(if (connecting) LinkVisual.Connecting else LinkVisual.Offline)
-        Text(if (connecting) stringResource(R.string.remote_reconnecting) else stringResource(R.string.remote_offline), style = DevxType.Caption, color = DevxColors.TextSecondary)
+    val trying = conn.trying
+    Row(
+        modifier.padding(top = 2.dp).clip(CircleShape).background(DevxColors.Card).border(1.dp, DevxColors.Outline, CircleShape)
+            .then(if (trying) Modifier else Modifier.pressable(scaleTo = 0.97f, haptic = false, onClick = { conn.nudge() }))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        StatusDot(if (trying) LinkVisual.Connecting else LinkVisual.Offline)
+        if (trying) {
+            Text(
+                stringResource(R.string.remote_reconnecting_n, (conn.attempts + 1).coerceAtMost(com.apvcode.devx.remote.MAX_TRIES), com.apvcode.devx.remote.MAX_TRIES),
+                style = DevxType.Caption, color = DevxColors.TextSecondary,
+            )
+        } else {
+            Text(stringResource(R.string.remote_inactive), style = DevxType.Caption, color = DevxColors.TextSecondary)
+            Text(stringResource(R.string.remote_retry), style = DevxType.Section, color = DevxColors.TextPrimary)
+        }
     }
 }
 

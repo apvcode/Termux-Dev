@@ -33,6 +33,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -99,6 +108,8 @@ class MessageActionsHost(
     val onShowSources: (Msg) -> Unit,
     val onOpenFile: (com.apvcode.devx.data.Artifact) -> Unit,
     val onShowSteps: (Msg) -> Unit,
+    /** A long message of mine is about to fold up: if its beginning is above the screen, the list moves with it. */
+    val onFold: (Msg) -> Unit = {},
 )
 
 /** [animate] is true only for a message that has just been added: old ones never replay it. */
@@ -120,6 +131,13 @@ private fun UserBubble(msg: Msg, vm: ChatViewModel, animate: Boolean, host: Mess
     val haptic = LocalHapticFeedback.current
     var menu by remember { mutableStateOf(false) }
     val press = remember { PressState() }
+    // A very long message of mine is folded to a few lines; it opens and closes with a tap. The state is kept while it scrolls away.
+    val big = remember(msg.text) { looksBig(msg.text) }
+    var open by androidx.compose.runtime.saveable.rememberSaveable(msg.id) { mutableStateOf(false) }
+    val toggle = {
+        if (open) host.onFold(msg)
+        open = !open
+    }
 
     // A message just sent from the composer flies out of the text field; any other new one just pops in.
     val origin = LocalSendOrigin.current
@@ -146,14 +164,15 @@ private fun UserBubble(msg: Msg, vm: ChatViewModel, animate: Boolean, host: Mess
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             menu = true
                         },
-                        onClick = {},
+                        onClick = { if (big) toggle() },
                     )
                     .clip(RoundedCornerShape(24.dp))
                     .then(if (flight != null) Modifier.flightBackground(flight, DevxColors.Card) else Modifier.background(DevxColors.Card))
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(msg.text, style = DevxType.Body, color = DevxColors.TextPrimary)
+                if (big) FoldedText(msg.text, open, toggle)
+                else Text(msg.text, style = DevxType.Body, color = DevxColors.TextPrimary)
             }
             PopupMenu(expanded = menu, onDismiss = { menu = false }, offset = press.menuOffset()) {
                 Text(
@@ -182,6 +201,81 @@ private fun UserBubble(msg: Msg, vm: ChatViewModel, animate: Boolean, host: Mess
         }
         vm.branchOf(msg)?.let { (index, count) ->
             BranchSwitcher(index, count, onPrev = { vm.switchBranch(msg, -1) }, onNext = { vm.switchBranch(msg, 1) })
+        }
+    }
+}
+
+/** Lines a folded message shows, and how long a message must be (in lines, as near as it can be told without laying it out) to be folded. */
+private const val FOLDED_LINES = 4
+private const val BIG_LINES = 16
+
+private fun looksBig(text: String): Boolean {
+    if (text.length < 500) return false
+    var lines = 0
+    for (line in text.lineSequence()) {
+        lines += maxOf(1, (line.length + 33) / 34)
+        if (lines > BIG_LINES) return true
+    }
+    return false
+}
+
+/**
+ * A very long message: a few lines with the last one fading out and a round button, and the whole of it when opened. The height
+ * glides between the two (the text is laid out once, the box around it grows and shrinks), the fade and the arrow follow the
+ * same curve, so nothing jumps and the messages around it are only pushed.
+ */
+@Composable
+private fun FoldedText(text: String, open: Boolean, onToggle: () -> Unit) {
+    val glide = tween<Float>(340, easing = FastOutSlowInEasing)
+    val fade by androidx.compose.animation.core.animateFloatAsState(if (open) 0f else 1f, glide, label = "fold-fade")
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, glide, label = "fold-turn")
+    Box(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .animateContentSize(tween(340, easing = FastOutSlowInEasing))
+                .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    if (fade > 0.001f) {
+                        val strip = minOf(46.dp.toPx(), size.height)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                listOf(Color.Black, Color.Black.copy(alpha = 1f - fade)),
+                                startY = size.height - strip,
+                                endY = size.height,
+                            ),
+                            topLeft = Offset(0f, size.height - strip),
+                            size = Size(size.width, strip),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    }
+                },
+        ) {
+            Text(
+                text,
+                style = DevxType.Body,
+                color = DevxColors.TextPrimary,
+                maxLines = if (open) Int.MAX_VALUE else FOLDED_LINES,
+                overflow = TextOverflow.Clip,
+            )
+            // Room under the last line for the button, so it does not sit on the words once they are all shown.
+            if (open) Spacer(Modifier.height(38.dp))
+        }
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(DevxColors.Outline)
+                .clickable(onClick = onToggle),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                DevxIcons.ChevronDown,
+                contentDescription = stringResource(if (open) R.string.msg_fold else R.string.msg_unfold),
+                tint = DevxColors.TextPrimary,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
+            )
         }
     }
 }

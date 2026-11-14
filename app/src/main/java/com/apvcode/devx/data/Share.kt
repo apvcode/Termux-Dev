@@ -22,4 +22,13 @@ object PendingAsk {
 
     /** The keyboard is asked for in the chat that is open (a pull upwards at the end of it): no new chat, no waiting. */
     var keyboard by mutableStateOf(false)
+
+    /** From a widget: a new chat that starts listening at once. */
+    var voice by mutableStateOf(false)
+
+    /** From a widget: a new temporary chat. */
+    var temporary by mutableStateOf(false)
+
+    /** From a widget: the list of computers. */
+    var computers by mutableStateOf(false)
 }

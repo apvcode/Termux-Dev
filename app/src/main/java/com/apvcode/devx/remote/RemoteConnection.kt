@@ -100,6 +100,9 @@ private suspend fun pairInOrder(hostPub: ByteArray, signer: Signer, did: String,
     throw last
 }
 
+/** How many times a connection is tried (and tried again after it dropped) before the phone gives up until it is asked. */
+const val MAX_TRIES = 2
+
 /** The connection to one computer: finds a way, keeps it alive, and comes back by itself when it drops. */
 class RemoteConnection(
     var computer: Computer,
@@ -115,6 +118,9 @@ class RemoteConnection(
         private set
     /** Counts the tries since the last success: the screens show "trying again". */
     var attempts by mutableIntStateOf(0)
+        private set
+    /** Both tries failed: the phone stops trying by itself until the person asks again (or comes back to the app). */
+    var gaveUp by mutableStateOf(false)
         private set
     /** The computer says it is not known any more (the phone was removed there). */
     var revoked by mutableStateOf(false)
@@ -145,11 +151,14 @@ class RemoteConnection(
     fun start(initial: SecureChannel? = null) {
         if (loop?.isActive == true) return
         revoked = false
+        gaveUp = false
+        attempts = 0
         loop = scope.launch(Dispatchers.IO) { run(initial) }
     }
 
     fun stop() {
         RLog.d("stop() called")
+        if (state == LinkState.Online) markSeen()
         loop?.cancel()
         loop = null
         channel?.close()
@@ -164,8 +173,17 @@ class RemoteConnection(
         RLog.d("nudge in $state")
         if (state == LinkState.Offline || state == LinkState.Idle) {
             loop?.cancel()
+            gaveUp = false
+            attempts = 0
             loop = scope.launch(Dispatchers.IO) { run(null) }
         }
+    }
+
+    /** The moment the computer was last reachable: kept when the link ends, so that "inactive for 3 hours" is true. */
+    private fun markSeen() {
+        val updated = computer.copy(lastSeen = System.currentTimeMillis())
+        computer = updated
+        onComputerChanged(updated)
     }
 
     private suspend fun run(initial: SecureChannel?) {
@@ -184,6 +202,7 @@ class RemoteConnection(
                     cont.invokeOnCancellation { ch.close() }
                     if (!ch.isOpen && cont.isActive) cont.resumeWith(Result.success(Unit))
                 }
+                markSeen()
                 state = LinkState.Offline
                 error = null
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -194,6 +213,15 @@ class RemoteConnection(
                 attempts++
                 if (e is RemoteException && e.denied && e.message?.contains("unknown") == true) { revoked = true; return }
                 if (e is RemoteException && e.denied) { revoked = true; return }
+                // Two tries, then it is left alone: the person sees "not active" and a button, nothing keeps trying in the dark.
+                if (attempts >= MAX_TRIES) {
+                    gaveUp = true
+                    channel = null
+                    via = null
+                    waiting.values.forEach { it.completeExceptionally(RemoteException("the connection dropped")) }
+                    waiting.clear()
+                    return
+                }
             }
             channel = null
             via = null

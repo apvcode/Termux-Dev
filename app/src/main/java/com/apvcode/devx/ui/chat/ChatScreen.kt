@@ -194,6 +194,14 @@ fun ChatScreen(
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) startVoice() else android.widget.Toast.makeText(context, R.string.voice_err_permission, android.widget.Toast.LENGTH_LONG).show()
     }
+    // Opened from the widget's microphone: the chat is up, so listening starts.
+    LaunchedEffect(com.apvcode.devx.data.PendingAsk.voice) {
+        if (!com.apvcode.devx.data.PendingAsk.voice) return@LaunchedEffect
+        kotlinx.coroutines.delay(450)
+        com.apvcode.devx.data.PendingAsk.voice = false
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) startVoice()
+        else micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+    }
     // A picture in the phone's clipboard (copied from the gallery, a browser, a screenshot tool) is offered for pasting.
     val clipboardManager = remember { context.getSystemService(android.content.ClipboardManager::class.java) }
     var clipImageAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
@@ -319,6 +327,14 @@ fun ChatScreen(
             onShowSources = onShowSources,
             onOpenFile = onOpenFile,
             onShowSteps = onShowSteps,
+            onFold = { m ->
+                // A long message folds up while the reader is in the middle of it: the list glides to its beginning instead of jumping.
+                val index = vm.path.indexOfFirst { it.id == m.id }
+                val first = listState.firstVisibleItemIndex
+                if (index >= 0 && (index < first || (index == first && listState.firstVisibleItemScrollOffset > 0))) {
+                    scope.launch { listState.animateScrollToItem(index) }
+                }
+            },
         )
     }
 
@@ -872,39 +888,34 @@ private fun TopBar(vm: ChatViewModel, onOpenDrawer: () -> Unit, onPickModel: () 
                 Icon(Icons.Outlined.KeyboardArrowDown, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
             }
             Box(Modifier.weight(1f))
-            Row(
-                Modifier.height(42.dp).glass(CircleShape).animateContentSize(tween(300, easing = FastOutSlowInEasing), alignment = Alignment.CenterEnd),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // The temporary-chat button only exists on the empty screen and inside a temporary chat;
-                // in an ordinary chat it folds away.
-                val showTemporary = vm.current == null || vm.current?.temporary == true
-                AnimatedVisibility(
-                    visible = showTemporary,
-                    enter = fadeIn(tween(220, delayMillis = 60)) + scaleIn(spring(dampingRatio = 0.75f, stiffness = 420f), initialScale = 0.6f),
-                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.6f),
-                ) {
-                    val active = vm.isTemporary
-                    val fill by animateColorAsState(if (active) DevxColors.Accent else Color.Transparent, tween(220), label = "temp-fill")
-                    val tint by animateColorAsState(if (active) DevxColors.OnAccent else DevxColors.TextPrimary, tween(220), label = "temp-tint")
-                    Box(
-                        Modifier.size(width = 44.dp, height = 42.dp).pressable(onClick = vm::toggleTemporary),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(Modifier.size(34.dp).clip(CircleShape).background(fill), contentAlignment = Alignment.Center) {
-                            Icon(DevxIcons.MessageCircle, stringResource(R.string.cd_temp_chat), tint = tint, modifier = Modifier.size(22.dp))
+            // One button at a time, in a pill that never changes size: the temporary-chat button on the empty
+            // screen and inside a temporary chat, the three dots in a saved chat. They trade places in
+            // the same spot instead of the pill stretching to make room.
+            val showTemporary = vm.current == null || vm.current?.temporary == true
+            Box(Modifier.size(width = 44.dp, height = 42.dp).glass(CircleShape), contentAlignment = Alignment.Center) {
+                AnimatedContent(
+                    targetState = showTemporary,
+                    transitionSpec = {
+                        (fadeIn(tween(200, delayMillis = 60)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 420f), initialScale = 0.7f)) togetherWith
+                            (fadeOut(tween(110)) + scaleOut(tween(130), targetScale = 0.7f)) using SizeTransform(clip = false) { _, _ -> snap() }
+                    },
+                    label = "bar-button",
+                ) { temporaryButton ->
+                    if (temporaryButton) {
+                        val active = vm.isTemporary
+                        val fill by animateColorAsState(if (active) DevxColors.Accent else Color.Transparent, tween(220), label = "temp-fill")
+                        val tint by animateColorAsState(if (active) DevxColors.OnAccent else DevxColors.TextPrimary, tween(220), label = "temp-tint")
+                        Box(
+                            Modifier.size(width = 44.dp, height = 42.dp).pressable(onClick = vm::toggleTemporary),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(Modifier.size(34.dp).clip(CircleShape).background(fill), contentAlignment = Alignment.Center) {
+                                Icon(DevxIcons.MessageCircle, stringResource(R.string.cd_temp_chat), tint = tint, modifier = Modifier.size(22.dp))
+                            }
                         }
+                    } else {
+                        vm.current?.let { ChatMenuButton(it, vm, menuActions) }
                     }
-                }
-                // The three dots belong to a saved chat with something in it; they come and go with the chat.
-                val chat = vm.current
-                val showMore = chat != null && !chat.temporary
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = showMore,
-                    enter = fadeIn(tween(220, delayMillis = 60)) + scaleIn(spring(dampingRatio = 0.75f, stiffness = 420f), initialScale = 0.6f),
-                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.6f),
-                ) {
-                    chat?.let { ChatMenuButton(it, vm, menuActions) }
                 }
             }
         }

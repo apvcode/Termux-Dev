@@ -88,6 +88,16 @@ internal fun LinkState.visual(): LinkVisual = when (this) {
     else -> LinkVisual.Offline
 }
 
+/** The phone is still trying: connecting now, or waiting for its next try (it makes [com.apvcode.devx.remote.MAX_TRIES], then gives up). */
+internal val com.apvcode.devx.remote.RemoteConnection.trying: Boolean
+    get() = state == LinkState.Connecting || (state == LinkState.Offline && !gaveUp && !revoked)
+
+internal fun com.apvcode.devx.remote.RemoteConnection.visual(): LinkVisual = when {
+    state == LinkState.Online -> LinkVisual.Online
+    trying -> LinkVisual.Connecting
+    else -> LinkVisual.Offline
+}
+
 /** The clock the "a minute ago" labels read: it moves on its own while a screen with such labels is open. */
 internal object RemoteClock {
     var now by androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis())
@@ -146,11 +156,13 @@ fun RemoteHomeScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onAdd: () -> 
     val computers = RemoteHub.store.items
     ClockTicker()
     // All of them try to be reachable while this screen is open.
-    LaunchedEffect(computers.size) { computers.forEach { RemoteHub.connection(it.hostId)?.start() } }
+    LaunchedEffect(computers.size) {
+        computers.forEach { if (it.hostId != com.apvcode.devx.remote.RemoteLink.offHost) RemoteHub.connection(it.hostId)?.start() }
+    }
     val conns = computers.map { RemoteHub.connection(it.hostId) }
     val overall = when {
         conns.any { it?.state == LinkState.Online } -> LinkVisual.Online
-        conns.isEmpty() || conns.any { it?.state == LinkState.Connecting } -> LinkVisual.Connecting
+        conns.isEmpty() || conns.any { it?.trying == true } -> LinkVisual.Connecting
         else -> LinkVisual.Offline
     }
 
@@ -199,7 +211,7 @@ fun RemoteHomeScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onAdd: () -> 
 
 @Composable
 private fun ComputerRow(c: Computer, conn: RemoteConnection?, onClick: () -> Unit) {
-    val visual = (conn?.state ?: LinkState.Offline).visual()
+    val visual = conn?.visual() ?: LinkVisual.Offline
     Row(
         Modifier.fillMaxWidth().pressable(scaleTo = 0.98f, haptic = false, onClick = onClick).padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -209,9 +221,9 @@ private fun ComputerRow(c: Computer, conn: RemoteConnection?, onClick: () -> Uni
         }
         Column(Modifier.weight(1f)) {
             Text(c.name, style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val line = when (conn?.state) {
-                LinkState.Online -> stringResource(R.string.remote_online)
-                LinkState.Connecting -> stringResource(R.string.remote_connecting)
+            val line = when {
+                conn?.state == LinkState.Online -> stringResource(R.string.remote_online)
+                conn?.trying == true -> stringResource(R.string.remote_connecting)
                 else -> stringResource(R.string.remote_offline_seen, relativeTime(c.lastSeen))
             }
             Text(line, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1)

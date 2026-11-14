@@ -3,25 +3,43 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/widget_bg"
+    android:background="@drawable/widget_pill"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="20dp"
-    android:paddingEnd="20dp">
+    android:paddingEnd="8dp">
 
     <ImageView
-        android:layout_width="24dp"
-        android:layout_height="24dp"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
         android:contentDescription="@null"
         android:src="@drawable/ic_chat_plus"
-        android:tint="#FFFFFF" />
+        android:tint="#9A9A9A" />
 
     <TextView
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="14dp"
         android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
         android:text="@string/chat_placeholder"
         android:textColor="#9A9A9A"
         android:textSize="17sp" />
+
+    <FrameLayout
+        android:id="@+id/widget_mic"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:background="@drawable/widget_white"
+        android:contentDescription="@string/widget_voice">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_c_microphone"
+            android:tint="#000000" />
+    </FrameLayout>
 </LinearLayout>

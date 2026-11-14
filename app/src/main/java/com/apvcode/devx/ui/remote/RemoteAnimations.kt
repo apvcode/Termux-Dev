@@ -59,74 +59,76 @@ import kotlin.math.sin
 enum class LinkVisual { Connecting, Online, Offline }
 
 /**
- * The phone and the computer, and the line between them: dashes run while it connects,
- * and when the link is up it turns into a steady line with small lights running both ways. Offline: the line breaks.
+ * The phone and the computer with a row of small dots between them, nothing more: no glow, no rings. While it connects a bright
+ * spot runs along the row, from the phone to the computer. When the link is up the row is steady and a soft swell passes
+ * along it now and then. Offline the dots are dim and there is a gap in the middle. The computer carries a small dot of
+ * its own: green, amber (blinking) or grey. The states blend into each other.
  */
 @Composable
-fun LinkHero(visual: LinkVisual, modifier: Modifier = Modifier, height: Dp = 150.dp, computerIcon: ImageVector = DevxIcons.Desktop) {
+fun LinkHero(visual: LinkVisual, modifier: Modifier = Modifier, height: Dp = 140.dp, computerIcon: ImageVector = DevxIcons.Desktop) {
     val infinite = rememberInfiniteTransition(label = "link")
-    val t by infinite.animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing)), label = "t")
-    val breathe by infinite.animateFloat(0f, 1f, infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "breathe")
-    val up by animateFloatAsState(if (visual == LinkVisual.Online) 1f else 0f, tween(700, easing = FastOutSlowInEasing), label = "up")
-    val connecting by animateFloatAsState(if (visual == LinkVisual.Connecting) 1f else 0f, tween(500), label = "connecting")
+    val t by infinite.animateFloat(0f, 1f, infiniteRepeatable(tween(2000, easing = LinearEasing)), label = "t")
+    val blink by infinite.animateFloat(0.35f, 1f, infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "blink")
+    val up by animateFloatAsState(if (visual == LinkVisual.Online) 1f else 0f, tween(600, easing = FastOutSlowInEasing), label = "up")
+    val trying by animateFloatAsState(if (visual == LinkVisual.Connecting) 1f else 0f, tween(450, easing = FastOutSlowInEasing), label = "trying")
     val line = DevxColors.TextPrimary
-    val dim = DevxColors.TextDisabled
-    val ok = DevxColors.Success
-    val card = DevxColors.Card
-    val outline = DevxColors.Outline
+    val node = 60.dp
+    val side = 28.dp
 
     BoxWithConstraints(modifier.fillMaxWidth().height(height)) {
-        val node = 64.dp
-        val side = 28.dp
         Canvas(Modifier.matchParentSize()) {
             val cy = size.height / 2
-            val a = Offset(side.toPx() + node.toPx() / 2, cy)
-            val b = Offset(size.width - side.toPx() - node.toPx() / 2, cy)
-            val r = node.toPx() / 2
-
-            // the line between: dashes (connecting / offline) become one steady line (online)
-            val from = Offset(a.x + r + 8.dp.toPx(), cy)
-            val to = Offset(b.x - r - 8.dp.toPx(), cy)
-            val len = to.x - from.x
-            if (up < 0.999f) {
-                val dash = if (visual == LinkVisual.Offline) floatArrayOf(3.dp.toPx(), 16.dp.toPx()) else floatArrayOf(8.dp.toPx(), 9.dp.toPx())
-                val phase = if (visual == LinkVisual.Offline) 0f else -t * 17.dp.toPx()
-                drawLine(
-                    (if (visual == LinkVisual.Offline) dim else line).copy(alpha = (1 - up) * (if (visual == LinkVisual.Offline) 0.7f else 0.55f)),
-                    from, to, strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round, pathEffect = PathEffect.dashPathEffect(dash, phase),
-                )
-            }
-            if (up > 0.001f) {
-                drawLine(line.copy(alpha = 0.35f * up), from, to, strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-                // two lights, one each way
-                for (k in 0..1) {
-                    val p = (t + k * 0.5f) % 1f
-                    val x = if (k == 0) from.x + len * p else to.x - len * p
-                    val fade = sin(p * PI).toFloat()
-                    drawCircle(Brush.radialGradient(listOf(line.copy(alpha = 0.75f * fade * up), Color.Transparent), Offset(x, cy), 14.dp.toPx()), 14.dp.toPx(), Offset(x, cy))
-                    drawCircle(line.copy(alpha = fade * up), 2.6.dp.toPx(), Offset(x, cy))
-                }
+            val from = side.toPx() + node.toPx() + 14.dp.toPx()
+            val to = size.width - side.toPx() - node.toPx() - 14.dp.toPx()
+            val count = ((to - from) / 13.dp.toPx()).toInt().coerceAtLeast(5)
+            val offline = (1f - up - trying).coerceIn(0f, 1f)
+            // The bright spot: it enters before the first dot and leaves after the last one.
+            val spot = t * (count + 5) - 2.5f
+            val mid = (count - 1) / 2f
+            for (i in 0 until count) {
+                val x = from + (to - from) * i / (count - 1)
+                val near = (1f - kotlin.math.abs(i - spot) / 2.4f).coerceIn(0f, 1f)
+                val glint = near * near * (3f - 2f * near)
+                // dim, with a gap in the middle
+                val aOff = if (kotlin.math.abs(i - mid) < 1.2f) 0f else 0.24f
+                val aTry = 0.2f + 0.75f * glint
+                val aOn = 0.82f
+                val alpha = offline * aOff + trying * aTry + up * aOn
+                val radius = (2.1.dp.toPx()) * (1f + up * 0.45f * glint)
+                if (alpha > 0.01f) drawCircle(line.copy(alpha = alpha), radius, Offset(x, cy))
             }
         }
         Row(Modifier.fillMaxWidth().height(height).padding(horizontal = side), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            DeviceNode(DevxIcons.Mobile, active = true, glow = up * (0.5f + 0.5f * breathe))
-            DeviceNode(computerIcon, active = visual != LinkVisual.Offline, glow = up * (0.5f + 0.5f * breathe))
+            DeviceNode(DevxIcons.Mobile, active = true, badge = null)
+            DeviceNode(
+                computerIcon, active = visual != LinkVisual.Offline,
+                badge = when (visual) {
+                    LinkVisual.Online -> DevxColors.Success
+                    LinkVisual.Connecting -> DevxColors.Warning.copy(alpha = blink)
+                    LinkVisual.Offline -> DevxColors.TextDisabled
+                },
+            )
         }
     }
 }
 
 @Composable
-private fun DeviceNode(icon: ImageVector, active: Boolean, glow: Float) {
+private fun DeviceNode(icon: ImageVector, active: Boolean, badge: Color?) {
     val outline = DevxColors.Outline
-    val glowColor = DevxColors.TextPrimary
-    Box(
-        Modifier.size(64.dp)
-            .drawBehind { if (glow > 0f) drawCircle(Brush.radialGradient(listOf(glowColor.copy(alpha = 0.16f * glow), Color.Transparent), center, size.minDimension * 0.95f), size.minDimension * 0.95f) }
-            .clip(CircleShape).background(DevxColors.Card)
-            .drawBehind { drawCircle(outline, size.minDimension / 2 - 0.5f, style = Stroke(1.dp.toPx())) },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, null, tint = if (active) DevxColors.TextPrimary else DevxColors.TextDisabled, modifier = Modifier.size(28.dp))
+    val ring = DevxColors.Bg
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(60.dp)) {
+        Box(
+            Modifier.matchParentSize().clip(CircleShape).background(DevxColors.Card)
+                .drawBehind { drawCircle(outline, size.minDimension / 2 - 0.5f, style = Stroke(1.dp.toPx())) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = if (active) DevxColors.TextPrimary else DevxColors.TextDisabled, modifier = Modifier.size(26.dp))
+        }
+        if (badge != null) {
+            Box(
+                Modifier.align(Alignment.BottomEnd).size(16.dp).clip(CircleShape).background(ring).padding(3.dp).clip(CircleShape).background(badge),
+            )
+        }
     }
 }
 

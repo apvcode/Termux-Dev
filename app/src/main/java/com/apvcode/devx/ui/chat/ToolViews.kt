@@ -112,6 +112,7 @@ fun StepIcon(kind: ToolKind, size: Dp = 22.dp) {
         ToolKind.History -> Icon(DevxIcons.ChatSearch, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(size))
         ToolKind.Skill -> Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_p_bolt), null, tint = DevxColors.TextPrimary, modifier = Modifier.size(size))
         ToolKind.Mcp -> Icon(DevxIcons.Mcp, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(size))
+        ToolKind.Phone -> Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_p_device_mobile), null, tint = DevxColors.TextPrimary, modifier = Modifier.size(size))
     }
 }
 
@@ -126,6 +127,7 @@ fun stepLabel(kind: ToolKind): String = stringResource(
         ToolKind.History -> R.string.tool_history
         ToolKind.Skill -> R.string.tool_skill
         ToolKind.Mcp -> R.string.tool_mcp
+        ToolKind.Phone -> R.string.tool_phone
     },
 )
 

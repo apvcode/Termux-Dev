@@ -55,7 +55,7 @@ data class Source(val url: String, val title: String, val opened: Boolean = fals
     val host: String get() = runCatching { java.net.URI(url).host.orEmpty().removePrefix("www.") }.getOrDefault("")
 }
 
-enum class ToolKind { Search, Read, File, Memory, History, Skill, Mcp }
+enum class ToolKind { Search, Read, File, Memory, History, Skill, Mcp, Phone }
 
 /** What the assistant is doing with a tool right now, for the line shown while it works. */
 data class ToolActivity(

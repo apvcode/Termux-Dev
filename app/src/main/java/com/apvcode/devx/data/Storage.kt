@@ -58,7 +58,7 @@ class Secrets(context: Context) {
 }
 
 /** Providers, projects, the chosen model and every chat, as small JSON files in the app's folder. */
-class Store(context: Context) {
+class Store(private val context: Context) {
     private val dir = context.filesDir
     private val chatsDir = File(dir, "chats").apply { mkdirs() }
 
@@ -93,7 +93,11 @@ class Store(context: Context) {
         .mapNotNull { f -> runCatching { chatFromJson(JSONObject(f.readText())) }.getOrNull() }
 
     /** [json] is built on the main thread (it reads Compose state); only the writing happens elsewhere. */
-    fun saveChatJson(id: String, json: String) = writeAtomic(File(chatsDir, "$id.json"), json)
+    fun saveChatJson(id: String, json: String) {
+        writeAtomic(File(chatsDir, "$id.json"), json)
+        // The "recent chats" widget follows the chats.
+        com.apvcode.devx.Widgets.refreshSoon(context)
+    }
 
     fun deleteChat(id: String) {
         File(chatsDir, "$id.json").delete()
