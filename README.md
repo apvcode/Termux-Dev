@@ -197,7 +197,14 @@ devx
 
 devx 2.0 can be driven from the devx Android app. A small host runs in the background on your computer; the phone connects to it, and sees and controls the same sessions: every chat, live replies and reasoning, approval cards, questions, the plan, plan/agent/YOLO modes, the model and provider, context and cost, `/compact` and the other commands. Files and photos can be sent from the phone, and the agent can send files and pictures back: they show up in the phone chat as cards. Everything works with the terminal closed.
 
-The app is also a pocket assistant of its own: it chats with any provider you add, answers by voice (set it as the phone's assistant and the power button opens it), sets alarms and timers, finds places, runs scheduled tasks, and shows answers as cards, tables, charts, maps and app cards. It speaks the same nine languages as devx.
+The app is also a pocket assistant of its own, with no account and no server of ours:
+
+- **Chat** with any provider you add (OpenAI- or Anthropic-compatible): reasoning levels, photos and files, projects, memory, skills and MCP servers.
+- **Voice**: set it as the phone's assistant and the power button opens it. It sets alarms, timers and reminders, opens apps, finds contacts, prepares calls and messages, and controls brightness, Do Not Disturb, music and volume.
+- **Places and weather** from OpenStreetMap, no keys; it can also look at your photos and notifications when you ask.
+- **Scheduled tasks**: "every morning send me the news about AI".
+- **Answers as cards**: tables, charts, maps, weather, timers, checklists, diagrams and app cards from Google Play and F-Droid.
+- **Nine languages**, the same as devx.
 
 ```
 devx remote start     # start the host (keeps running without a terminal)

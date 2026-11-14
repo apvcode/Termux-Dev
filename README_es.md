@@ -55,18 +55,26 @@ La interfaz de terminal gira en torno a un prompt enmarcado que lleva el estado 
 
 - **Arquitectura de doble cerebro (modos PLAN y AGENT):**  
   Cambia al instante entre **PLAN** (arquitecto seguro, cuestionario interactivo de requisitos, sin volcados de código) y **AGENT** (ediciones autónomas de archivos, comandos de terminal, instalador automático).
-- **Aprobación del plan con un clic (`[Go / Other]`):**  
-  Cuando el plan de arquitectura está listo, revísalo y confirma con `Go` para que el agente programador empiece de inmediato.
+- **Aprobación del plan con un clic (`[Go / Go and compact context / Other]`):**
+  Cuando un plan de arquitectura está terminado, revísalo y confirma con `Go` para soltar de inmediato al agente programador. `Go and compact context` primero resume la larga conversación de planificación y ejecuta el plan aprobado en un contexto corto y nuevo (desde el teléfono funciona igual).
 - **Adjuntos de imagen multimodales:**  
   Pega capturas directamente desde el portapapeles con `Ctrl+V` o `Alt+V` (también `/image` o una ruta de archivo pegada). Aparecen como insignias del tipo `[Image #1 203kb]` y se envían al modelo como imágenes reales, salvo que se sepa que el modelo solo lee texto. Requiere `wl-clipboard` en Wayland, `xclip` en X11, `pngpaste` en macOS.
+- **El agente puede mirar imágenes del disco:**
+  Pregúntale por `screenshot.png` o una maqueta en cualquier carpeta y abre el archivo con `read_file`, igual que ve una imagen que adjuntas. PNG, JPEG, WebP y GIF de hasta 5 MB; el contenido del archivo debe ser realmente una imagen. Solo las imágenes más recientes se envían completas, las anteriores quedan como una nota en el chat (el modelo puede volver a abrir el archivo). Un modelo sin visión recibe en su lugar un mensaje claro.
 - **Servidor web en vivo integrado (`/serve`):**  
   Previsualiza al instante aplicaciones web y juegos HTML5 en el puerto 3000. En Android se abre sin fricción con `termux-open-url`.
+- **Tareas en segundo plano (`/tasks`):**
+  El agente puede iniciar un servidor de desarrollo, un watcher o una prueba larga en segundo plano y seguir trabajando. Puede esperar una línea (`ready|error`), leer la salida más tarde y se le avisa cuando una tarea termina o imprime algo por lo que preguntó; si entonces estás en el prompt, recoge la noticia por sí mismo. Una insignia `◈ 2 bg` en el marco del prompt muestra lo que se ejecuta, y se añade `· 1 failed` cuando una tarea acabó mal hasta que devx se lo haya dicho al agente; `/tasks` lista las tareas, `/tasks <id>` muestra la salida, `/tasks stop <id|all>` las termina. Iniciar una tarea pide aprobación como `bash`; todo se detiene cuando devx sale. Con `"backgroundAutoWake": false` el agente deja de reaccionar por sí mismo.
 - **Reversión instantánea (`/undo`):**  
   Cada edición hecha con las herramientas de archivos (`write_file`, `edit_file`) se registra y se puede deshacer con un solo comando. Los cambios hechos por comandos de shell (`bash`) **no** se registran, y las instantáneas viven solo en la memoria de la sesión actual.
 - **Diagnóstico autocurativo e instalador automático:**  
   Soporte integrado para TypeScript (`tsc`), JavaScript (`node --check`), Python (`py_compile`) y Rust (`cargo check`). La IA encuentra y corrige errores automáticamente antes de terminar el turno.
 - **Banco de memoria del proyecto (`.devx/memory.md`):**  
   Contexto persistente del proyecto entre sesiones con `/memory add <regla>`.
+- **Notificaciones cuando devx te espera:**
+  Cuando el agente necesita una aprobación o te hace una pregunta (`◆ Clarify`) y el terminal no está delante, recibes una notificación (el protocolo propio de kitty, `notify-send` en Linux, `osascript` en macOS; en Termux una notificación de Android con una vibración corta). También se anuncia una tarea terminada, con el comienzo de la respuesta. El terminal tiene que informar de los cambios de foco (la mayoría de los modernos lo hacen); cuando devx no puede saber si estás mirando, se queda callado en lugar de aparecer delante de ti.
+- **Chats anteriores (`search_chats`):**
+  Cuando dices «como decidimos la última vez» o «en aquel chat sobre el parser», el agente puede buscar en tus chats guardados por palabras clave (en cualquier idioma, otras formas de la palabra también coinciden: página / páginas) y leer el que necesite, unos pocos mensajes cada vez. Es de solo lectura y local, así que no pregunta nada; no se busca en el chat abierto; la salida de las herramientas no se indexa; y lo que lee se entrega al modelo como datos, no como instrucciones. El agente no lo usa en una tarea normal.
 - **18 temas de color sobre fondo negro puro (`#0a0a0c`):**  
   Negro OLED profundo para programar en la terminal sin distracciones, con paletas completas en lugar de un solo acento: Cyan Cyber, Synthwave Purple, Matrix Hacker, Solar Amber, Ruby Crimson, Pure Monochrome, Nord Frost, Dracula, Tokyo Night, Gruvbox, Catppuccin Mocha, Solarized Dark, Rose Pine, Monokai, GitHub Dark, Deep Ocean, Sunset Glow y Forest Moss. Consulta [Temas](#temas).
 - **Historial de sesiones inteligente (`/resume` y `/session`):**  
@@ -183,6 +191,35 @@ devx
 
 ---
 
+## Control remoto desde el teléfono
+
+**Consigue la app:** el APK de Android, `devx-android-x.y.z.apk`, está adjunto a cada [release](https://github.com/apvcode/Termux-Dev/releases/latest) (ábrelo en el teléfono y permite instalar desde esta fuente). El código de la app y su propio README están en la [rama `android`](https://github.com/apvcode/Termux-Dev/tree/android). En la app, un teléfono se quita del ordenador con `/phones` en devx o `devx remote revoke <name>`.
+
+devx 2.0 se puede manejar desde la app devx para Android. Un pequeño host se ejecuta en segundo plano en tu ordenador; el teléfono se conecta a él y ve y controla las mismas sesiones: cada chat, respuestas y razonamiento en directo, tarjetas de aprobación, preguntas, el plan, los modos plan/agent/YOLO, el modelo y el proveedor, el contexto y el coste, `/compact` y los demás comandos. Se pueden enviar archivos y fotos desde el teléfono, y el agente puede devolver archivos e imágenes: aparecen en el chat del teléfono como tarjetas. Todo funciona con el terminal cerrado.
+
+La app es además un asistente de bolsillo por sí misma, sin cuenta y sin un servidor nuestro:
+
+- **Chat** con cualquier proveedor que añadas (compatible con OpenAI o Anthropic): niveles de razonamiento, fotos y archivos, proyectos, memoria, skills y servidores MCP.
+- **Voz**: ponla como asistente del teléfono y el botón de encendido la abre. Pone alarmas, temporizadores y recordatorios, abre apps, busca contactos, prepara llamadas y mensajes, y controla el brillo, No molestar, la música y el volumen.
+- **Lugares y tiempo** de OpenStreetMap, sin claves; también puede mirar tus fotos y notificaciones cuando se lo pides.
+- **Tareas programadas**: «cada mañana envíame las noticias sobre IA».
+- **Respuestas como tarjetas**: tablas, gráficos, mapas, tiempo, temporizadores, listas de control, diagramas y tarjetas de apps de Google Play y F-Droid.
+- **Nueve idiomas**, los mismos que devx.
+
+```
+devx remote start     # inicia el host (sigue funcionando sin terminal)
+devx remote pair      # muestra un código QR: escanéalo en la app y confirma los seis dígitos aquí
+devx remote status    # quién está conectado, qué sesiones están abiertas
+devx remote devices   # teléfonos emparejados   devx remote revoke <name>   # quitar uno
+devx remote service   # arranca con el ordenador (systemd / launchd / carpeta Inicio); también en /settings. `service off` lo desactiva
+```
+
+Cómo llega el teléfono al ordenador, sin ningún servidor nuestro: primero de forma directa (la misma Wi-Fi, una VPN como Tailscale o un puerto reenviado 47821), y cuando eso es imposible (internet móvil, NAT del operador) a través de un relé MQTT público y gratuito. El teléfono prueba ambos a la vez y sigue intentándolo; el relé solo ve paquetes cifrados. El formato de red y su seguridad están en [docs/remote-protocol.md](docs/remote-protocol.md).
+
+Seguridad: un teléfono solo se añade con un código de un solo uso de `devx remote pair` (válido 5 minutos) **y** tu confirmación aquí, donde ambas pantallas muestran los mismos seis dígitos. Las claves son P-256 (la del teléfono nunca sale de su Keystore), cada conexión se firma y se cifra (AES-256-GCM) con claves nuevas. El acceso remoto es acceso a la shell de este ordenador: por defecto cada comando pide aprobación al teléfono, y el modo «Everything» está desactivado hasta que lo actives para una sesión.
+
+Si el teléfono tiene activada la memoria de devx, su nombre va en el chat y el agente de aquí recibe una herramienta `phone_memory` que pide sus notas al teléfono: no se copia nada a este ordenador.
+
 ## Comandos con barra
 
 Escribe `/` en el prompt para abrir la paleta de comandos con autocompletado:
@@ -202,7 +239,9 @@ Escribe `/` en el prompt para abrir la paleta de comandos con autocompletado:
 | **`/copy`** | Copiar la **última respuesta** de la IA completa al portapapeles (también por ssh) |
 | **`/rename`** | Renombrar el chat: `/rename <nombre>`, sin nombre la IA lo nombra de nuevo (`/title` es lo mismo) |
 | **`/permissions`** | Qué se permite sin preguntar («Session» / «Always» en una tarjeta de aprobación); `/permissions clear` lo restablece |
+| **`/phones`** | Los teléfonos emparejados con devx Remote: elige uno para quitarlo, se desconecta al instante y no puede volver a conectarse hasta que se empareje de nuevo |
 | **`/rewind`** | Volver a uno de **tus mensajes**: el chat posterior se borra (el modelo también lo olvida), el mensaje vuelve a la línea de entrada para editarlo; los archivos también pueden volver (con git) |
+| **`/tasks`** | Tareas en segundo plano: lista, `/tasks <id>` para la salida, `/tasks stop <id\|all>`, `/tasks clear` |
 | **`/undo`** | Revertir todos los cambios de archivos del último turno de la IA |
 | **`/diff`** | Ver el diff de git en color de los archivos modificados |
 | **`/commit`** | Mensaje de commit semántico generado por la IA y git commit |
@@ -215,7 +254,7 @@ Escribe `/` en el prompt para abrir la paleta de comandos con autocompletado:
 | **`/model`** | Cambiar el modelo del proveedor activo con búsqueda en vivo |
 | **`/effort [level]`** | Fijar el esfuerzo de razonamiento. Solo se ofrecen los niveles que admite el modelo actual (consulta [Esfuerzo de razonamiento](#esfuerzo-de-razonamiento)) |
 | **`/provider`** | Cambiar de proveedor (OpenRouter, Gemini, Groq, DeepSeek, Local) |
-| **`/compact`** | Compactar y resumir los tokens del contexto del chat |
+| **`/compact`** | Compactar y resumir los tokens del contexto del chat (el chat compactado se guarda al instante, así que `/resume` devuelve el corto) |
 | **`/clear`** | Vaciar el contexto y empezar una sesión nueva (la anterior queda guardada, consulta `/resume`) |
 | **`/init`** | Generar la guía de desarrollo `AGENTS.md` en la raíz del proyecto |
 | **`/help`** | Mostrar todos los comandos disponibles |
@@ -230,7 +269,7 @@ Escribe `/` en el prompt para abrir la paleta de comandos con autocompletado:
 - **`@filename`** — autocompletado rápido y aproximado de archivos e incrustación completa del archivo.
 - **`Backspace`** — borra de una vez insignias enteras como `[Pasted text #1]` y `[1.png 203kb]`.
 - **`Ctrl+Backspace`** / **`Alt+Backspace`** — borra el texto palabra por palabra (también mientras el agente trabaja).
-- **`Ctrl+Enter`** — Al escribir: salto de línea (nuevo párrafo) en lugar de enviar. `Alt+Enter` y `Shift+Enter` hacen lo mismo si la terminal los reporta; en una terminal que no los distingue de `Enter` (un teclado de móvil, por ejemplo) escribe `\` antes de `Enter`.
+- **`Ctrl+Enter`** — Al escribir: salto de línea (un párrafo nuevo) en vez de enviar. `Alt+Enter` y `Shift+Enter` hacen lo mismo donde el terminal los comunica; en un terminal que no los distingue de `Enter` (un teclado de teléfono, por ejemplo) escribe `\` antes de `Enter`. devx pide al terminal que los distinga solo donde se sabe que funciona (kitty, Ghostty, WezTerm, iTerm2, foot, Alacritty); Termux y otros terminales que leen esa petición como un código de cursor o de estilo nunca la reciben. `DEVX_EXTENDED_KEYS=1` (o `0`) la fuerza (o la desactiva).
 - **`Ctrl+P`** / **`Ctrl+O`** — despliega o pliega el razonamiento del modelo (`Ctrl+P`) y los comandos con su salida (`Ctrl+O`) en todo el chat, también lo que ya está más arriba. Por defecto todo está plegado; funciona mientras el agente trabaja y en el prompt.
 - **`Esc`** — detiene la respuesta actual y lo que haya iniciado (un comando en marcha); lo escrito espera en el siguiente prompt. Esc también cierra cualquier lista o tarjeta.
 - **`Ctrl+C`** — detiene la generación actual de inmediato o sale.
@@ -299,7 +338,7 @@ Un modelo que ninguna fuente describe no recibe niveles en lugar de una suposici
 
 ## Escribir mientras el agente trabaja
 
-El marco del prompt se queda abajo en la terminal durante una tarea (con contexto y coste en vivo), y el trabajo del agente se desplaza por encima. Escribe en él mientras el agente lee archivos, ejecuta comandos o piensa, y pulsa Enter: el mensaje se pone en cola y el agente lo recibe **en su siguiente paso**, entre dos llamadas a herramientas, así que sigue con su trabajo pero tiene en cuenta tu observación. Un mensaje escrito mientras el modelo redacta su respuesta final recibe una respuesta propia en lugar de descartarse. `Ctrl+Enter` hace un salto de línea en tu mensaje en lugar de enviarlo (también `Alt+Enter` y `Shift+Enter`; un `\` antes de `Enter` sirve en terminales que no los distinguen). `Ctrl+Backspace` borra una palabra. `Esc` (o `Ctrl+C`) detiene al agente y devuelve lo escrito al siguiente prompt. Las menciones `@file` también funcionan en estos mensajes. Mientras hay en pantalla una tarjeta de aprobación o una pregunta, la línea se aparta, así que tu `y` / `n` nunca acaba en el mensaje. Desactívalo con `"ui": { "typeAhead": false }` en `~/.devxrc.json`.
+El marco del prompt se queda en la parte inferior del terminal durante una tarea (con el contexto y el coste en vivo), y el trabajo del agente se desplaza por encima. Escribe en él mientras el agente lee archivos, ejecuta comandos o piensa, y pulsa Enter: el mensaje se pone en cola y el agente lo recibe **en su siguiente paso**, entre dos llamadas a herramientas, así que sigue con su trabajo pero tiene en cuenta tu observación. Un mensaje escrito mientras el modelo redacta su respuesta final recibe una respuesta propia en lugar de descartarse. `Ctrl+Enter` inicia una línea nueva en tu mensaje en vez de enviarlo (también `Alt+Enter` y `Shift+Enter`; un `\` antes de `Enter` lo hace en terminales que no los distinguen). `Ctrl+Backspace` borra una palabra. Escribe `/` ahí y se abre la lista de todos los comandos (las flechas se desplazan, `Tab` completa, `Enter` ejecuta): los que solo muestran o cambian un ajuste (`/settings`, `/model`, `/theme`, `/usage`, `/mcp`, `/tasks`, `/help` y otros) se abren al instante mientras el agente trabaja y este espera; los que cambian la conversación (`/compact`, `/new`, `/undo`, `/plan` ...) se ejecutan cuando el agente termina. Las flechas arriba y abajo recuperan las líneas que enviaste antes, también de chats anteriores (se guardan en `~/.devx/history.jsonl`). `↓` devuelve un mensaje en espera a la línea para editarlo; `Enter` en una línea vacía lo envía **ahora** (se detiene la respuesta actual). Las flechas funcionan también con Bloq Mayús y Bloq Num activados. Un mensaje que empieza con una ruta de archivo (`/home/me/boot.img flash this`) es un mensaje, no un comando. `Esc` (o `Ctrl+C`) detiene al agente y devuelve lo que escribiste al siguiente prompt. Las menciones `@file` también funcionan en estos mensajes. Mientras una tarjeta de aprobación o una pregunta está en pantalla, la línea se aparta, así que tu `y` / `n` nunca acaba en el mensaje. Desactívalo con `"ui": { "typeAhead": false }` en `~/.devxrc.json`.
 
 ---
 
@@ -324,6 +363,8 @@ Existen dos formatos de transmisión: **OpenAI** (`/v1/chat/completions`) y **An
 
 ## Coste
 
+Cada solicitud reenvía toda la conversación, y el número junto al medidor de contexto suma lo que costó cada una de esas solicitudes (la entrada en caché es más barata y se cobra como tal). El propio medidor de contexto muestra 0 para un chat vacío y, desde el primer mensaje, todo lo que lleva la siguiente solicitud: prompt del sistema y esquemas de herramientas incluidos.
+
 El número junto al medidor de contexto es el dinero gastado en esta sesión. Indica lo seguro que está devx:
 
 | Se muestra | Significado |
@@ -333,7 +374,7 @@ El número junto al medidor de contexto es el dinero gastado en esta sesión. In
 | `$0.0123+` | al menos esto: algunas peticiones no tienen precio conocido y no se cuentan |
 | `n/a` | no se conoce precio para el modelo |
 
-Los precios se buscan en este orden, gana la primera fuente que conozca el modelo: el coste que el proveedor puso en su respuesta (OpenRouter `usage.cost`, LiteLLM) - tus propios `prices` en `~/.devxrc.json` - la lista de precios del propio endpoint (OpenRouter, LiteLLM) - el catálogo models.dev (unos 8500 modelos; con devx se incluye una instantánea, `/effort refresh` descarga la actual). Los tokens de entrada en caché, las escrituras de caché y los tramos de contexto largo se tarifican por separado, como hacen los fabricantes. Un modelo que no se encuentra nunca se muestra como gratis: solo los modelos `:free` y los servidores locales no cuestan nada. `/usage` también lista la entrada en caché y cuántas peticiones no se pudieron tarificar.
+Los precios se buscan en este orden, gana la primera fuente que conoce el modelo: el coste que el proveedor puso en su respuesta (OpenRouter `usage.cost`, LiteLLM) – tus propios `prices` en `~/.devxrc.json` – la propia lista de precios del endpoint (OpenRouter, LiteLLM) – el catálogo de models.dev (unos 8500 modelos; con devx se incluye una instantánea, `/effort refresh` descarga la actual). Los tokens de entrada en caché, las escrituras en caché y los niveles de contexto largo se cobran por separado, como hacen los fabricantes. Una solicitud que salió pero no recibió respuesta (cancelada con Ctrl+C, conexión perdida, un timeout de pasarela de un modelo lento) suele ser facturada igualmente por el proveedor, y un reintento reenvía toda la conversación: esas solicitudes también se cuentan, como estimación (`~`). Las pequeñas tareas auxiliares (título del chat, mensaje de `/commit`, resumen de `/compact`) se ejecutan con el nivel de razonamiento más ligero que ofrece el modelo y su coste forma parte del total. Un modelo que no se encuentra nunca se muestra como gratis: solo cuestan nada los modelos `:free` y los servidores locales. `/usage` también lista la entrada en caché y cuántas solicitudes no pudieron tarificarse.
 
 ```json
 {
@@ -378,6 +419,28 @@ Los colores son exactos en terminales con soporte truecolor (`COLORTERM=truecolo
 
 ---
 
+## Hooks, límites y permisos
+
+- **Límite de coste.** `/settings` → `Cost limit` (o `"maxCostPerSession": 5` en `~/.devxrc.json`, USD). Al 80 % devx avisa; al llegar al límite detiene la tarea, y antes del siguiente mensaje pregunta si gastar más (continuar sube solo el límite de esa sesión).
+- **Permitido sin preguntar.** En una tarjeta de aprobación, `Session` permite un comando (por programa y subcomando, como `npm test`) o una herramienta MCP hasta que cierres devx; `Always` lo guarda en `~/.devxrc.json` (`bashAllowlist`, `allowedTools`). Los comandos peligrosos, las lecturas de secretos, las cadenas (`&&`, `;`, `|`) y las redirecciones nunca se recuerdan. `/permissions` lo lista, `/permissions clear` lo elimina.
+- **Hooks.** Comandos que se ejecutan alrededor de las herramientas del agente, definidos en `~/.devxrc.json`:
+
+  ```json
+  {
+    "hooks": {
+      "PreToolUse":  [{ "matcher": "bash", "command": "./check-command.sh" }],
+      "PostToolUse": [{ "matcher": "write_file|edit_file", "command": "npx prettier --write ." }]
+    }
+  }
+  ```
+
+  `matcher` es una expresión regular para el nombre de la herramienta (ninguna o `*`: todas las herramientas). El comando recibe la llamada como JSON por stdin (`event`, `tool_name`, `tool_input` y, para `PostToolUse`, `tool_result`) y `DEVX_HOOK_EVENT` / `DEVX_TOOL_NAME` en el entorno. El código de salida `2` de un hook `PreToolUse` detiene la herramienta y le dice al modelo lo que el comando escribió en stderr; el código de salida `2` de un hook `PostToolUse` añade ese texto al resultado. Los hooks de un proyecto (`.devx.json`) solo cuentan en un espacio de trabajo de confianza; un hook tiene 10 segundos.
+- **Secretos en la salida.** Las claves y los tokens en la salida de una herramienta (`sk-…`, `ghp_…`, `Bearer …`, `"apiKey": "…"`, claves privadas) se sustituyen por `[hidden secret]` antes de que el modelo, el chat y la sesión guardada los vean.
+- **Deshacer para todo.** Con git, `/undo` devuelve toda la carpeta a como estaba antes del último turno, incluido lo que hicieron los comandos de shell (los archivos de `.gitignore` no se tocan).
+- **El plan aprobado** se guarda en `.devx/plan.md` y se entrega al agente durante 24 horas. **La memoria del proyecto** de más de ~4000 caracteres se recorta a los hechos más recientes para el modelo.
+- **MCP.** `/mcp add <name> <command> [args]` o `/mcp add <name> <https-url>` (un servidor remoto por HTTP; pon un token en `headers` como `"Bearer ${TOKEN}"`), `/mcp remove <name>`, `/mcp import` (desde Claude Code).
+- **Herramientas MCP a demanda.** El esquema de cada herramienta MCP se envía con cada solicitud, y un servidor grande (Notion tiene ~80 herramientas) puede costar 100k tokens antes de que escribas nada. Por eso devx envía de golpe las herramientas de los servidores pequeños y retiene las de los grandes: el agente ve la lista de servidores en su herramienta `mcp_search`, encuentra y carga solo las herramientas que necesita una tarea (`mcp_search` con palabras clave, nombres de herramientas o solo el nombre de un servidor) y las llama desde su siguiente paso. Las herramientas cargadas permanecen durante el chat (un chat reanudado recupera las que usó). Qué servidores esperan lo decide el tamaño (todas las herramientas enviadas juntas se mantienen por debajo de ~4k tokens); fuérzalo por servidor con `"lazy": true` o `"lazy": false` en `mcp.json`.
+
 ## Modelo de seguridad
 
 `devx` ejecuta comandos y edita archivos en tu máquina en nombre de un modelo de IA, así que es conservador por defecto:
@@ -390,6 +453,8 @@ Los colores son exactos en terminales con soporte truecolor (`COLORTERM=truecolo
 - **`fetch_url`** rechaza localhost, redes privadas y direcciones de metadatos de la nube (también tras redirecciones). Define `DEVX_ALLOW_PRIVATE_NETWORK=1` para permitir servidores de documentación locales.
 - **`/serve`** escucha en tu red local (así funciona el código QR del móvil). Nunca sirve dotfiles, claves, `node_modules` ni enlaces simbólicos que salgan del proyecto, no envía cabeceras CORS permisivas y rechaza las peticiones dirigidas a un nombre de host público.
 - **Secretos en reposo.** `~/.devxrc.json`, `~/.devx/` y las sesiones guardadas se crean legibles solo para ti (`0600` / `0700`). Los archivos de sesión contienen toda la conversación, incluido el contenido de los archivos que el agente leyó.
+- **Conexiones silenciosas.** Una solicitud que no recibe respuesta ni datos nuevos durante 300 s se abandona y se vuelve a enviar (un teléfono puede perder la conexión sin que la app lo note). `"requestTimeoutSeconds": 600` en `~/.devxrc.json` cambia el tiempo, `0` lo desactiva. Un modelo que piensa durante minutos sin enviar un solo byte necesita un valor mayor.
+- **Las imágenes de los chats guardados** se conservan en archivos junto al chat (`~/.devx/sessions/<id>.images/`), no dentro de su JSON, así que guardar un chat sigue siendo rápido y `/resume` se abre enseguida. Se eliminan con el chat.
 - **Límites.** `bash` detiene los comandos a los 120 s por defecto (el modelo puede pasar `timeout_seconds`, máximo 1800) y cierra stdin. La salida larga conserva su principio y su final. `read_file` devuelve como máximo ~60 000 caracteres por llamada y admite `startLine` / `endLine`.
 
 ---

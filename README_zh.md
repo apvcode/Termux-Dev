@@ -55,18 +55,26 @@ devx
 
 - **双脑架构（PLAN 与 AGENT 模式）：**  
   在 **PLAN**（安全的架构师，交互式需求问卷，不输出大段代码）与 **AGENT**（自主编辑文件、执行终端命令、自动安装依赖）之间即时切换。
-- **一键批准计划（`[Go / Other]`）：**  
-  架构计划定稿后，审阅并选择 `Go`，即可立即放手让编码智能体开工。
+- **一键批准计划（`[Go / Go and compact context / Other]`）：**
+  架构计划定稿后，审阅并用 `Go` 确认，立即放手让编码智能体开工。`Go and compact context` 会先总结冗长的规划对话，再在简短的全新上下文中执行已批准的计划（在手机上用法相同）。
 - **多模态图片附件：**  
   用 `Ctrl+V` 或 `Alt+V` 直接从剪贴板粘贴截图（也可用 `/image` 或粘贴文件路径）。它们显示为 `[Image #1 203kb]` 这样的徽标，并作为真实图片发送给模型，除非已知该模型只能读取文本。Wayland 需要 `wl-clipboard`，X11 需要 `xclip`，macOS 需要 `pngpaste`。
+- **智能体可以查看磁盘上的图片：**
+  就任意文件夹里的 `screenshot.png` 或设计稿向它提问，它会用 `read_file` 打开文件，与查看你附加的图片的方式相同。支持 PNG、JPEG、WebP 和 GIF，最大 5 MB；文件内容必须确实是图片。只有最新的几张图片会完整发送，较早的只在聊天中留下一条记录（模型可以再次打开该文件）。不支持视觉的模型会收到一条明确的提示。
 - **内置实时 Web 服务器（`/serve`）：**  
   在 3000 端口即时预览 Web 应用和 HTML5 游戏。在 Android 上通过 `termux-open-url` 无缝打开。
+- **后台任务（`/tasks`）：**
+  智能体可以在后台启动开发服务器、监视器或耗时较长的测试，同时继续工作。它可以等待某一行输出（`ready|error`），稍后读取输出；任务结束或打印出它所关注的内容时会通知它，如果此时你在提示符前，它会自己接手这条消息。提示符边框中的 `◈ 2 bg` 徽标显示正在运行的任务，任务异常结束时会加上 `· 1 failed`，直到 devx 告知了智能体；`/tasks` 列出任务，`/tasks <id>` 显示输出，`/tasks stop <id|all>` 结束它们。启动任务和 `bash` 一样需要批准；devx 退出时所有任务都会被停止。设置 `"backgroundAutoWake": false` 可让智能体不再自行响应。
 - **即时快照回滚（`/undo`）：**  
   用文件工具（`write_file`、`edit_file`）做的每次编辑都会被记录，并可一条命令回滚。通过 shell 命令（`bash`）所做的更改**不会**被跟踪，快照仅保存在当前会话的内存中。
 - **自愈式诊断与自动安装：**  
   内置支持 TypeScript（`tsc`）、JavaScript（`node --check`）、Python（`py_compile`）和 Rust（`cargo check`）。AI 会在结束一轮之前自动发现并修复错误。
 - **项目记忆库（`.devx/memory.md`）：**  
   通过 `/memory add <规则>` 在会话之间保留项目上下文。
+- **devx 在等你时的通知：**
+  当智能体需要批准或向你提问（`◆ Clarify`），而终端不在前台时，你会收到通知（kitty 自己的协议，Linux 上用 `notify-send`，macOS 上用 `osascript`；Termux 上是带短暂震动的 Android 通知）。任务完成也会通知，并附上回答的开头。终端必须报告焦点变化（大多数现代终端都支持）；当 devx 无法判断你是否在看时，它会保持安静，而不是突然弹到你面前。
+- **过往聊天（`search_chats`）：**
+  当你说“就像上次我们决定的”或“在那个关于解析器的聊天里”，智能体可以按关键词搜索你保存的聊天（任何语言，不同词形也能匹配），并读取所需的那一个，每次读几条消息。它是只读且在本地的，所以不会询问；当前打开的聊天不会被搜索；工具输出不会被索引；它读到的内容会作为数据而不是指令交给模型。普通任务中智能体不会使用它。
 - **纯黑背景（`#0a0a0c`）上的 18 套配色主题：**  
   深邃的 OLED 黑，让终端里的 Vibe Coding 不受干扰；每个主题都是完整调色板，而不只是一个强调色：Cyan Cyber、Synthwave Purple、Matrix Hacker、Solar Amber、Ruby Crimson、Pure Monochrome、Nord Frost、Dracula、Tokyo Night、Gruvbox、Catppuccin Mocha、Solarized Dark、Rose Pine、Monokai、GitHub Dark、Deep Ocean、Sunset Glow 和 Forest Moss。参见[主题](#主题)。
 - **智能会话历史（`/resume` 与 `/session`）：**  
@@ -183,6 +191,35 @@ devx
 
 ---
 
+## 从手机远程控制
+
+**获取应用：** Android APK `devx-android-x.y.z.apk` 附在每个[发布版本](https://github.com/apvcode/Termux-Dev/releases/latest)中（在手机上打开，并允许从此来源安装）。应用的源代码及其自己的 README 位于 [`android` 分支](https://github.com/apvcode/Termux-Dev/tree/android)。在应用中，可以用 devx 里的 `/phones` 或 `devx remote revoke <name>` 将手机从电脑上移除。
+
+devx 2.0 可以由 devx Android 应用来驱动。一个小型主机在你电脑的后台运行；手机连接到它，看到并控制相同的会话：每个聊天、实时回答和推理、批准卡片、提问、计划、plan/agent/YOLO 模式、模型和服务商、上下文和费用、`/compact` 及其他命令。可以从手机发送文件和照片，智能体也可以把文件和图片发回来：它们会以卡片形式出现在手机聊天中。终端关闭时一切照常运行。
+
+这个应用本身也是一个口袋助手，无需账号，也没有我们的服务器：
+
+- **聊天**：可使用你添加的任意服务商（兼容 OpenAI 或 Anthropic）：推理强度、照片和文件、项目、记忆、技能和 MCP 服务器。
+- **语音**：将它设为手机的助手，电源键即可打开它。它能设置闹钟、计时器和提醒，打开应用，查找联系人，准备通话和短信，并控制亮度、勿扰模式、音乐和音量。
+- **地点和天气**来自 OpenStreetMap，无需密钥；你询问时，它还可以查看你的照片和通知。
+- **定时任务**：“每天早上给我发 AI 新闻”。
+- **以卡片呈现的回答**：表格、图表、地图、天气、计时器、清单、图示，以及来自 Google Play 和 F-Droid 的应用卡片。
+- **九种语言**，与 devx 相同。
+
+```
+devx remote start     # 启动主机（无终端时也持续运行）
+devx remote pair      # 显示二维码：在应用中扫描，并在这里确认六位数字
+devx remote status    # 谁已连接，哪些会话已打开
+devx remote devices   # 已配对的手机           devx remote revoke <name>   # 移除一部
+devx remote service   # 随电脑启动（systemd / launchd / 启动文件夹）；也在 /settings 中。`service off` 将其关闭
+```
+
+手机如何在没有我们任何服务器的情况下连到电脑：先直连（同一 Wi-Fi、Tailscale 这样的 VPN，或转发的端口 47821），无法直连时（移动网络、运营商 NAT）则通过免费的公共 MQTT 中继。手机会同时尝试两者并持续重试；中继只会看到加密的数据包。传输格式及其安全性见 [docs/remote-protocol.md](docs/remote-protocol.md)。
+
+安全：手机只有凭 `devx remote pair` 的一次性代码（有效期 5 分钟）**并且**经过你在这里的确认（两个屏幕显示相同的六位数字）才会被添加。密钥为 P-256（手机的密钥永远不会离开其 Keystore），每个连接都用全新的密钥签名并加密（AES-256-GCM）。远程访问就是对这台电脑的 shell 访问：默认每条命令都会向手机请求批准，“Everything”模式在你为某个会话开启之前一直关闭。
+
+如果手机开启了 devx 记忆，它的名字会随聊天一起发送，这里的智能体会获得一个 `phone_memory` 工具，用来向手机询问它的笔记：不会向这台电脑复制任何内容。
+
 ## 斜杠命令
 
 在输入框中键入 `/` 打开带自动补全的命令面板：
@@ -202,7 +239,9 @@ devx
 | **`/copy`** | 将 AI 的**最后一条回答**完整复制到剪贴板（通过 ssh 也可用） |
 | **`/rename`** | 重命名聊天：`/rename <名称>`，不带名称则由 AI 重新命名（`/title` 相同） |
 | **`/permissions`** | 查看无需询问即可执行的内容（批准卡片上的 Session / Always）；`/permissions clear` 重置 |
+| **`/phones`** | 与 devx Remote 配对的手机：选择一部即可将其移除，它会立即断开，并且在重新配对之前无法再次连接 |
 | **`/rewind`** | 回到**你的某条消息**：其后的聊天被清除（模型也会忘记），该消息回到输入行供修改；文件也可一并恢复（需要 git） |
+| **`/tasks`** | 后台任务：列表，`/tasks <id>` 查看输出，`/tasks stop <id\|all>`，`/tasks clear` |
 | **`/undo`** | 撤销 AI 上一轮对文件的所有更改 |
 | **`/diff`** | 查看已修改项目文件的彩色 git diff |
 | **`/commit`** | 由 AI 生成语义化提交信息并执行 git commit |
@@ -215,7 +254,7 @@ devx
 | **`/model`** | 在当前提供商内实时搜索并切换模型 |
 | **`/effort [level]`** | 设置推理强度。只提供当前模型支持的级别（参见[推理强度](#推理强度)） |
 | **`/provider`** | 切换提供商（OpenRouter、Gemini、Groq、DeepSeek、Local） |
-| **`/compact`** | 压缩并总结聊天上下文 token |
+| **`/compact`** | 压缩并总结聊天上下文的令牌（压缩后的聊天会立即保存，所以 `/resume` 得到的是简短的那个） |
 | **`/clear`** | 清空上下文并开始新会话（旧会话仍保留，参见 `/resume`） |
 | **`/init`** | 在项目根目录生成 `AGENTS.md` 开发指南 |
 | **`/help`** | 显示所有可用命令 |
@@ -230,7 +269,7 @@ devx
 - **`@filename`** — 快速模糊文件补全，并完整嵌入文件内容。
 - **`Backspace`** — 一次按键即可整体删除 `[Pasted text #1]` 和 `[1.png 203kb]` 这类徽标。
 - **`Ctrl+Backspace`** / **`Alt+Backspace`** — 按词删除文本（智能体工作时也可用）。
-- **`Ctrl+Enter`** — 输入时：换行（新段落）而不是发送。终端能上报时，`Alt+Enter` 和 `Shift+Enter` 效果相同；在无法与 `Enter` 区分的终端（例如手机键盘）里，在 `Enter` 前输入 `\`。
+- **`Ctrl+Enter`** — 输入时：换行（新段落）而不是发送。在终端能报告它们的地方，`Alt+Enter` 和 `Shift+Enter` 作用相同；在无法把它们与 `Enter` 区分的终端上（比如手机键盘），请在 `Enter` 前输入 `\`。devx 只在已知可行的终端（kitty、Ghostty、WezTerm、iTerm2、foot、Alacritty）上请求终端区分它们；Termux 以及会把该请求当作光标或样式代码来读取的其他终端永远不会收到它。`DEVX_EXTENDED_KEYS=1`（或 `0`）可强制开启（或关闭）。
 - **`Ctrl+P`** / **`Ctrl+O`** — 在整个聊天中展开或折叠模型的思考（`Ctrl+P`）以及命令和输出（`Ctrl+O`），包括已经在上方的内容。默认全部折叠；智能体工作时和在输入框中都可用。
 - **`Esc`** — 停止当前回答及其启动的内容（正在运行的命令）；你输入的内容留在下一次输入框中。Esc 也会关闭所有列表和卡片。
 - **`Ctrl+C`** — 立即停止当前生成或退出。
@@ -299,7 +338,7 @@ devx
 
 ## 智能体工作时输入
 
-任务进行时，输入框保持在终端底部（带有实时的上下文和费用），智能体的工作内容在它上方滚动。在智能体读文件、运行命令或思考时直接输入并按 Enter：消息会进入队列，智能体会**在下一步**、两次工具调用之间收到它，因此它会继续手头的工作，同时考虑你的补充。在模型撰写最终回答时输入的消息会得到单独的回复，而不是被丢弃。`Ctrl+Enter` 会在消息中换行而不是发送（`Alt+Enter` 和 `Shift+Enter` 同样；在无法区分它们的终端里，在 `Enter` 前输入 `\`）。`Ctrl+Backspace` 删除一个词。`Esc`（或 `Ctrl+C`）会停止智能体，并把你输入的内容放回下一次输入框。这些消息中同样支持 `@file` 引用。当审批卡片或提问显示在屏幕上时，输入行会让开，因此你的 `y` / `n` 不会混进消息里。可在 `~/.devxrc.json` 中用 `"ui": { "typeAhead": false }` 关闭。
+任务期间，提示符边框停留在终端底部（带实时的上下文和费用），智能体的工作在其上方滚动。在智能体读取文件、运行命令或思考时，你可以在其中输入并按 Enter：消息会排队，智能体会**在下一步**，也就是两次工具调用之间收到它，所以它会继续工作，同时考虑你的意见。在模型撰写最终回答时输入的消息，会得到单独的回答，而不是被丢弃。`Ctrl+Enter` 在消息中另起一行而不是发送（`Alt+Enter` 和 `Shift+Enter` 也一样；在无法区分它们的终端上，在 `Enter` 前加 `\`）。`Ctrl+Backspace` 删除一个词。在那里输入 `/`，就会打开所有命令的列表（方向键滚动，`Tab` 补全，`Enter` 执行）：只显示或更改某项设置的命令（`/settings`、`/model`、`/theme`、`/usage`、`/mcp`、`/tasks`、`/help` 等）在智能体工作时也会立即打开，它会等待；会改变对话的命令（`/compact`、`/new`、`/undo`、`/plan` 等）则在智能体完成后执行。上下方向键会调出你之前发送过的行，包括更早聊天里的（保存在 `~/.devx/history.jsonl`）。`↓` 把等待中的消息取回到输入行进行编辑；在空行上按 `Enter` 会**立即**发送它（当前回答会被停止）。方向键在开启 Caps Lock 和 Num Lock 时也能用。以文件路径开头的消息（`/home/me/boot.img flash this`）是消息，不是命令。`Esc`（或 `Ctrl+C`）停止智能体，并把你输入的内容放回下一个提示符。`@file` 提及在这些消息中同样有效。当批准卡片或提问显示在屏幕上时，输入行会让开，所以你的 `y` / `n` 永远不会进入消息。可在 `~/.devxrc.json` 中用 `"ui": { "typeAhead": false }` 关闭。
 
 ---
 
@@ -324,6 +363,8 @@ devx
 
 ## 费用
 
+每次请求都会重新发送整个对话，上下文计量器旁边的数字是这些请求各自费用的总和（缓存的输入更便宜，并按此计价）。上下文计量器本身在空聊天时显示 0，从第一条消息起则显示下一次请求携带的全部内容：包括系统提示和工具模式。
+
 上下文用量条旁边的数字是本会话已花费的金额，并表明 devx 有多确定：
 
 | 显示 | 含义 |
@@ -333,7 +374,7 @@ devx
 | `$0.0123+` | 至少这么多：部分请求没有已知价格，未计入 |
 | `n/a` | 该模型没有已知价格 |
 
-价格按以下顺序查找，第一个了解该模型的来源生效：提供商写入响应的费用（OpenRouter `usage.cost`、LiteLLM）→ 你在 `~/.devxrc.json` 中自己设置的 `prices` → 端点自己的价目表（OpenRouter、LiteLLM）→ models.dev 目录（约 8500 个模型；devx 自带一份快照，`/effort refresh` 下载最新版）。缓存输入 token、缓存写入和长上下文档位像厂商那样单独计价。找不到的模型绝不会显示为免费：只有 `:free` 模型和本地服务器才是零成本。`/usage` 还会列出缓存输入以及有多少请求无法定价。
+价格按以下顺序查找，第一个了解该模型的来源胜出：服务商写入响应的费用（OpenRouter 的 `usage.cost`、LiteLLM）→ 你在 `~/.devxrc.json` 中自己的 `prices` → 端点自身的价格表（OpenRouter、LiteLLM）→ models.dev 目录（约 8500 个模型；devx 附带一份快照，`/effort refresh` 下载最新版）。缓存的输入令牌、缓存写入和长上下文档位，与各厂商一样分别计价。已发出但没有收到回答的请求（用 Ctrl+C 取消、连接丢失、慢速模型的网关超时），服务商通常仍会计费，而重试会再次发送整个对话：这样的请求也会被计入，作为估算值（`~`）。小的辅助任务（聊天标题、`/commit` 消息、`/compact` 摘要）使用模型提供的最轻推理级别运行，其费用也计入总额。找不到的模型绝不会显示为免费：只有 `:free` 模型和本地服务器才不收费。`/usage` 还会列出缓存的输入，以及有多少请求无法计价。
 
 ```json
 {
@@ -378,6 +419,28 @@ devx
 
 ---
 
+## 钩子、限额与权限
+
+- **费用限额。** `/settings` → `Cost limit`（或 `~/.devxrc.json` 中的 `"maxCostPerSession": 5`，美元）。到 80% 时 devx 会发出警告；达到限额时它会停止任务，并在下一条消息前询问是否继续花费（继续只会提高该会话的限额）。
+- **无需询问即可允许。** 在批准卡片上，`Session` 会在你关闭 devx 之前允许某条命令（按程序和子命令，如 `npm test`）或某个 MCP 工具；`Always` 将其保存在 `~/.devxrc.json`（`bashAllowlist`、`allowedTools`）。危险命令、读取机密、链式命令（`&&`、`;`、`|`）和重定向永远不会被记住。`/permissions` 列出它们，`/permissions clear` 清除。
+- **钩子。** 围绕智能体工具运行的命令，在 `~/.devxrc.json` 中设置：
+
+  ```json
+  {
+    "hooks": {
+      "PreToolUse":  [{ "matcher": "bash", "command": "./check-command.sh" }],
+      "PostToolUse": [{ "matcher": "write_file|edit_file", "command": "npx prettier --write ." }]
+    }
+  }
+  ```
+
+  `matcher` 是工具名称的正则表达式（不写或写 `*`：所有工具）。命令通过 stdin 以 JSON 接收调用（`event`、`tool_name`、`tool_input`，`PostToolUse` 还有 `tool_result`），并在环境中获得 `DEVX_HOOK_EVENT` / `DEVX_TOOL_NAME`。`PreToolUse` 钩子的退出码 `2` 会阻止该工具，并把命令写到 stderr 的内容告诉模型；`PostToolUse` 钩子的退出码 `2` 会把该文本追加到结果中。项目的钩子（`.devx.json`）只在受信任的工作区中生效；每个钩子有 10 秒时间。
+- **输出中的机密。** 工具输出中的密钥和令牌（`sk-…`、`ghp_…`、`Bearer …`、`"apiKey": "…"`、私钥）会在模型、聊天和已保存的会话看到之前被替换为 `[hidden secret]`。
+- **一切皆可撤销。** 有 git 时，`/undo` 会把整个文件夹恢复到上一轮之前的样子，包括 shell 命令所做的更改（`.gitignore` 中的文件不会被触碰）。
+- **已批准的计划**保存在 `.devx/plan.md`，并在 24 小时内提供给智能体。超过约 4000 个字符的**项目记忆**，对模型会被截为最新的事实。
+- **MCP。** `/mcp add <name> <command> [args]` 或 `/mcp add <name> <https-url>`（基于 HTTP 的远程服务器；令牌放在 `headers` 中，写成 `"Bearer ${TOKEN}"`），`/mcp remove <name>`，`/mcp import`（从 Claude Code 导入）。
+- **按需加载的 MCP 工具。** 每个 MCP 工具的模式都会随每次请求发送，一个大型服务器（Notion 约有 80 个工具）在你输入任何内容之前就可能耗费 10 万令牌。因此 devx 会立即发送小型服务器的工具，并暂缓大型服务器的：智能体在其 `mcp_search` 工具中看到服务器列表，只查找并加载任务需要的工具（用关键词、工具名称或仅服务器名称调用 `mcp_search`），并从下一步起调用它们。已加载的工具在整个聊天期间保留（恢复的聊天会取回它用过的工具）。哪些服务器等待由大小决定（一起发送的所有工具保持在约 4k 令牌以内）；可在 `mcp.json` 中用 `"lazy": true` 或 `"lazy": false` 针对单个服务器强制设置。
+
 ## 安全模型
 
 `devx` 代表 AI 模型在你的机器上运行命令和编辑文件，因此默认十分保守：
@@ -390,6 +453,8 @@ devx
 - **`fetch_url`** 拒绝 localhost、私有网络和云元数据地址（重定向之后也一样）。设置 `DEVX_ALLOW_PRIVATE_NETWORK=1` 可允许本地文档服务器。
 - **`/serve`** 监听你的本地网络（手机二维码就是这样工作的）。它绝不提供点文件、密钥、`node_modules` 或指向项目之外的符号链接，不发送宽松的 CORS 头，并拒绝发往公共主机名的请求。
 - **静态保存的机密。** `~/.devxrc.json`、`~/.devx/` 和已保存的会话仅创建为你本人可读（`0600` / `0700`）。会话文件包含完整对话，包括智能体读取过的文件内容。
+- **静默连接。** 300 秒内既无回答也无新数据的请求会被放弃并重新发送（手机可能在应用毫无察觉的情况下丢失连接）。`~/.devxrc.json` 中的 `"requestTimeoutSeconds": 600` 可更改时间，`0` 则关闭。需要思考数分钟而不发送任何字节的模型需要更大的值。
+- **已保存聊天中的图片**保存在聊天旁边的文件中（`~/.devx/sessions/<id>.images/`），而不是其 JSON 内部，因此保存聊天依然很快，`/resume` 也能迅速打开。它们会随聊天一起删除。
 - **限制。** `bash` 默认在 120 秒后终止命令（模型可传入 `timeout_seconds`，最大 1800）并关闭 stdin。长输出会保留开头和结尾。`read_file` 每次调用最多返回约 60 000 个字符，并支持 `startLine` / `endLine`。
 
 ---
