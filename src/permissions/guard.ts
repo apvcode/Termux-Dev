@@ -281,7 +281,7 @@ function hasComplexChainingOrRedirection(commandStr?: string): boolean {
 // ───────────────────────── guard ─────────────────────────
 
 const SHELL_TOOLS = new Set(['bash', 'background', 'exec', 'run_command', 'execute_command']);
-const READ_TOOLS = new Set(['read_file', 'view_file', 'read', 'list_dir', 'list_files', 'ls', 'search', 'grep_search', 'grep', 'diagnose_code']);
+const READ_TOOLS = new Set(['read_file', 'view_file', 'read', 'list_dir', 'list_files', 'ls', 'search', 'grep_search', 'grep', 'diagnose_code', 'send_file']);
 const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'make_dir', 'mkdir', 'create_file', 'write_to_file', 'patch']);
 
 function pathArg(args: any): string | undefined {

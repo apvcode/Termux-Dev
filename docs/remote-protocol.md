@@ -76,11 +76,19 @@ Methods: `hello {name, memory}`; `sessions.list {q?}`; `session.open {id? | cwd?
 `session.model {provider,model}`; `session.effort {level}`; `session.rename`; `session.compact`; `session.undo`; `session.info`; `session.tasks`;
 `session.stopTask`; `session.trust`; `session.snapshot`; `session.expand {line}`; `commands.list`; `perm.answer {s,id,answer}`;
 `ask.answer {s,id,answers}`; `plan.decide {s,id,choice}`; `dirs.list {path?}`; `providers.list`; `models.list {provider?}`;
-`provider.add`; `provider.key`; `provider.remove`; `upload.begin/chunk/end` (base64 chunks of up to 32 KB; 25 MB at most).
+`provider.add`; `provider.key`; `provider.remove`; `upload.begin/chunk/end` (base64 chunks of up to 32 KB; 25 MB at most);
+`file.get {s,id,offset,len}` (a piece of a picture or file of the chat, see below).
 
 Session events (`e.e`): `turn_start turn_end user text reasoning tool_gen tool_start tool_end usage state title queued queued_taken
-perm perm_done ask ask_done plan plan_done compact undone reset note system error reconnecting reconnected gone`.
+perm perm_done ask ask_done plan plan_done compact undone reset note system error reconnecting reconnected gone media`.
 `text`/`reasoning` carry deltas `d`. `n` rises by one per event; a gap means a lost packet: ask for `session.snapshot` again.
+
+## Pictures and files from the computer
+When the agent looks at a picture (`read_file` on an image) or hands over a file (`send_file`, which exists only in a chat that is open on a phone),
+the host emits `{"e":"media","id","name","mime","size","by":"look"|"send"}` and the chat items carry `{"k":"media",...}` right after the tool
+(so a chat opened later shows them too). The path on the computer is never sent. The phone fetches the bytes with
+`file.get {s,id,offset,len}` (len at most 48 KB), answered `{id,name,mime,size,offset,data}` with `data` in base64, until `offset+length` reaches `size`.
+Only ids that this chat's tools showed or sent are served; files are at most 25 MB.
 
 ## What the phone shares
 

@@ -1,5 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { mediaFromResult, publicMedia, readMediaChunk, MediaRef } from './media.js';
+import { setPhoneAttached } from '../tools/send-file.js';
 import crypto from 'crypto';
 import { Agent, getActionDescription } from '../core/loop.js';
 import { History } from '../core/history.js';
@@ -103,7 +105,18 @@ export class SessionRuntime {
 
   // ───────────────────────── start ─────────────────────────
 
+  /** The pictures and files of this chat that the phone may fetch (by id), found from the tool results. */
+  private media = new Map<string, MediaRef>();
+
+  /** A piece of a picture or file of this chat, for the phone. Only what this chat's tools showed or sent can be asked for. */
+  async fileChunk(id: string, offset: number, len: number) {
+    const ref = this.media.get(id);
+    if (!ref) throw new Error('That file is not part of this chat.');
+    return readMediaChunk(ref, offset, len);
+  }
+
   async init(): Promise<void> {
+    setPhoneAttached(true);
     const loaded = await loadRemoteConfig(this.opts.cwd);
     this.config = loaded.config;
     this.trusted = loaded.trusted;
@@ -151,6 +164,7 @@ export class SessionRuntime {
 
   private async systemPrompt(): Promise<string> {
     let prompt = await buildSystemPrompt(this.planMode);
+    prompt += `\n\nPHONE CHAT\nThis chat is open on the person's phone. When they ask you to attach, send or show them a file, a photo, a screenshot, a document or an archive, call send_file with its path: it shows on their phone as a card they can open, zoom and save. Pictures you look at with read_file also show on their phone.`;
     if (this.profile.name) {
       prompt += `\n\nTHE PERSON\nYou are talking with ${this.profile.name} through the devx app on their phone. Address them by name only when it is natural.`;
       if (this.profile.memory) {
@@ -278,7 +292,7 @@ export class SessionRuntime {
 
   /** The conversation so far, shaped for the phone, with what is going on right now. */
   snapshot(limit = 120): RtEvent {
-    const items = snapshotItems(this.history.getMessages());
+    const items = snapshotItems(this.history.getMessages(), this.opts.cwd, (ref) => this.media.set(ref.id, ref));
     const ordered = items;
     const more = Math.max(0, ordered.length - limit);
     return {
@@ -475,6 +489,11 @@ export class SessionRuntime {
           case 'tool_end':
             this.live.tools.delete(event.id);
             this.emit({ e: 'tool_end', id: event.id, name: event.name, result: clip(event.result, TOOL_RESULT_CAP), size: event.result.length });
+            {
+              // A picture the agent looked at, or a file it sent: the phone shows a card and fetches the bytes when it wants them.
+              const ref = mediaFromResult(event.name, event.result, this.opts.cwd);
+              if (ref) { this.media.set(ref.id, ref); this.emit({ e: 'media', ...publicMedia(ref) }); }
+            }
             break;
           case 'usage':
             this.onUsage(event.usage);
@@ -875,7 +894,7 @@ function isTextual(mime: string, name: string): boolean {
 }
 
 /** The chat as the phone draws it: user messages, thoughts, answers and tools with what they returned. Also used for a chat that runs in a terminal. */
-export function snapshotItems(messages: Message[]): any[] {
+export function snapshotItems(messages: Message[], cwd?: string, onMedia?: (ref: MediaRef) => void): any[] {
   const items: any[] = [];
   const toolsById = new Map<string, any>();
   for (const m of messages) {
@@ -896,6 +915,9 @@ export function snapshotItems(messages: Message[]): any[] {
     } else if (m.role === 'tool' && m.tool_call_id) {
       const t = toolsById.get(m.tool_call_id);
       if (t) t.result = clip(m.content, TOOL_RESULT_CAP);
+      // The chat of a phone shows the pictures that were looked at and the files that were sent, right after the tool.
+      const ref = cwd ? mediaFromResult(m.name ?? t?.name ?? '', m.content, cwd) : null;
+      if (ref) { onMedia?.(ref); items.push({ k: 'media', ...publicMedia(ref) }); }
     }
   }
   return items;

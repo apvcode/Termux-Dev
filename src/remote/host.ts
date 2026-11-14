@@ -397,6 +397,7 @@ export class RemoteHost {
       case 'session.trust': return s.worker.call('trust');
       case 'session.mcp': return s.worker.call('mcp', { args: String(p.args ?? '') }, 120_000);
       case 'session.reset': { const r = await s.worker.call('reset'); return r; }
+      case 'file.get': return s.worker.call('file', { id: String(p.id ?? ''), offset: Number(p.offset ?? 0), len: Number(p.len ?? 32768) });
       case 'session.snapshot': return { ...(await s.worker.call('snapshot', { limit: p.limit })), seq: s.seq };
       case 'commands.list': return s.worker.call('commands');
       case 'session.expand': return s.worker.call('expand', { line: String(p.line ?? '') });

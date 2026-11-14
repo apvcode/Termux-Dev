@@ -13,12 +13,13 @@ import { servePreviewTool } from './server.js';
 import { mcpManageTool } from './mcp.js';
 import { createMcpSearchTool } from './mcp-search.js';
 import { searchChatsTool } from './chats.js';
+import { sendFileTool, isPhoneAttached } from './send-file.js';
 import { Tool, ToolSource } from '../core/types.js';
 
 import { MCPManager } from '../mcp/manager.js';
 
 export function getTools(planMode: boolean): Tool[] {
-  const baseTools = [readFileTool, listDirTool, searchTool, askQuestionsTool, webSearchTool, fetchUrlTool, saveMemoryTool, planReadyTool, todoListTool, searchChatsTool];
+  const baseTools = [readFileTool, listDirTool, searchTool, askQuestionsTool, webSearchTool, fetchUrlTool, saveMemoryTool, planReadyTool, todoListTool, searchChatsTool, ...(isPhoneAttached() ? [sendFileTool] : [])];
   const manager = MCPManager.getInstance();
   // The tools of the big servers are not sent until the agent loads them; `mcp_search` is how it does.
   const mcpTools = [...(manager.hasLazy() ? [createMcpSearchTool(manager)] : []), ...manager.getTools()];
