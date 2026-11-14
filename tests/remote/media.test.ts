@@ -62,3 +62,14 @@ describe('media for the phone', () => {
     expect(snapshotItems([{ role: 'tool', tool_call_id: 'x', name: 'read_file', content: '[Image shot.png (image/png, 98 KB) is attached to this result: look at it]' } as any]).length).toBe(0);
   });
 });
+
+describe('pictures named by path in an answer', () => {
+  it('registers a real file and refuses folders, missing and empty files', async () => {
+    const { mediaForPath } = await import('../../src/remote/media.js');
+    expect(mediaForPath('shot.png', dir)?.mime).toBe('image/png');
+    expect(mediaForPath('nope.png', dir)).toBeNull();
+    expect(mediaForPath('.', dir)).toBeNull();
+    fs.writeFileSync(path.join(dir, 'empty.png'), '');
+    expect(mediaForPath('empty.png', dir)).toBeNull();
+  });
+});

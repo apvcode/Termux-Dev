@@ -77,7 +77,7 @@ Methods: `hello {name, memory}`; `sessions.list {q?}`; `session.open {id? | cwd?
 `session.stopTask`; `session.trust`; `session.snapshot`; `session.expand {line}`; `commands.list`; `perm.answer {s,id,answer}`;
 `ask.answer {s,id,answers}`; `plan.decide {s,id,choice}`; `dirs.list {path?}`; `providers.list`; `models.list {provider?}`;
 `provider.add`; `provider.key`; `provider.remove`; `upload.begin/chunk/end` (base64 chunks of up to 32 KB; 25 MB at most);
-`file.get {s,id,offset,len}` (a piece of a picture or file of the chat, see below).
+`file.get {s,id,offset,len}` (a piece of a picture or file of the chat, see below); `media.resolve {s,paths}`.
 
 Session events (`e.e`): `turn_start turn_end user text reasoning tool_gen tool_start tool_end usage state title queued queued_taken
 perm perm_done ask ask_done plan plan_done compact undone reset note system error reconnecting reconnected gone media`.
@@ -88,7 +88,7 @@ When the agent looks at a picture (`read_file` on an image) or hands over a file
 the host emits `{"e":"media","id","name","mime","size","by":"look"|"send"}` and the chat items carry `{"k":"media",...}` right after the tool
 (so a chat opened later shows them too). The path on the computer is never sent. The phone fetches the bytes with
 `file.get {s,id,offset,len}` (len at most 48 KB), answered `{id,name,mime,size,offset,data}` with `data` in base64, until `offset+length` reaches `size`.
-Only ids that this chat's tools showed or sent are served; files are at most 25 MB.
+`media.resolve {s,paths:[...]}` answers `{items:[{path,id,name,mime,size}|{path,error}]}`: it makes pictures that the agent named by path in an answer (`devx-image` blocks with `pc:` sources) fetchable. Only ids that this chat's tools showed or sent, or that were resolved this way, are served; files are at most 25 MB.
 
 ## What the phone shares
 

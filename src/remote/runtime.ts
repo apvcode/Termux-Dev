@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { mediaFromResult, publicMedia, readMediaChunk, MediaRef } from './media.js';
+import { mediaFromResult, mediaForPath, publicMedia, readMediaChunk, MediaRef } from './media.js';
 import { setPhoneAttached } from '../tools/send-file.js';
 import crypto from 'crypto';
 import { Agent, getActionDescription } from '../core/loop.js';
@@ -108,6 +108,16 @@ export class SessionRuntime {
   /** The pictures and files of this chat that the phone may fetch (by id), found from the tool results. */
   private media = new Map<string, MediaRef>();
 
+  /** The phone shows a picture that the agent named by its path in an answer: it is registered, and the phone may then fetch it. */
+  resolveMedia(paths: string[]): Array<{ path: string; error?: string } & Partial<ReturnType<typeof publicMedia>>> {
+    return paths.slice(0, 12).map((p) => {
+      const ref = mediaForPath(String(p), this.opts.cwd);
+      if (!ref) return { path: String(p), error: 'not a file that can be shown' };
+      this.media.set(ref.id, ref);
+      return { path: String(p), ...publicMedia(ref) };
+    });
+  }
+
   /** A piece of a picture or file of this chat, for the phone. Only what this chat's tools showed or sent can be asked for. */
   async fileChunk(id: string, offset: number, len: number) {
     const ref = this.media.get(id);
@@ -164,7 +174,7 @@ export class SessionRuntime {
 
   private async systemPrompt(): Promise<string> {
     let prompt = await buildSystemPrompt(this.planMode);
-    prompt += `\n\nPHONE CHAT\nThis chat is open on the person's phone. When they ask you to attach, send or show them a file, a photo, a screenshot, a document or an archive, call send_file with its path: it shows on their phone as a card they can open, zoom and save. Pictures you look at with read_file also show on their phone.`;
+    prompt += `\n\nPHONE CHAT\nThis chat is open on the person's phone. When they ask you to attach, send or show them a file, a photo, a screenshot, a document or an archive, call send_file with its path: it shows on their phone as a card they can open, zoom and save. Pictures you look at with read_file also show on their phone. In your answers you can also put, as fenced blocks holding one JSON object: a devx-map (a map with places and a route: {\"markers\":[{\"lat\":..,\"lon\":..,\"label\":\"A\"}],\"route\":{\"from\":{..},\"to\":{..},\"mode\":\"driving\"}}), a devx-image (a picture of this computer shown in the chat: {\"src\":\"pc:/path/to/image.png\",\"caption\":\"..\"}, or {\"images\":[...]}), a devx-chart ({\"kind\":\"bar|line|pie\",\"labels\":[..],\"series\":[{\"name\":\"..\",\"values\":[..]}]}), an svg block (a diagram or drawing), and devx-reply (a JSON array of 2 to 4 short answers the person can tap, put at the end when you ask a question with clear choices). Use them where they say it better than words.`;
     if (this.profile.name) {
       prompt += `\n\nTHE PERSON\nYou are talking with ${this.profile.name} through the devx app on their phone. Address them by name only when it is natural.`;
       if (this.profile.memory) {

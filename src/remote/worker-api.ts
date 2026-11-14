@@ -19,6 +19,7 @@ export function createWorkerApi(io: {
     if (!rt) throw new Error('not started');
     switch (m) {
       case 'snapshot': return rt.snapshot(p?.limit);
+      case 'mediaResolve': return { items: rt.resolveMedia(Array.isArray(p.paths) ? p.paths : []) };
       case 'file': return rt.fileChunk(String(p.id), Number(p.offset ?? 0), Number(p.len ?? 32768));
       case 'state': return rt.state();
       case 'send': return rt.send(p.text, p.files ?? []);

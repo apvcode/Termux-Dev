@@ -65,6 +65,16 @@ export function mediaFromResult(toolName: string, result: string, cwd: string): 
   return { id: mediaId(abs, size), name: path.basename(abs), mime: mime ?? mimeFor(abs), size, path: abs, by };
 }
 
+/** A file by its path (an agent's picture in an answer): the same reference as a tool result gives, or null when it is not a file that can go. */
+export function mediaForPath(file: string, cwd: string, by: MediaRef['by'] = 'look'): MediaRef | null {
+  const abs = path.resolve(cwd, file.trim().replace(/^~(?=\/|$)/, process.env.HOME ?? '~'));
+  try {
+    const st = fs.statSync(abs);
+    if (!st.isFile() || st.size === 0 || st.size > MAX_MEDIA_BYTES) return null;
+    return { id: mediaId(abs, st.size), name: path.basename(abs), mime: mimeFor(abs), size: st.size, path: abs, by };
+  } catch { return null; }
+}
+
 /** What the phone is told about a file (not where it is on the computer). */
 export function publicMedia(m: MediaRef) {
   return { id: m.id, name: m.name, mime: m.mime, size: m.size, by: m.by };
