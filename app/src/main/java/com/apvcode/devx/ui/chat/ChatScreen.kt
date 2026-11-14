@@ -1042,7 +1042,9 @@ private fun Composer(
                     }
                     .glass(RoundedCornerShape(radius))
                     .border(1.dp, DevxColors.TextPrimary.copy(alpha = 0.16f * edge), RoundedCornerShape(radius))
-                    .animateContentSize(spring(dampingRatio = 0.85f, stiffness = 420f)),
+                    // A new line of text makes the pill taller. It grows quickly and without a bounce, anchored at the bottom where the
+                    // text sits: a soft bouncing spring anchored at the top made the line being typed jump up and down.
+                    .animateContentSize(tween(110, easing = androidx.compose.animation.core.FastOutSlowInEasing), alignment = Alignment.BottomStart),
             ) {
             AnimatedVisibility(
                 visible = hasMedia,
