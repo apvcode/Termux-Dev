@@ -25,6 +25,9 @@ sealed interface Block {
     data class Image(val json: String) : Block
     data class Chart(val json: String) : Block
 
+    /** Other pictures from JSON in a fenced block: weather, timer, checklist, table, contact, link; or a mermaid diagram (its code). */
+    data class Rich(val kind: String, val json: String) : Block
+
     /** Short answers the person can tap (a JSON array of strings): the tap sends the words as their message. */
     data class Replies(val json: String) : Block
 

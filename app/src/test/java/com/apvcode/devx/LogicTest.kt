@@ -93,6 +93,13 @@ class ParseBlocksTest {
         assertEquals(listOf("Text", "Building"), parseBlocks("x\n```devx-map\n{\"mark").map { if (it is Block.Building) "Building" else it::class.simpleName })
     }
 
+    @Test fun moreBlocksAreKnownByTheirTags() {
+        val text = "a\n```devx-weather\n{\"lat\":1,\"lon\":2}\n```\nb\n```mermaid\ngraph TD; A-->B\n```\n```devx-table\n{}\n```\n```devx-link\n{\"url\":\"https://x.org\"}\n```"
+        val rich = parseBlocks(text).filterIsInstance<Block.Rich>()
+        assertEquals(listOf("weather", "mermaid", "table", "link"), rich.map { it.kind })
+        assertEquals("graph TD; A-->B", rich[1].json)
+    }
+
     @Test fun quickRepliesAreABlockAtTheEnd() {
         val b = parseBlocks("Shall I book it?\n```devx-reply\n[\"Yes\",\"No\"]\n```")
         assertEquals(listOf("Text", "Replies"), b.map { it::class.simpleName })

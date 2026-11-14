@@ -23,6 +23,7 @@ import com.apvcode.devx.ui.chat.ImageBlock
 import com.apvcode.devx.ui.chat.LocalImageLoader
 import com.apvcode.devx.ui.chat.MapBlock
 import com.apvcode.devx.ui.chat.RepliesBlock
+import com.apvcode.devx.ui.chat.RichBlock
 import com.apvcode.devx.ui.chat.SvgView
 import com.apvcode.devx.ui.markdown.MarkdownText
 import kotlinx.coroutines.launch
@@ -57,6 +58,7 @@ fun RemoteAssistantText(text: String, animate: Boolean, session: RemoteSession) 
                     is Block.Image -> ImageBlock(block.json)
                     is Block.Chart -> ChartBlock(block.json)
                     is Block.Replies -> RepliesBlock(block.json, send)
+                    is Block.Rich -> RichBlock(block)
                     Block.Building -> BuildingCard()
                     // Files and approvals of the chat on the phone do not come from a computer.
                     is Block.File, is Block.Approval -> Unit

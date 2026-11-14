@@ -7,6 +7,11 @@ import com.apvcode.devx.model.Block
  * pictures are fenced blocks (` ```devx-card ` and ` ```svg `). While the answer is still arriving a
  * card whose closing fence has not come yet is shown as "being built".
  */
+private val RICH_TAGS = mapOf(
+    "devx-weather" to "weather", "devx-timer" to "timer", "devx-checklist" to "checklist", "devx-table" to "table",
+    "devx-contact" to "contact", "devx-link" to "link", "mermaid" to "mermaid", "devx-mermaid" to "mermaid",
+)
+
 fun parseBlocks(text: String): List<Block> {
     val blocks = ArrayList<Block>()
     val prose = StringBuilder()
@@ -44,6 +49,7 @@ fun parseBlocks(text: String): List<Block> {
                 info == "devx-map" -> if (closed) Block.Map(content) else Block.Building
                 info == "devx-image" -> if (closed) Block.Image(content) else Block.Building
                 info == "devx-chart" -> if (closed) Block.Chart(content) else Block.Building
+                info in RICH_TAGS -> if (closed) Block.Rich(RICH_TAGS.getValue(info), content) else Block.Building
                 info == "devx-reply" -> if (closed) Block.Replies(content) else Block.Building
                 info == "devx-file" && closed -> Block.File(content.trim())
                 info == "devx-file" -> Block.Building

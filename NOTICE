@@ -32,3 +32,7 @@ Copyright Anthropic, PBC. Taken from Anthropic's public skills; the full license
 LICENSE.txt of each skill's folder. Changed: mentions of the original assistant's name were removed from
 the files that carried them, and in docx the paragraphs about the original assistant's own document tools (each
 changed file says so at its end); nothing else was changed.
+
+Mermaid 10.9.3 (https://github.com/mermaid-js/mermaid) - MIT License
+Copyright (c) 2014 - 2022 Knut Sveidqvist. Bundled as app/src/main/assets/mermaid.min.js, unchanged; it draws the diagrams
+that the assistant writes in a mermaid block, inside an isolated browser with no network.

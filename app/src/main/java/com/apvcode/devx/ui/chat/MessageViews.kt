@@ -329,6 +329,7 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
                 is Block.Image -> RevealBlock(animate) { ImageBlock(block.json) }
                 is Block.Chart -> RevealBlock(animate) { ChartBlock(block.json) }
                 is Block.Replies -> RevealBlock(animate) { RepliesBlock(block.json, host.onSend) }
+                is Block.Rich -> RevealBlock(animate) { RichBlock(block) }
                 is Block.Approval -> ApprovalCard(block.command)
                 Block.Building -> BuildingCard()
             }
