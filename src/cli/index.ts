@@ -1149,8 +1149,13 @@ export async function main() {
       history.updateSystemPrompt(await buildSystemPrompt(planMode));
       return true;
     }
+    if (cmd === '/phones') {
+      const { runPhones } = await import('../remote/phones.js');
+      await runPhones();
+      return true;
+    }
     if (cmd === '/help') {
-      note('/settings - Configure permissions (Auto-Approve / Ask every time)\n/resume - Resume previous chat session\n/session del - Select and delete saved sessions\n/new - Start a new chat session (or /new <prompt>)\n/model - Switch model for current provider\n/effort - Set the reasoning effort (only levels the model supports)\n/provider - Switch AI provider (with saved keys)\n/config - View configuration\n/plan - Switch to plan mode\n/agent - Switch to agent mode\n/clear - Clear context and start a new session\n/exit - Exit', 'Commands');
+      note('/phones - Phones paired with devx Remote (remove one)\n/settings - Configure permissions (Auto-Approve / Ask every time)\n/resume - Resume previous chat session\n/session del - Select and delete saved sessions\n/new - Start a new chat session (or /new <prompt>)\n/model - Switch model for current provider\n/effort - Set the reasoning effort (only levels the model supports)\n/provider - Switch AI provider (with saved keys)\n/config - View configuration\n/plan - Switch to plan mode\n/agent - Switch to agent mode\n/clear - Clear context and start a new session\n/exit - Exit', 'Commands');
       return true;
     }
     if (cmd === '/theme' || cmd === '/themes') {

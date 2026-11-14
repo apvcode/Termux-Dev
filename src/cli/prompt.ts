@@ -34,6 +34,7 @@ export const SLASH_COMMANDS = [
   { cmd: '/plan', desc: 'Switch to PLAN mode (architect & planner)' },
   { cmd: '/agent', desc: 'Switch to AGENT mode (coder & executor)' },
   { cmd: '/image', desc: 'Paste the image from the clipboard (same as Ctrl+V or Alt+V)' },
+  { cmd: '/phones', desc: 'Phones paired with devx Remote: remove one so it cannot connect' },
   { cmd: '/serve', desc: 'Start local web server for web/game preview' },
   { cmd: '/tasks', desc: 'Background tasks: list, /tasks <id> output, /tasks stop <id|all>' },
   { cmd: '/copy', desc: 'Copy the last answer of the AI to the clipboard' },

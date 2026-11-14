@@ -35,7 +35,7 @@ export const KNOWN_COMMANDS = [
   '/settings', '/update', '/model', '/provider', '/providers',
   '/plan', '/agent', '/image', '/serve', '/memory', '/permissions', '/copy', '/rename', '/title', '/rewind', '/undo',
   '/diff', '/commit', '/status', '/compact', '/init', '/doctor',
-  '/config', '/clear', '/exit', '/quit', '/help', '/effort', '/tasks', '/bg', '/jobs',
+  '/config', '/clear', '/exit', '/quit', '/help', '/effort', '/tasks', '/bg', '/jobs', '/phones',
 ];
 
 /**
@@ -45,5 +45,5 @@ export const KNOWN_COMMANDS = [
  */
 export const LIVE_COMMANDS = new Set([
   '/settings', '/help', '/theme', '/themes', '/tasks', '/bg', '/jobs', '/doctor', '/status',
-  '/permissions', '/usage', '/mcp', '/config', '/model', '/effort', '/provider', '/providers',
+  '/permissions', '/usage', '/mcp', '/config', '/model', '/effort', '/provider', '/providers', '/phones',
 ]);
