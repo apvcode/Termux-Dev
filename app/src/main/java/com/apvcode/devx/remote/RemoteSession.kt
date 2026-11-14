@@ -31,6 +31,8 @@ sealed class RItem {
     class Tool(override val key: Long, val id: String, val name: String, val desc: String, val args: String, result: String?) : RItem() {
         var result by mutableStateOf(result)
     }
+    /** A picture the agent looked at, or a file it sent: drawn as a card; the bytes are fetched from the computer when wanted. */
+    class Media(override val key: Long, val id: String, val name: String, val mime: String, val size: Long, val sent: Boolean) : RItem()
     class Compact(override val key: Long, val text: String) : RItem()
     class Notice(override val key: Long, val text: String, val error: Boolean = false) : RItem()
     class Summary(override val key: Long, val ms: Long, val tools: Int, val cost: Double, val failed: Boolean) : RItem()
@@ -180,6 +182,7 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
         "assistant" -> RItem.Assistant(key(), o.optString("text"))
         "thought" -> RItem.Thought(key(), o.optString("text"), o.optString("sec").takeIf { it.isNotEmpty() }, false)
         "tool" -> RItem.Tool(key(), o.optString("id"), o.optString("name"), o.optString("desc"), o.optString("args"), if (o.isNull("result")) null else o.optString("result"))
+        "media" -> RItem.Media(key(), o.optString("id"), o.optString("name"), o.optString("mime"), o.optLong("size"), o.optString("by") == "send")
         "compact" -> RItem.Compact(key(), o.optString("text"))
         else -> null
     }
@@ -226,6 +229,7 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
                 items += RItem.Tool(key(), e.optString("id"), e.optString("name"), e.optString("desc"), e.optString("args"), null)
             }
             "tool_end" -> items.lastOrNull { it is RItem.Tool && it.id == e.optString("id") }?.let { (it as RItem.Tool).result = e.optString("result") }
+            "media" -> items += live(RItem.Media(key(), e.optString("id"), e.optString("name"), e.optString("mime"), e.optLong("size"), e.optString("by") == "send"))
             "user" -> {
                 liveText = false
                 val u = live(RItem.User(key(), e.optString("text"), e.optJSONArray("files").strings(), e.optInt("images")))

@@ -97,7 +97,7 @@ import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
 
 /** A service that can be added with a tap: the address is known, only the token (if any) is missing. */
-private class McpPreset(val key: String, val name: String, val url: String, val tokenLabel: Int?, val tokenRequired: Boolean, val about: Int, val help: String? = null)
+private class McpPreset(val key: String, val name: String, val url: String, val tokenLabel: Int?, val tokenRequired: Boolean, val about: Int, val help: String? = null, val keyHeader: String? = null)
 
 private val PRESETS = listOf(
     McpPreset("github", "GitHub", "https://api.github.com", R.string.mcp_token_github, true, R.string.mcp_about_github, "https://github.com/settings/tokens/new?scopes=repo,read:org,read:user&description=Devx"),
@@ -106,6 +106,7 @@ private val PRESETS = listOf(
     McpPreset("ms", "Microsoft Learn", "https://learn.microsoft.com/api/mcp", null, false, R.string.mcp_about_ms),
     McpPreset("cf", "Cloudflare Docs", "https://docs.mcp.cloudflare.com/mcp", null, false, R.string.mcp_about_cf),
     McpPreset("svelte", "Svelte", "https://mcp.svelte.dev/mcp", null, false, R.string.mcp_about_svelte),
+    McpPreset("gmaps", "Google Maps", "https://mapstools.googleapis.com/mcp", R.string.mcp_token_gmaps, true, R.string.mcp_about_gmaps, "https://console.cloud.google.com/apis/credentials", keyHeader = "X-Goog-Api-Key"),
     McpPreset("astro", "Astro Docs", "https://mcp.docs.astro.build/mcp", null, false, R.string.mcp_about_astro),
 )
 
@@ -121,6 +122,7 @@ private fun iconOf(keyOrUrl: String): ImageVector {
         s == "cf" || s.contains("cloudflare") -> DevxIcons.Cloud
         s == "svelte" || s.contains("svelte") -> DevxIcons.Cpu
         s == "astro" || s.contains("astro") -> DevxIcons.Sitemap
+        s == "gmaps" || s.contains("mapstools") -> DevxIcons.Sitemap
         else -> DevxIcons.Mcp
     }
 }
@@ -184,7 +186,9 @@ fun McpScreen(vm: ChatViewModel, onBack: () -> Unit) {
                     onOther = { form.preset = null; form.name = ""; form.url = ""; page = McpPage.Form },
                 )
                 McpPage.Form -> FormPage(form, taken = { store.existing(it) != null }, onBack = { page = McpPage.Pick }, onConnect = {
-                    val server = store.add(form.name, form.url, form.token, form.headers)
+                    // A key that the service wants in a header of its own (Google Maps): it goes there, not as a bearer token.
+                    val keyHeader = form.preset?.keyHeader
+                    val server = if (keyHeader != null) store.add(form.name, form.url, "", "$keyHeader: ${form.token.trim()}") else store.add(form.name, form.url, form.token, form.headers)
                     page = McpPage.Connecting(server)
                 })
                 is McpPage.Connecting -> ConnectingPage(

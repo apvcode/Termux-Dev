@@ -46,6 +46,10 @@ object Prefs {
 
     /** Lets the assistant act on the phone: alarms, timers, reminders, apps, contacts, calendar, music. On until switched off. */
     var phoneTools by mutableStateOf(true)
+    var twoGis by mutableStateOf(true)
+    var folderUri by mutableStateOf<String?>(null)
+    var galleryTools by mutableStateOf(true)
+    var notificationTools by mutableStateOf(true)
         private set
 
     /** The voice assistant does not read its answers aloud. */
@@ -87,6 +91,10 @@ object Prefs {
         workTools = p.getBoolean("workTools", true)
         terminal = p.getBoolean("terminal", true)
         phoneTools = p.getBoolean("phoneTools", true)
+        twoGis = p.getBoolean("twoGis", true)
+        folderUri = p.getString("folderUri", null)
+        galleryTools = p.getBoolean("galleryTools", true)
+        notificationTools = p.getBoolean("notificationTools", true)
         assistantMuted = p.getBoolean("assistantMuted", false)
         voiceHandsFree = p.getBoolean("voiceHandsFree", true)
         memory = p.getBoolean("memory", true)
@@ -140,6 +148,26 @@ object Prefs {
     fun savePhoneTools(value: Boolean) {
         phoneTools = value
         store?.edit()?.putBoolean("phoneTools", value)?.apply()
+    }
+
+    fun saveGalleryTools(value: Boolean) {
+        galleryTools = value
+        store?.edit()?.putBoolean("galleryTools", value)?.apply()
+    }
+
+    fun saveNotificationTools(value: Boolean) {
+        notificationTools = value
+        store?.edit()?.putBoolean("notificationTools", value)?.apply()
+    }
+
+    fun saveFolder(uri: String?) {
+        folderUri = uri
+        store?.edit()?.apply { if (uri == null) remove("folderUri") else putString("folderUri", uri) }?.apply()
+    }
+
+    fun saveTwoGis(value: Boolean) {
+        twoGis = value
+        store?.edit()?.putBoolean("twoGis", value)?.apply()
     }
 
     fun saveThinkingGlow(value: Boolean) {

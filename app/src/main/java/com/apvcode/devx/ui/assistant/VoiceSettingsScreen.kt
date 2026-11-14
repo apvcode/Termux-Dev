@@ -49,8 +49,23 @@ fun VoiceSettingsScreen(onBack: () -> Unit) {
     val recognizer = AssistantStatus.recognizerThere(context)
     val speech = AssistantStatus.speechEngineThere(context)
     val phone = Prefs.phoneTools
+    val canWrite = Settings.System.canWrite(context)
+    val photosPermission = if (android.os.Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
+    val photosAllowed = com.apvcode.devx.data.PermissionBridge.has(context, photosPermission)
+    val locationAllowed = com.apvcode.devx.data.PermissionBridge.has(context, Manifest.permission.ACCESS_FINE_LOCATION) || com.apvcode.devx.data.PermissionBridge.has(context, Manifest.permission.ACCESS_COARSE_LOCATION)
+    val notificationsOn = AssistantStatus.notificationAccess(context)
+    val dndAllowed = context.getSystemService(android.app.NotificationManager::class.java).isNotificationPolicyAccessGranted
 
     val chooseAssistant = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { tick++ }
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+            Prefs.saveFolder(uri.toString())
+        }
+        tick++
+    }
+    val askPhotos = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
+    val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { tick++ }
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         tick++
         // Refused for good: the system shows no question any more, only the app's own page of settings.
@@ -108,6 +123,65 @@ fun VoiceSettingsScreen(onBack: () -> Unit) {
                     onClick = { open(Intent("com.android.settings.TTS_SETTINGS")) },
                 )
                 SettingsDivider()
+                StatusRow(
+                    title = stringResource(R.string.va_brightness),
+                    hint = if (canWrite) null else stringResource(R.string.va_brightness_no),
+                    ok = canWrite,
+                    value = stringResource(if (canWrite) R.string.va_allowed else R.string.va_not_allowed),
+                    onClick = { open(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + context.packageName))) },
+                )
+                SettingsDivider()
+                StatusRow(
+                    title = stringResource(R.string.va_dnd),
+                    hint = if (dndAllowed) null else stringResource(R.string.va_dnd_no),
+                    ok = dndAllowed,
+                    value = stringResource(if (dndAllowed) R.string.va_allowed else R.string.va_not_allowed),
+                    onClick = { open(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) },
+                )
+                SettingsDivider()
+                StatusRow(
+                    title = stringResource(R.string.va_location),
+                    hint = if (locationAllowed) null else stringResource(R.string.va_location_no),
+                    ok = locationAllowed,
+                    value = stringResource(if (locationAllowed) R.string.va_allowed else R.string.va_not_allowed),
+                    onClick = {
+                        if (locationAllowed) open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
+                        else askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                    },
+                )
+                SettingsDivider()
+                StatusRow(
+                    title = stringResource(R.string.va_photos),
+                    hint = if (photosAllowed) null else stringResource(R.string.va_photos_no),
+                    ok = photosAllowed,
+                    value = stringResource(if (photosAllowed) R.string.va_allowed else R.string.va_not_allowed),
+                    onClick = {
+                        if (photosAllowed) open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
+                        else askPhotos.launch(photosPermission)
+                    },
+                )
+                SettingsDivider()
+                StatusRow(
+                    title = stringResource(R.string.va_notifications),
+                    hint = if (notificationsOn) null else stringResource(R.string.va_notifications_no),
+                    ok = notificationsOn,
+                    value = stringResource(if (notificationsOn) R.string.va_allowed else R.string.va_not_allowed),
+                    onClick = { open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                )
+                SettingsDivider()
+                val folderName = Prefs.folderUri?.let { androidx.documentfile.provider.DocumentFile.fromTreeUri(context, Uri.parse(it))?.name }
+                StatusRow(
+                    title = stringResource(R.string.va_folder),
+                    hint = if (folderName != null) stringResource(R.string.va_folder_yes) else stringResource(R.string.va_folder_no),
+                    ok = folderName != null,
+                    value = folderName ?: stringResource(R.string.va_not_chosen),
+                    onClick = { pickFolder.launch(null) },
+                )
+                if (folderName != null) {
+                    SettingsDivider()
+                    SettingsRow(title = stringResource(R.string.va_folder_forget), onClick = { Prefs.saveFolder(null); tick++ })
+                }
+                SettingsDivider()
                 SettingsSwitchRow(
                     title = stringResource(R.string.va_phone),
                     subtitle = if (phone) null else stringResource(R.string.va_phone_no),
@@ -133,6 +207,20 @@ fun VoiceSettingsScreen(onBack: () -> Unit) {
                     subtitle = stringResource(R.string.va_speak_hint),
                     checked = !Prefs.assistantMuted,
                     onCheckedChange = { Prefs.saveAssistantMuted(!it) },
+                )
+                SettingsDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.settings_gallery),
+                    subtitle = stringResource(R.string.settings_gallery_hint),
+                    checked = Prefs.galleryTools,
+                    onCheckedChange = { Prefs.saveGalleryTools(it) },
+                )
+                SettingsDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.settings_notif_read),
+                    subtitle = stringResource(R.string.settings_notif_read_hint),
+                    checked = Prefs.notificationTools,
+                    onCheckedChange = { Prefs.saveNotificationTools(it) },
                 )
                 SettingsDivider()
                 SettingsSwitchRow(
@@ -165,6 +253,12 @@ fun VoiceSettingsScreen(onBack: () -> Unit) {
                 SettingsRow(title = stringResource(R.string.va_can_calendar), subtitle = stringResource(R.string.va_can_calendar_hint))
                 SettingsDivider()
                 SettingsRow(title = stringResource(R.string.va_can_media), subtitle = stringResource(R.string.va_can_media_hint))
+                SettingsDivider()
+                SettingsRow(title = stringResource(R.string.va_can_screen), subtitle = stringResource(R.string.va_can_screen_hint))
+                SettingsDivider()
+                SettingsRow(title = stringResource(R.string.va_can_places), subtitle = stringResource(R.string.va_can_places_hint))
+                SettingsDivider()
+                SettingsRow(title = stringResource(R.string.va_can_photos), subtitle = stringResource(R.string.va_can_photos_hint))
                 SettingsDivider()
                 SettingsRow(title = stringResource(R.string.va_can_maps), subtitle = stringResource(R.string.va_can_maps_hint))
                 SettingsDivider()

@@ -533,6 +533,7 @@ private fun ChatList(session: RemoteSession, pin: PinState, topPad: androidx.com
                     }
                     is RItem.Thought -> ThoughtItem(item)
                     is RItem.Tool -> ToolItem(item)
+                    is RItem.Media -> MediaItem(session, item, animate)
                     is RItem.Compact -> CompactItem(item)
                     is RItem.Notice -> if (item.text.contains('\n')) {
                         // An answer of several lines (the MCP servers) sits in a card, set from the left.

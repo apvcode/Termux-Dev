@@ -247,7 +247,7 @@ class TaskReceiver : BroadcastReceiver() {
         val app = context.applicationContext
         when (intent.action) {
             Tasks.ACTION_FIRE -> Tasks.fire(app, intent.getIntExtra(Tasks.EXTRA_ID, -1))
-            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> Tasks.restoreAll(app)
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> { Tasks.restoreAll(app); Dnd.restore(app) }
         }
     }
 }

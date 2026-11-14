@@ -796,7 +796,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     if (skillsOn) skills.forPrompt() else null,
                     ref.model,
                     if (memoryOn) memory.summary else null,
-                    phone = if (Prefs.phoneTools) PhoneTools.promptSection() else null,
+                    phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
                     voice = if (voiceMode) SystemPrompt.VOICE else null,
                 )
                 if (Prefs.workTools || Prefs.terminal) withContext(Dispatchers.IO) { workspace.syncUploads(chat.id, files, attachmentStore) }
@@ -1115,7 +1115,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             if (skillsOn) skills.forPrompt() else null,
             null,
             if (memoryOn) memory.summary else null,
-            phone = if (Prefs.phoneTools) PhoneTools.promptSection() else null,
+            phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
         )
         val messages = historyFor(chat, upTo, withTools = tools.isNotEmpty())
         val letters = system.length +
@@ -1526,7 +1526,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val PARALLEL_SAFE = setOf(
             "web_search", "open_url", "search_chats", "read_chat", "memory_list",
             "list_files", "file_info", "read_pdf_pages", "render_pdf_page", "read_text", "search_in_file", "view_image", "list_pdf_images",
-            "phone_info", "list_apps", "find_contact", "calendar_events", "list_reminders", "task_list",
+            "phone_info", "list_apps", "find_contact", "calendar_events", "list_reminders", "task_list", "get_brightness", "get_location", "list_photos", "read_notifications", "folder_list", "folder_read",
         )
 
         /** The most characters of one excerpt that "Ask Devx" keeps. */

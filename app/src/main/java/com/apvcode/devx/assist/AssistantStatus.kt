@@ -26,6 +26,8 @@ object AssistantStatus {
         return false
     }
 
+    fun notificationAccess(context: Context) = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+
     fun micAllowed(context: Context) = PermissionBridge.has(context, Manifest.permission.RECORD_AUDIO)
 
     fun recognizerThere(context: Context) = SpeechRecognizer.isRecognitionAvailable(context)

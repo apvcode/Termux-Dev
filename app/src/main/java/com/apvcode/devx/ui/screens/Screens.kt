@@ -352,6 +352,41 @@ fun AssistantScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Un
                     onCheckedChange = { Prefs.saveThinkingGlow(it) },
                 )
                 SettingsDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.settings_twogis),
+                    subtitle = stringResource(R.string.settings_twogis_hint),
+                    checked = Prefs.twoGis,
+                    onCheckedChange = { Prefs.saveTwoGis(it) },
+                )
+                SettingsDivider()
+                var twoGisKeyDialog by remember { mutableStateOf(false) }
+                val twoGisContext = androidx.compose.ui.platform.LocalContext.current
+                var twoGisHasKey by remember { mutableStateOf(!com.apvcode.devx.data.Secrets(twoGisContext).get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) }
+                SettingsRow(
+                    title = stringResource(R.string.settings_twogis_key),
+                    value = stringResource(if (twoGisHasKey) R.string.settings_twogis_key_set else R.string.settings_twogis_key_none),
+                    showChevron = true,
+                    onClick = { twoGisKeyDialog = true },
+                )
+                if (twoGisKeyDialog) {
+                    var text by remember { mutableStateOf("") }
+                    com.apvcode.devx.ui.components.DevxDialog(stringResource(R.string.settings_twogis_key), onDismiss = { twoGisKeyDialog = false }) {
+                        androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
+                            com.apvcode.devx.ui.components.DevxTextField(stringResource(R.string.settings_twogis_key_hint), text, { text = it }, password = true)
+                            com.apvcode.devx.ui.components.PillButton(stringResource(R.string.task_save), enabled = text.isNotBlank(), onClick = {
+                                com.apvcode.devx.data.Secrets(twoGisContext).put(com.apvcode.devx.data.MapTools.KEY_ID, text.trim())
+                                twoGisHasKey = true
+                                twoGisKeyDialog = false
+                            })
+                            if (twoGisHasKey) com.apvcode.devx.ui.components.PillButton(stringResource(R.string.menu_delete), filled = false, onClick = {
+                                com.apvcode.devx.data.Secrets(twoGisContext).remove(com.apvcode.devx.data.MapTools.KEY_ID)
+                                twoGisHasKey = false
+                                twoGisKeyDialog = false
+                            })
+                        }
+                    }
+                }
+                SettingsDivider()
                 SettingsRow(
                     title = stringResource(R.string.settings_max_photos),
                     subtitle = stringResource(R.string.settings_max_photos_hint),
