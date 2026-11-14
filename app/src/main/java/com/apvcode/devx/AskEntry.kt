@@ -38,12 +38,35 @@ class AskTileService : TileService() {
     }
 }
 
+/** A tile that opens the voice assistant and starts listening. */
+class VoiceTileService : TileService() {
+    override fun onStartListening() {
+        super.onStartListening()
+        qsTile?.apply {
+            state = Tile.STATE_INACTIVE
+            label = getString(R.string.tile_voice_label)
+            updateTile()
+        }
+    }
+
+    @Suppress("DEPRECATION", "StartActivityAndCollapseDeprecated")
+    override fun onClick() {
+        super.onClick()
+        val intent = com.apvcode.devx.assist.AssistantActivity.intent(this)
+        if (Build.VERSION.SDK_INT >= 34) {
+            startActivityAndCollapse(PendingIntent.getActivity(this, 1, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+        } else {
+            startActivityAndCollapse(intent)
+        }
+    }
+}
+
 /** A bar on the home screen: tap it to ask devx something, or the white button to speak, without opening the app first. */
 class AskWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         val views = RemoteViews(context.packageName, R.layout.widget_ask)
         views.setOnClickPendingIntent(R.id.widget_root, Widgets.open(context, MainActivity.ACTION_ASK, 0))
-        views.setOnClickPendingIntent(R.id.widget_mic, Widgets.open(context, MainActivity.ACTION_VOICE, 1))
+        views.setOnClickPendingIntent(R.id.widget_mic, Widgets.assistant(context, 1))
         ids.forEach { manager.updateAppWidget(it, views) }
     }
 
@@ -58,7 +81,7 @@ class QuickWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         val views = RemoteViews(context.packageName, R.layout.widget_quick)
         views.setOnClickPendingIntent(R.id.q_chat, Widgets.open(context, MainActivity.ACTION_ASK, 10))
-        views.setOnClickPendingIntent(R.id.q_voice, Widgets.open(context, MainActivity.ACTION_VOICE, 11))
+        views.setOnClickPendingIntent(R.id.q_voice, Widgets.assistant(context, 11))
         views.setOnClickPendingIntent(R.id.q_temp, Widgets.open(context, MainActivity.ACTION_TEMP, 12))
         views.setOnClickPendingIntent(R.id.q_computers, Widgets.open(context, MainActivity.ACTION_COMPUTERS, 13))
         ids.forEach { manager.updateAppWidget(it, views) }
@@ -86,6 +109,10 @@ internal object Widgets {
         extra?.let { intent.putExtra(it.first, it.second) }
         return PendingIntent.getActivity(context, code, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
+
+    /** The voice assistant's window (over whatever is open), with the microphone on. */
+    fun assistant(context: Context, code: Int): PendingIntent =
+        PendingIntent.getActivity(context, code, com.apvcode.devx.assist.AssistantActivity.intent(context), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
     fun refresh(context: Context, provider: Class<*>) {
         val manager = AppWidgetManager.getInstance(context)

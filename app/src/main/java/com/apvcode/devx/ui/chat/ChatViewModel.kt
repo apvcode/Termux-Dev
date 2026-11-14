@@ -472,6 +472,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         generate(chat, user)
     }
 
+    /** The voice assistant is talking to the model: answers are short and spoken, and thinking is skipped. */
+    var voiceMode = false
+
     fun stop() {
         val id = currentId ?: return
         jobs[id]?.cancel()
@@ -741,7 +744,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val wire = provider.copy(kind = formatOf(provider, ref.model))
         val caps = capsFor(ref)
         val level = levelFor(ref)
-        val reasoningParams = if (caps != null && level != null) caps.build(level) else null
+        // The voice assistant wants its answer fast: no long thinking.
+        val reasoningParams = if (!voiceMode && caps != null && level != null) caps.build(level) else null
 
         syncService()
         jobs[chat.id] = viewModelScope.launch {
@@ -764,6 +768,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     ref.model,
                     if (memoryOn) memory.summary else null,
                     phone = if (Prefs.phoneTools) PhoneTools.promptSection() else null,
+                    voice = if (voiceMode) SystemPrompt.VOICE else null,
                 )
                 if (Prefs.workTools || Prefs.terminal) withContext(Dispatchers.IO) { workspace.syncUploads(chat.id, files, attachmentStore) }
                 var messages = withContext(Dispatchers.IO) { historyFor(chat, user, withTools = tools.isNotEmpty()) }.toMutableList()

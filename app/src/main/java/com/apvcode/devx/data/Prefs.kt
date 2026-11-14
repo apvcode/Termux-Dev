@@ -48,6 +48,14 @@ object Prefs {
     var phoneTools by mutableStateOf(true)
         private set
 
+    /** The voice assistant does not read its answers aloud. */
+    var assistantMuted by mutableStateOf(false)
+        private set
+
+    /** The voice assistant listens again after it has read an answer. */
+    var voiceHandsFree by mutableStateOf(true)
+        private set
+
     /** The assistant remembers the person across chats and may search the past ones. On until switched off. */
     var memory by mutableStateOf(true)
         private set
@@ -79,6 +87,8 @@ object Prefs {
         workTools = p.getBoolean("workTools", true)
         terminal = p.getBoolean("terminal", true)
         phoneTools = p.getBoolean("phoneTools", true)
+        assistantMuted = p.getBoolean("assistantMuted", false)
+        voiceHandsFree = p.getBoolean("voiceHandsFree", true)
         memory = p.getBoolean("memory", true)
         remoteMemory = p.getBoolean("remoteMemory", true)
         remoteKeepAlive = p.getBoolean("remoteKeepAlive", true)
@@ -115,6 +125,16 @@ object Prefs {
     fun saveTerminal(value: Boolean) {
         terminal = value
         store?.edit()?.putBoolean("terminal", value)?.apply()
+    }
+
+    fun saveAssistantMuted(value: Boolean) {
+        assistantMuted = value
+        store?.edit()?.putBoolean("assistantMuted", value)?.apply()
+    }
+
+    fun saveVoiceHandsFree(value: Boolean) {
+        voiceHandsFree = value
+        store?.edit()?.putBoolean("voiceHandsFree", value)?.apply()
     }
 
     fun savePhoneTools(value: Boolean) {

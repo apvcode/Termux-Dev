@@ -68,10 +68,22 @@ class VoiceInput(private val context: Context) {
     private var onFinished: ((String) -> Unit)? = null
     private var quietSince = 0L
 
+    /** Quick mode (the voice assistant): the first finished sentence ends the listening and is handed over by itself. */
+    private var quick = false
+    private var onHeard: ((String) -> Unit)? = null
+    private var idleLimit = IDLE_LIMIT_MS
+
     fun available(): Boolean = SpeechRecognizer.isRecognitionAvailable(context)
 
-    fun start(languageTag: String) {
+    /**
+     * Starts listening. With [onSentence] set the listening is quick: after the first sentence and a short pause it ends and hands
+     * the words over (the person does not press anything); [idleMs] is how long nothing at all may be said before it gives up.
+     */
+    fun start(languageTag: String, onSentence: ((String) -> Unit)? = null, idleMs: Long = IDLE_LIMIT_MS) {
         cleanup()
+        quick = onSentence != null
+        onHeard = onSentence
+        idleLimit = idleMs
         tag = languageTag
         committed = ""
         partial = ""
@@ -131,7 +143,7 @@ class VoiceInput(private val context: Context) {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, main)
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, if (quick) 1300L else 2500L)
             .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
         if (auto) {
             val others = autoLanguages().filter { it != main }
@@ -178,6 +190,8 @@ class VoiceInput(private val context: Context) {
         wanted = false
         finishing = false
         onFinished = null
+        onHeard = null
+        quick = false
         runCatching { recognizer?.destroy() }
         recognizer = null
         heard = ""
@@ -199,7 +213,7 @@ class VoiceInput(private val context: Context) {
             levels[levels.size - 1] = shown
             tick++
             // Long silence with nothing said: the listening is dropped, so that the microphone is not left on.
-            if (committed.isEmpty() && partial.isEmpty() && now() - quietSince > IDLE_LIMIT_MS) {
+            if (committed.isEmpty() && partial.isEmpty() && now() - quietSince > idleLimit) {
                 cancel()
                 return
             }
@@ -235,7 +249,12 @@ class VoiceInput(private val context: Context) {
             partial = ""
             quietSince = now()
             publish()
-            if (finishing) deliver.run() else again()
+            if (quick && committed.isNotEmpty() && !finishing) {
+                val done = onHeard
+                val words = committed
+                cleanup()
+                done?.invoke(words)
+            } else if (finishing) deliver.run() else again()
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) {}

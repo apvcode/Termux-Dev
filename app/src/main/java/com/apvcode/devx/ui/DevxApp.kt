@@ -32,7 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.apvcode.devx.data.Attachment
 import com.apvcode.devx.data.Msg
 import com.apvcode.devx.data.Prefs
@@ -60,13 +59,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, Skills, SkillEdit, Assistant, AppLock, Persona }
+enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, Skills, SkillEdit, Assistant, VoiceAssistant, AppLock, Persona }
 
 private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.AddConnection, Screen.Computer -> Screen.Computers
     Screen.RemoteChat -> Screen.Computer
     Screen.ProviderEdit -> Screen.Providers
-    Screen.Providers, Screen.Notifications, Screen.About, Screen.Memory, Screen.Skills, Screen.Assistant, Screen.AppLock, Screen.Persona -> Screen.Settings
+    Screen.Providers, Screen.Notifications, Screen.About, Screen.Memory, Screen.Skills, Screen.Assistant, Screen.VoiceAssistant, Screen.AppLock, Screen.Persona -> Screen.Settings
     Screen.MemorySummary, Screen.MemoryNotes -> Screen.Memory
     Screen.ProjectEdit, Screen.ProjectKnowledge, Screen.ProjectSummary -> Screen.Project
     Screen.SkillEdit -> Screen.Skills
@@ -86,7 +85,7 @@ private sealed interface Overlay {
 }
 
 @Composable
-fun DevxApp(vm: ChatViewModel = viewModel(), requestedChat: String? = null, onChatHandled: () -> Unit = {}) {
+fun DevxApp(vm: ChatViewModel, requestedChat: String? = null, onChatHandled: () -> Unit = {}) {
     var splash by rememberSaveable { mutableStateOf(true) }
 
     // Wake-up: read the saved data, then ask every provider for its models, but never keep the
@@ -352,6 +351,7 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         onMemory = { screen = Screen.Memory },
                         onSkills = { screen = Screen.Skills },
                         onAssistant = { screen = Screen.Assistant },
+                        onVoiceAssistant = { screen = Screen.VoiceAssistant },
                         onAppLock = { screen = Screen.AppLock },
                         onPersona = { screen = Screen.Persona },
                     )
@@ -396,6 +396,7 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                     )
                     Screen.ProjectKnowledge -> com.apvcode.devx.ui.screens.MemoryNotesScreen(vm, onBack = { screen = Screen.Project }, project = projectName)
                     Screen.ProjectSummary -> com.apvcode.devx.ui.screens.MemorySummaryScreen(vm, onBack = { screen = Screen.Project }, project = projectName)
+                    Screen.VoiceAssistant -> com.apvcode.devx.ui.assistant.VoiceSettingsScreen(onBack = { screen = Screen.Settings })
                     Screen.Assistant -> com.apvcode.devx.ui.screens.AssistantScreen(vm, onBack = { screen = Screen.Settings })
                     Screen.Skills -> com.apvcode.devx.ui.screens.SkillsScreen(vm, onBack = { screen = Screen.Settings }, onWrite = { screen = Screen.SkillEdit })
                     Screen.SkillEdit -> com.apvcode.devx.ui.screens.SkillEditScreen(vm, onClose = { screen = Screen.Skills }, onDone = { screen = Screen.Skills })

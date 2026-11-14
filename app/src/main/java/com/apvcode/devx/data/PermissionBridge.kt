@@ -18,6 +18,10 @@ object PermissionBridge {
     @Volatile
     var asker: ((String, (Boolean) -> Unit) -> Unit)? = null
 
+    /** The screen that set [asker] (the app or the assistant); it takes the question away when it goes. */
+    @Volatile
+    var owner: Any? = null
+
     fun has(context: Context, permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 

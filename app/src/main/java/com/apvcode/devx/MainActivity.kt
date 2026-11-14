@@ -1,6 +1,5 @@
 package com.apvcode.devx
 
-import androidx.activity.viewModels
 import androidx.compose.runtime.mutableStateOf
 import android.content.Intent
 import android.content.Context
@@ -21,7 +20,7 @@ import com.apvcode.devx.ui.theme.DevxTheme
 class MainActivity : ComponentActivity() {
     /** The chat that a home-screen icon or a notification asked for; the app takes it and clears it. */
     private val requestedChat = mutableStateOf<String?>(null)
-    private val viewModel: com.apvcode.devx.ui.chat.ChatViewModel by viewModels()
+    private val viewModel: com.apvcode.devx.ui.chat.ChatViewModel by lazy { com.apvcode.devx.ui.chat.SharedChat.acquire(application, "app") }
 
     /** A permission the assistant's tools asked for (contacts, calendar): the answer goes back to the tool. */
     private var permissionDone: ((Boolean) -> Unit)? = null
@@ -34,11 +33,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         com.apvcode.devx.data.AppLock.init(applicationContext)
         takeChatFrom(intent)
-        com.apvcode.devx.data.PermissionBridge.asker = { permission, done ->
-            permissionDone?.invoke(false)
-            permissionDone = done
-            permissionLauncher.launch(permission)
-        }
         com.apvcode.devx.remote.RemoteHub.init(applicationContext)
         com.apvcode.devx.remote.RemoteHub.memory = viewModel.memory
         setContent {
@@ -50,7 +44,7 @@ class MainActivity : ComponentActivity() {
                     enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                     onDispose { }
                 }
-                DevxApp(requestedChat = requestedChat.value, onChatHandled = { requestedChat.value = null })
+                DevxApp(vm = viewModel, requestedChat = requestedChat.value, onChatHandled = { requestedChat.value = null })
             }
         }
     }
@@ -77,7 +71,6 @@ class MainActivity : ComponentActivity() {
     private fun takeChatFrom(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE) takeShare(intent)
         if (intent?.action == ACTION_ASK) com.apvcode.devx.data.PendingAsk.request = true
-        if (intent?.action == ACTION_VOICE) com.apvcode.devx.data.PendingAsk.voice = true
         if (intent?.action == ACTION_TEMP) com.apvcode.devx.data.PendingAsk.temporary = true
         if (intent?.action == ACTION_COMPUTERS) com.apvcode.devx.data.PendingAsk.computers = true
         if (intent?.action == ACTION_OPEN_CHAT) requestedChat.value = intent.getStringExtra(EXTRA_CHAT_ID)
@@ -118,12 +111,14 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        com.apvcode.devx.data.PermissionBridge.asker = null
+        permissionDone = null
+        if (com.apvcode.devx.data.PermissionBridge.owner === this) com.apvcode.devx.data.PermissionBridge.asker = null
         // The app is closed (not turned, not sent to the background): nothing of it goes on working.
         if (isFinishing) {
             com.apvcode.devx.remote.RemoteLink.disconnect(this)
             com.apvcode.devx.remote.RemoteHub.stopAll()
-            GenerationService.stop(this)
+            com.apvcode.devx.ui.chat.SharedChat.release("app")
+            if (com.apvcode.devx.ui.chat.SharedChat.idle) GenerationService.stop(this)
         }
         super.onDestroy()
     }
@@ -131,6 +126,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AppState.resumed = true
+        com.apvcode.devx.data.PermissionBridge.owner = this
+        com.apvcode.devx.data.PermissionBridge.asker = { permission, done ->
+            permissionDone?.invoke(false)
+            permissionDone = done
+            permissionLauncher.launch(permission)
+        }
         // Back in front: the keep-alive and its notification are not needed any more.
         GenerationService.stop(this)
         requestHighestRefreshRate()
@@ -145,7 +146,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_ASK = "com.apvcode.devx.ASK"
-        const val ACTION_VOICE = "com.apvcode.devx.VOICE"
         const val ACTION_TEMP = "com.apvcode.devx.TEMP"
         const val ACTION_COMPUTERS = "com.apvcode.devx.COMPUTERS"
         const val ACTION_OPEN_CHAT = "com.apvcode.devx.OPEN_CHAT"

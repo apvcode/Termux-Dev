@@ -79,7 +79,7 @@ fun TasksScreen(onBack: () -> Unit) {
 }
 
 @Composable
-fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit, onProviders: () -> Unit, onNotifications: () -> Unit, onAbout: () -> Unit, onMemory: () -> Unit, onSkills: () -> Unit, onAssistant: () -> Unit, onAppLock: () -> Unit = {}, onPersona: () -> Unit = {}) {
+fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit, onProviders: () -> Unit, onNotifications: () -> Unit, onAbout: () -> Unit, onMemory: () -> Unit, onSkills: () -> Unit, onAssistant: () -> Unit, onVoiceAssistant: () -> Unit = {}, onAppLock: () -> Unit = {}, onPersona: () -> Unit = {}) {
     var dialog by remember { mutableStateOf<String?>(null) }
     // Backup: everything of the person's in one file, and back (keys and tokens stay behind: they belong to this phone).
     val appContext = androidx.compose.ui.platform.LocalContext.current
@@ -229,6 +229,18 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                     icon = com.apvcode.devx.ui.components.DevxIcons.Brain,
                     showChevron = true,
                     onClick = onAssistant,
+                )
+                SettingsDivider()
+                var voiceTick by remember { mutableStateOf(0) }
+                androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { voiceTick++ }
+                val voiceContext = androidx.compose.ui.platform.LocalContext.current
+                @Suppress("UNUSED_EXPRESSION") voiceTick
+                SettingsRow(
+                    title = stringResource(R.string.settings_voice_assistant),
+                    icon = Icons.Outlined.Mic,
+                    value = stringResource(if (com.apvcode.devx.assist.AssistantStatus.isDefault(voiceContext)) R.string.settings_voice_assistant_on else R.string.settings_voice_assistant_off),
+                    showChevron = true,
+                    onClick = onVoiceAssistant,
                 )
             }
         }
