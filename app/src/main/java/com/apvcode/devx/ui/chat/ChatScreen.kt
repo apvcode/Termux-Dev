@@ -971,6 +971,7 @@ private fun Composer(
     }
     var focused by remember { mutableStateOf(false) }
     var lines by remember { mutableIntStateOf(1) }
+    var editorOpen by remember { mutableStateOf(false) }
     val edge by animateFloatAsState(if (focused) 1f else 0f, tween(220), label = "focus")
     // Asked from the tile or the widget: the field takes the focus and the keyboard comes up.
     val fieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -1104,6 +1105,17 @@ private fun Composer(
                             },
                         )
                     }
+                    // From the third line on, a button opens the full-screen editor.
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = stacked && value.isNotBlank(),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 6.dp),
+                        enter = fadeIn(tween(160)) + scaleIn(spring(dampingRatio = 0.6f, stiffness = 420f), initialScale = 0.5f),
+                        exit = fadeOut(tween(120)) + androidx.compose.animation.scaleOut(tween(120), targetScale = 0.5f),
+                    ) {
+                        Box(Modifier.size(34.dp).clip(CircleShape).pressable(scaleTo = 0.88f, onClick = { editorOpen = true }), contentAlignment = Alignment.Center) {
+                            Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_arrows_diagonal), stringResource(R.string.editor_expand), tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
+                        }
+                    }
                     // Send (or stop) in the corner; while there is nothing to send, the microphone takes its place.
                     Box(Modifier.align(Alignment.BottomEnd).padding(end = 3.dp).size(42.dp), contentAlignment = Alignment.Center) {
                         androidx.compose.animation.AnimatedContent(
@@ -1138,6 +1150,15 @@ private fun Composer(
                 }
             }
             }
+        }
+        if (editorOpen) {
+            FullEditorDialog(
+                initial = value,
+                canSend = canSend,
+                onChange = onValueChange,
+                onSend = { editorOpen = false; sendWithFeel() },
+                onClose = { editorOpen = false },
+            )
         }
     }
 }

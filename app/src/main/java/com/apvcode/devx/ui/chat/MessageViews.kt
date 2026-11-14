@@ -172,6 +172,7 @@ private fun UserBubble(msg: Msg, vm: ChatViewModel, animate: Boolean, host: Mess
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (big) FoldedText(msg.text, open, toggle)
+                else if (looksMarkdown(msg.text)) MarkdownText(msg.text)
                 else Text(msg.text, style = DevxType.Body, color = DevxColors.TextPrimary)
             }
             PopupMenu(expanded = menu, onDismiss = { menu = false }, offset = press.menuOffset()) {
@@ -539,4 +540,16 @@ private fun sampledText(msg: Msg, active: Boolean): String {
         }
     }
     return if (active) shown else msg.text
+}
+
+
+/** A message with a table, headings, a list, a quote or code: it is drawn as Markdown, as it was written in the editor. */
+private fun looksMarkdown(text: String): Boolean {
+    if (text.length < 4) return false
+    val lines = text.lines()
+    return lines.any { l ->
+        val t = l.trimStart()
+        t.startsWith("# ") || t.startsWith("## ") || t.startsWith("### ") || t.startsWith("> ") || t.startsWith("```") || t.startsWith("- [ ] ") || t.startsWith("- [x] ") ||
+            (t.startsWith("|") && t.trimEnd().endsWith("|")) || Regex("^(?:[-*+]|\\d+\\.)\\s+\\S").containsMatchIn(t) || t.startsWith("$$")
+    } || text.contains("**")
 }
