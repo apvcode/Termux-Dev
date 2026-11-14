@@ -1060,7 +1060,14 @@ private fun Composer(
                 // The microphone and the send button share the corner: with nothing written the microphone is the one white button;
                 // with a message it steps aside, to the left of the arrow, and for a long message it rises above the arrow.
                 val showSend = canSend || generating
-                val stacked = showSend && !generating && lines >= 3
+                // The microphone rises above the arrow for a long message, and the field gets wider by the room it leaves. That is a loop:
+                // wider text may need one line fewer, and one line fewer put the microphone back and made the field narrower again, over and
+                // over (the field jumped). So it rises at three lines and comes down only when the text is back to one line or gone.
+                var raised by remember { mutableStateOf(false) }
+                LaunchedEffect(lines, showSend) {
+                    if (!showSend || lines <= 1) raised = false else if (lines >= 3) raised = true
+                }
+                val stacked = showSend && !generating && raised
                 val endPad by androidx.compose.animation.core.animateDpAsState(
                     if (showSend && !stacked) 90.dp else 48.dp, spring(dampingRatio = 0.85f, stiffness = 420f), label = "field-end",
                 )
