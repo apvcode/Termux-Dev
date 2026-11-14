@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -7,6 +8,15 @@ import { DeviceRecord } from './secure.js';
 /** Where the remote host keeps its keys, the paired phones and its settings. */
 export function remoteDir(): string {
   return process.env.DEVX_REMOTE_DIR || path.join(os.homedir(), '.devx', 'remote');
+}
+
+/**
+ * The named pipe of the control socket on Windows (a unix socket in the folder elsewhere). One per user; a host that keeps its
+ * files in a folder of its own (DEVX_REMOTE_DIR: tests, a second copy) gets a pipe of its own too, so two of them never meet.
+ */
+export function controlPipe(dir = remoteDir()): string {
+  const custom = process.env.DEVX_REMOTE_DIR ? `-${crypto.createHash('sha1').update(path.resolve(dir)).digest('hex').slice(0, 8)}` : '';
+  return `\\\\.\\pipe\\devx-remote-${os.userInfo().username}${custom}`;
 }
 
 export interface RemoteSettings {

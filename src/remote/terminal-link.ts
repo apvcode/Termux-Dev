@@ -1,12 +1,12 @@
 import net from 'net';
 import os from 'os';
 import path from 'path';
-import { remoteDir } from './store.js';
+import { controlPipe, remoteDir } from './store.js';
 import type { RtEvent } from './runtime.js';
 
 /** The same socket `devx remote` talks to the host over (see control.ts; this file avoids loading the host itself). */
 function controlPath(): string {
-  if (process.platform === 'win32') return `\\\\.\\pipe\\devx-remote-${os.userInfo().username}`;
+  if (process.platform === 'win32') return controlPipe();
   return path.join(remoteDir(), 'control.sock');
 }
 

@@ -3,13 +3,13 @@ import net from 'net';
 import os from 'os';
 import path from 'path';
 import { RemoteHost, PairRequest } from './host.js';
-import { remoteDir } from './store.js';
+import { controlPipe, remoteDir } from './store.js';
 import { TerminalWorker } from './terminal-worker.js';
 import { DEVX_VERSION } from '../core/types.js';
 
 /** Where `devx remote ...` talks to the running host: a socket that only this user can open. */
 export function controlPath(dir = remoteDir()): string {
-  if (process.platform === 'win32') return `\\\\.\\pipe\\devx-remote-${os.userInfo().username}`;
+  if (process.platform === 'win32') return controlPipe(dir);
   return path.join(dir, 'control.sock');
 }
 
