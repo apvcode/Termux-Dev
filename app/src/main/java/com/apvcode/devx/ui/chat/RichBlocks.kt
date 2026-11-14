@@ -226,7 +226,7 @@ private class MapState(val centerLat: Double, val centerLon: Double, val zoom: I
 @Composable
 fun MapBlock(json: String, modifier: Modifier = Modifier) {
     val spec = remember(json) { parseMap(json) }
-    if (spec == null) { Text("⚠ map", style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = modifier); return }
+    if (spec == null) { CodeView("map", json, modifier); return }
     val context = LocalContext.current
     val density = LocalDensity.current
     var state by remember(json) { mutableStateOf<MapState?>(null) }
@@ -437,7 +437,7 @@ fun ChartBlock(json: String, modifier: Modifier = Modifier) {
             Triple(o.optString("kind", "bar").lowercase(), o.text("title"), labels to series)
         }.getOrNull()
     }
-    if (parsed == null || parsed.third.second.isEmpty() || parsed.third.second.all { it.values.isEmpty() }) { Text("⚠ chart", style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = modifier); return }
+    if (parsed == null || parsed.third.second.isEmpty() || parsed.third.second.all { it.values.isEmpty() }) { CodeView("chart", json, modifier); return }
     val (kind, title, data) = parsed
     val (labels, series) = data
     val measurer = rememberTextMeasurer()

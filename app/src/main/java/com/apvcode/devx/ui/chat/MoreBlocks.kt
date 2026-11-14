@@ -235,7 +235,7 @@ private fun clock(ms: Long): String {
 fun TimerBlock(json: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val spec = remember(json) { runCatching { JSONObject(json) }.getOrNull() }
-    if (spec == null) { Text("⚠ timer", style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = modifier); return }
+    if (spec == null) { CodeView("timer", json, modifier); return }
     val stopwatch = spec.optString("kind") == "stopwatch"
     val total = remember(json) { ((spec.optDouble("hours", 0.0) * 3600 + spec.optDouble("minutes", 0.0) * 60 + spec.optDouble("seconds", 0.0)) * 1000).toLong().coerceAtLeast(if (stopwatch) 0 else 1000) }
     val key = "timer:" + json.hashCode()
@@ -298,7 +298,7 @@ fun ChecklistBlock(json: String, modifier: Modifier = Modifier) {
             o.str("title") to items
         }.getOrNull()
     }
-    if (parsed == null || parsed.second.isEmpty()) { Text("⚠ checklist", style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = modifier); return }
+    if (parsed == null || parsed.second.isEmpty()) { CodeView("checklist", json, modifier); return }
     val key = "check:" + json.hashCode()
     val done = remember(json) { mutableStateListOf<Boolean>().apply { val kept = Kept.get(context, key)?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet(); parsed.second.forEachIndexed { i, it -> add(kept?.contains(i) ?: it.second) } } }
     Column(modifier.fillMaxWidth().clip(cardShape).background(DevxColors.Card).padding(vertical = 8.dp)) {
@@ -331,8 +331,22 @@ fun TableBlock(json: String, modifier: Modifier = Modifier) {
     val parsed = remember(json) {
         runCatching {
             val o = JSONObject(json)
-            val cols = o.getJSONArray("columns").let { a -> (0 until a.length()).map { a.optString(it) } }
-            val rows = o.getJSONArray("rows").let { a -> (0 until minOf(a.length(), 40)).map { r -> a.getJSONArray(r).let { c -> (0 until cols.size).map { i -> c.opt(i)?.toString().orEmpty() } } } }
+            // The model writes tables in several shapes: columns/headers, rows as lists or as objects, a header as the first row.
+            val rowsArr = o.optJSONArray("rows") ?: o.optJSONArray("data") ?: error("no rows")
+            fun cell(v: Any?) = if (v == null || v == JSONObject.NULL) "" else v.toString()
+            var cols = (o.optJSONArray("columns") ?: o.optJSONArray("headers") ?: o.optJSONArray("header"))?.let { a -> (0 until a.length()).map { cell(a.opt(it)) } }.orEmpty()
+            var from = 0
+            val first = rowsArr.opt(0)
+            if (cols.isEmpty() && first is JSONObject) cols = first.keys().asSequence().toList()
+            if (cols.isEmpty() && first is JSONArray) { cols = (0 until first.length()).map { cell(first.opt(it)) }; from = 1 }
+            if (cols.isEmpty()) error("no columns")
+            val rows = (from until minOf(rowsArr.length(), 40 + from)).map { r ->
+                when (val row = rowsArr.opt(r)) {
+                    is JSONArray -> (0 until cols.size).map { i -> cell(row.opt(i)) }
+                    is JSONObject -> cols.map { c -> cell(row.opt(c)) }
+                    else -> listOf(cell(row)) + List(cols.size - 1) { "" }
+                }
+            }
             val highlight = o.optJSONArray("highlight")?.let { a -> (0 until a.length()).map { a.optInt(it) } }.orEmpty().toSet()
             val best = o.optJSONArray("best")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty().associate { it.optInt("column") to (it.optString("mode", "max") == "max") }
             val bestCells = HashSet<Pair<Int, Int>>()
@@ -344,7 +358,7 @@ fun TableBlock(json: String, modifier: Modifier = Modifier) {
             arrayOf(o.str("title"), cols, rows, highlight, bestCells)
         }.getOrNull()
     }
-    if (parsed == null) { Text("⚠ table", style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = modifier); return }
+    if (parsed == null) { CodeView("table", json, modifier); return }
     @Suppress("UNCHECKED_CAST") val cols = parsed[1] as List<String>
     @Suppress("UNCHECKED_CAST") val rows = parsed[2] as List<List<String>>
     @Suppress("UNCHECKED_CAST") val highlight = parsed[3] as Set<Int>
@@ -373,7 +387,7 @@ fun TableBlock(json: String, modifier: Modifier = Modifier) {
 fun ContactBlock(json: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val o = remember(json) { runCatching { JSONObject(json) }.getOrNull() }
-    if (o == null) { Text("⚠ contact", style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = modifier); return }
+    if (o == null) { CodeView("contact", json, modifier); return }
     val name = o.str("name") ?: o.str("title") ?: ""
     val phone = o.str("phone"); val email = o.str("email"); val address = o.str("address"); val note = o.str("note")
     val lat = if (o.has("lat")) o.optDouble("lat") else null; val lon = if (o.has("lon")) o.optDouble("lon") else null
