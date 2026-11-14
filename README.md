@@ -193,7 +193,7 @@ devx
 
 ## Remote control from your phone
 
-**Get the app:** the Android APK, `devx-android-x.y.z.apk`, is attached to each [release](https://github.com/apvcode/Termux-Dev/releases/latest) (open it on the phone and allow installing from this source). In the app, a phone is removed from the computer with `/phones` in devx or `devx remote revoke <name>`.
+**Get the app:** the Android APK, `devx-android-x.y.z.apk`, is attached to each [release](https://github.com/apvcode/Termux-Dev/releases/latest) (open it on the phone and allow installing from this source). The app's source and its own README are in the [`android` branch](https://github.com/apvcode/Termux-Dev/tree/android). In the app, a phone is removed from the computer with `/phones` in devx or `devx remote revoke <name>`.
 
 devx 2.0 can be driven from the devx Android app. A small host runs in the background on your computer; the phone connects to it, and sees and controls the same sessions: every chat, live replies and reasoning, approval cards, questions, the plan, plan/agent/YOLO modes, the model and provider, context and cost, `/compact` and the other commands. Files and photos can be sent from the phone, and the agent can send files and pictures back: they show up in the phone chat as cards. Everything works with the terminal closed.
 
