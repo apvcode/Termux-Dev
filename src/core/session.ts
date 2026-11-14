@@ -23,11 +23,12 @@ export interface ChatSession {
   titleGenerated?: boolean;
 }
 
-const SESSIONS_DIR = process.env.DEVX_SESSIONS_DIR || path.join(os.homedir(), '.devx', 'sessions');
+// Read when it is needed (not when the file is loaded), so that tests can point it at a temporary folder.
+const sessionsRoot = (): string => process.env.DEVX_SESSIONS_DIR || path.join(os.homedir(), '.devx', 'sessions');
 
 /** Where the chats are saved. */
 export function sessionsDir(): string {
-  return SESSIONS_DIR;
+  return sessionsRoot();
 }
 
 export class SessionManager {
@@ -82,8 +83,8 @@ export class SessionManager {
 
   public async save(messages: Message[], totalCost: number, model?: string, planMode?: boolean, costEstimated?: boolean): Promise<void> {
     // Transcripts contain file contents and pasted images: keep them private to the user.
-    await ensureSecureDir(path.dirname(SESSIONS_DIR));
-    await ensureSecureDir(SESSIONS_DIR);
+    await ensureSecureDir(path.dirname(sessionsRoot()));
+    await ensureSecureDir(sessionsRoot());
 
     this.currentSession.messages = messages;
     this.currentSession.totalCost = totalCost;
@@ -104,27 +105,27 @@ export class SessionManager {
     }
 
     // Pictures go into their own files; the chat file keeps only their names.
-    const imagesDir = imagesDirFor(SESSIONS_DIR, this.currentSession.id);
+    const imagesDir = imagesDirFor(sessionsRoot(), this.currentSession.id);
     const stored = await externalizeImages(messages, imagesDir, this.media);
 
-    const filePath = path.join(SESSIONS_DIR, `${this.currentSession.id}.json`);
+    const filePath = path.join(sessionsRoot(), `${this.currentSession.id}.json`);
     await writeSecureFile(filePath, JSON.stringify({ ...this.currentSession, messages: stored.messages }, null, 2));
     await pruneImages(imagesDir, stored.used);
   }
 
   public static async listSessions(): Promise<ChatSession[]> {
-    if (!fsSync.existsSync(SESSIONS_DIR)) {
+    if (!fsSync.existsSync(sessionsRoot())) {
       return [];
     }
 
     try {
-      const files = await fs.readdir(SESSIONS_DIR);
+      const files = await fs.readdir(sessionsRoot());
       const jsonFiles = files.filter(f => f.endsWith('.json'));
       const sessions: ChatSession[] = [];
 
       for (const file of jsonFiles) {
         try {
-          const content = await fs.readFile(path.join(SESSIONS_DIR, file), 'utf8');
+          const content = await fs.readFile(path.join(sessionsRoot(), file), 'utf8');
           const sess = JSON.parse(content);
           if (sess.id && sess.messages) {
             sessions.push(sess);
@@ -140,13 +141,13 @@ export class SessionManager {
   }
 
   public static async loadSession(sessionId: string): Promise<ChatSession | null> {
-    const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
+    const filePath = path.join(sessionsRoot(), `${sessionId}.json`);
     if (!fsSync.existsSync(filePath)) return null;
 
     try {
       const content = await fs.readFile(filePath, 'utf8');
       const session = JSON.parse(content) as ChatSession;
-      session.messages = await internalizeImages(session.messages ?? [], imagesDirFor(SESSIONS_DIR, sessionId));
+      session.messages = await internalizeImages(session.messages ?? [], imagesDirFor(sessionsRoot(), sessionId));
       return session;
     } catch {
       return null;
@@ -154,9 +155,9 @@ export class SessionManager {
   }
 
   public static async deleteSession(sessionId: string): Promise<boolean> {
-    const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
+    const filePath = path.join(sessionsRoot(), `${sessionId}.json`);
     try {
-      await fs.rm(imagesDirFor(SESSIONS_DIR, sessionId), { recursive: true, force: true }).catch(() => {});
+      await fs.rm(imagesDirFor(sessionsRoot(), sessionId), { recursive: true, force: true }).catch(() => {});
       if (fsSync.existsSync(filePath)) {
         await fs.unlink(filePath);
         return true;
@@ -168,20 +169,20 @@ export class SessionManager {
   }
 
   public static async deleteAllSessions(): Promise<number> {
-    if (!fsSync.existsSync(SESSIONS_DIR)) return 0;
+    if (!fsSync.existsSync(sessionsRoot())) return 0;
     try {
-      const files = await fs.readdir(SESSIONS_DIR);
+      const files = await fs.readdir(sessionsRoot());
       const jsonFiles = files.filter(f => f.endsWith('.json'));
       let count = 0;
       for (const file of jsonFiles) {
         try {
-          await fs.unlink(path.join(SESSIONS_DIR, file));
+          await fs.unlink(path.join(sessionsRoot(), file));
           count++;
         } catch {}
       }
       // The pictures of the chats, and those of chats whose file is already gone.
       for (const name of files.filter(f => f.endsWith('.images'))) {
-        await fs.rm(path.join(SESSIONS_DIR, name), { recursive: true, force: true }).catch(() => {});
+        await fs.rm(path.join(sessionsRoot(), name), { recursive: true, force: true }).catch(() => {});
       }
       return count;
     } catch {

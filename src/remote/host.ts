@@ -448,7 +448,11 @@ export class RemoteHost {
       }
       cwd = path.resolve(String(cwd || os.homedir()).replace(/^~(?=\/|$)/, os.homedir()));
       const st = await fs.stat(cwd).catch(() => null);
-      if (!st?.isDirectory()) throw new Error(`The folder ${cwd} does not exist on the computer.`);
+      if (!st?.isDirectory()) {
+        if (!p.id) throw new Error(`The folder ${cwd} does not exist on the computer.`);
+        // The folder of an old chat was moved or deleted: the chat still opens (its words are what the person wants), in the home folder.
+        cwd = os.homedir();
+      }
       s = await this.spawn(cwd, p.id, p.plan);
     }
     s.peers.add(ctx);
