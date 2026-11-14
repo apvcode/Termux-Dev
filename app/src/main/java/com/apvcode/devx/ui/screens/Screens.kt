@@ -72,13 +72,6 @@ internal fun EmptyNote(text: String) {
 }
 
 @Composable
-fun TasksScreen(onBack: () -> Unit) {
-    ScreenScaffold(stringResource(R.string.tasks_title), onBack) {
-        item { EmptyNote(stringResource(R.string.tasks_empty)) }
-    }
-}
-
-@Composable
 fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit, onProviders: () -> Unit, onNotifications: () -> Unit, onAbout: () -> Unit, onMemory: () -> Unit, onSkills: () -> Unit, onAssistant: () -> Unit, onVoiceAssistant: () -> Unit = {}, onAppLock: () -> Unit = {}, onPersona: () -> Unit = {}) {
     var dialog by remember { mutableStateOf<String?>(null) }
     // Backup: everything of the person's in one file, and back (keys and tokens stay behind: they belong to this phone).

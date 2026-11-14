@@ -256,6 +256,7 @@ fun DrawerContent(
                 Icon(DevxIcons.ChatPlus, null, tint = DevxColors.OnAccent, modifier = Modifier.size(22.dp))
                 Text(stringResource(R.string.menu_new_chat), style = DevxType.Body, color = DevxColors.OnAccent)
             }
+            RoundAction(DevxIcons.Clock, stringResource(R.string.menu_tasks)) { onNavigate(Screen.Tasks) }
             RoundAction(DevxIcons.Mcp, stringResource(R.string.menu_mcp)) { onNavigate(Screen.Mcp) }
             RoundAction(DevxIcons.Settings, stringResource(R.string.menu_settings)) { onNavigate(Screen.Settings) }
         }

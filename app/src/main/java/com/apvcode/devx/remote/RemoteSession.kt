@@ -139,6 +139,7 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
             load(r)
         } catch (e: Exception) {
             if (e.message?.contains("no longer exists") == true) gone = true
+            else notice(e.message ?: "", true)
             loading = false
         }
     }

@@ -951,4 +951,21 @@
     <string name="va_not_allowed">Not allowed</string>
     <string name="va_found">Found</string>
     <string name="va_missing">Missing</string>
+    <string name="tasks_add">New task</string>
+    <string name="tasks_empty_hint">A task runs by itself at a set time: it finds the news every morning, sums up your week on Friday. You can also ask in a chat: \"make a task that every morning sends me the news about AI\".</string>
+    <string name="task_edit_title">Task</string>
+    <string name="task_title_hint">Name</string>
+    <string name="task_prompt_hint">What to ask the model each time</string>
+    <string name="task_time">Time</string>
+    <string name="task_days">Days</string>
+    <string name="task_model">Model</string>
+    <string name="task_model_default">The one chosen in the app</string>
+    <string name="task_save">Save</string>
+    <string name="task_run_now">Run now</string>
+    <string name="task_started">Started: the answer comes as a chat and a notification</string>
+    <string name="task_open_last">Open the last answer</string>
+    <string name="task_delete_title">Delete this task?</string>
+    <string name="tasks_every_day">Every day</string>
+    <string name="tasks_weekdays">Weekdays</string>
+    <string name="tasks_weekends">Weekends</string>
 </resources>

@@ -472,6 +472,35 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         generate(chat, user)
     }
 
+    /**
+     * Starts a chat of its own that nobody is looking at (a scheduled task): the question is sent to [ref] (or the model that is
+     * chosen now) and the answer is written into it. The chat on the screen does not change. Returns the chat's id.
+     */
+    fun startBackgroundChat(title: String, prompt: String, ref: ModelRef?): String? {
+        if (prompt.isBlank()) return null
+        val chat = Chat(newId(), title.ifBlank { prompt }.take(40), null, now()).also {
+            it.model = ref ?: defaultModel
+            it.titleFinal = true
+        }
+        chatStates += chat
+        val user = Msg(newId(), null, Role.User, prompt.trim(), now())
+        chat.messages += user
+        chat.select(user)
+        fresh += user.id
+        touch(chat)
+        generate(chat, user)
+        return chat.id
+    }
+
+    /** True while the chat's answer is still being written. */
+    fun isRunning(chatId: String): Boolean = chatId in streaming
+
+    /** Stops the answer of a chat that is not the open one. */
+    fun stopChat(chatId: String) {
+        jobs[chatId]?.cancel()
+        streaming.remove(chatId)
+    }
+
     /** The voice assistant is talking to the model: answers are short and spoken, and thinking is skipped. */
     var voiceMode = false
 
@@ -1497,7 +1526,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val PARALLEL_SAFE = setOf(
             "web_search", "open_url", "search_chats", "read_chat", "memory_list",
             "list_files", "file_info", "read_pdf_pages", "render_pdf_page", "read_text", "search_in_file", "view_image", "list_pdf_images",
-            "phone_info", "list_apps", "find_contact", "calendar_events", "list_reminders",
+            "phone_info", "list_apps", "find_contact", "calendar_events", "list_reminders", "task_list",
         )
 
         /** The most characters of one excerpt that "Ask Devx" keeps. */

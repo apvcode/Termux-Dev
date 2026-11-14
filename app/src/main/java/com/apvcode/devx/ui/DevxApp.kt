@@ -59,10 +59,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, Skills, SkillEdit, Assistant, VoiceAssistant, AppLock, Persona }
+enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, Skills, SkillEdit, Assistant, VoiceAssistant, TaskEdit, AppLock, Persona }
 
 private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.AddConnection, Screen.Computer -> Screen.Computers
+    Screen.TaskEdit -> Screen.Tasks
     Screen.RemoteChat -> Screen.Computer
     Screen.ProviderEdit -> Screen.Providers
     Screen.Providers, Screen.Notifications, Screen.About, Screen.Memory, Screen.Skills, Screen.Assistant, Screen.VoiceAssistant, Screen.AppLock, Screen.Persona -> Screen.Settings
@@ -163,6 +164,7 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
     var remoteDraft by rememberSaveable { mutableStateOf<String?>(null) }
     var pickFolder by remember { mutableStateOf(false) }
     var editingProject by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingTask by rememberSaveable { mutableStateOf<Int?>(null) }
     var overlay by remember { mutableStateOf<Overlay?>(null) }
     var lastOverlay by remember { mutableStateOf<Overlay?>(null) }
     if (overlay != null) lastOverlay = overlay
@@ -324,7 +326,8 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         onOpenFile = { overlay = Overlay.File(it) },
                         onShowSteps = { overlay = Overlay.Steps(it) },
                     )
-                    Screen.Tasks -> TasksScreen(onBack = { screen = Screen.Chat })
+                    Screen.Tasks -> TasksScreen(vm, onBack = { screen = Screen.Chat }, onEdit = { id -> editingTask = id; screen = Screen.TaskEdit })
+                    Screen.TaskEdit -> com.apvcode.devx.ui.screens.TaskEditScreen(vm, editingTask, onBack = { screen = Screen.Tasks }, onOpenChat = { id -> vm.openChat(id); screen = Screen.Chat })
                     Screen.Computers -> RemoteHomeScreen(
                         onBack = { screen = Screen.Chat },
                         onOpen = { remoteHost = it; screen = Screen.Computer },

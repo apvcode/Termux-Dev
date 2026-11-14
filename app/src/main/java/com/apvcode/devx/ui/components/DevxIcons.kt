@@ -37,6 +37,9 @@ object DevxIcons {
     /** Delete a chat (crossed out). */
     val ChatOff: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_chat_off)
 
+    /** Scheduled tasks. */
+    val Clock: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_clock)
+
     /** MCP servers. */
     val Mcp: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_mcp)
 

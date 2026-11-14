@@ -944,4 +944,21 @@
     <string name="va_not_allowed">Не разрешён</string>
     <string name="va_found">Есть</string>
     <string name="va_missing">Нет</string>
+    <string name="tasks_add">Новая задача</string>
+    <string name="tasks_empty_hint">Задача сама запускается в нужное время: каждое утро ищет новости, в пятницу подводит итоги недели. Её можно создать и из чата: «сделай задачу, чтобы каждое утро присылала новости про ИИ».</string>
+    <string name="task_edit_title">Задача</string>
+    <string name="task_title_hint">Название</string>
+    <string name="task_prompt_hint">Что спрашивать у модели каждый раз</string>
+    <string name="task_time">Время</string>
+    <string name="task_days">Дни</string>
+    <string name="task_model">Модель</string>
+    <string name="task_model_default">Та, что выбрана в приложении</string>
+    <string name="task_save">Сохранить</string>
+    <string name="task_run_now">Запустить сейчас</string>
+    <string name="task_started">Запущено: ответ придёт чатом и уведомлением</string>
+    <string name="task_open_last">Открыть последний ответ</string>
+    <string name="task_delete_title">Удалить задачу?</string>
+    <string name="tasks_every_day">Каждый день</string>
+    <string name="tasks_weekdays">По будням</string>
+    <string name="tasks_weekends">По выходным</string>
 </resources>
