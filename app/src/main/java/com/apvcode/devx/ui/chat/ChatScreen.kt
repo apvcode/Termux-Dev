@@ -1060,9 +1060,10 @@ private fun Composer(
                 // The microphone and the send button share the corner: with nothing written the microphone is the one white button;
                 // with a message it steps aside, to the left of the arrow, and for a long message it rises above the arrow.
                 val showSend = canSend || generating
-                // The microphone rises above the arrow for a long message, and the field gets wider by the room it leaves. That is a loop:
-                // wider text may need one line fewer, and one line fewer put the microphone back and made the field narrower again, over and
-                // over (the field jumped). So it rises at three lines and comes down only when the text is back to one line or gone.
+                // For a long message the small microphone beside the arrow steps away and the field gets wider by the room it leaves. That is a
+                // loop: wider text may need one line fewer, and one line fewer brought the microphone back and made the field narrower again,
+                // over and over (the field jumped). So it steps away at three lines and comes back only when the text is one line or gone.
+                // The pill is never taller than its text: no empty room above the lines.
                 var raised by remember { mutableStateOf(false) }
                 LaunchedEffect(lines, showSend) {
                     if (!showSend || lines <= 1) raised = false else if (lines >= 3) raised = true
@@ -1072,9 +1073,9 @@ private fun Composer(
                     if (showSend && !stacked) 90.dp else 48.dp, spring(dampingRatio = 0.85f, stiffness = 420f), label = "field-end",
                 )
                 val micX by androidx.compose.animation.core.animateDpAsState(if (showSend && !stacked) (-42).dp else 0.dp, spring(dampingRatio = 0.8f, stiffness = 460f), label = "mic-x")
-                val micY by androidx.compose.animation.core.animateDpAsState(if (stacked) (-42).dp else 0.dp, spring(dampingRatio = 0.8f, stiffness = 460f), label = "mic-y")
-                val micQuiet by animateFloatAsState(if (showSend) 1f else 0f, tween(220), label = "mic-quiet")
-                Box(Modifier.fillMaxWidth().heightIn(min = if (stacked) 90.dp else 42.dp)) {
+                val micY = 0.dp
+                val micQuiet by animateFloatAsState(if (showSend && !stacked) 1f else 0f, tween(220), label = "mic-quiet")
+                Box(Modifier.fillMaxWidth().heightIn(min = 42.dp)) {
                     // The text sits exactly in the middle of a one-line pill and grows upwards.
                     Box(
                         Modifier
