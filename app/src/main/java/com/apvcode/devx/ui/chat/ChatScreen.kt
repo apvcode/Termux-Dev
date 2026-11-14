@@ -1107,10 +1107,12 @@ private fun Composer(
                     }
                     // From the third line on, a button opens the full-screen editor.
                     androidx.compose.animation.AnimatedVisibility(
-                        visible = stacked && value.isNotBlank(),
+                        visible = stacked && lines >= 2 && value.isNotBlank(),
                         modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 6.dp),
                         enter = fadeIn(tween(160)) + scaleIn(spring(dampingRatio = 0.6f, stiffness = 420f), initialScale = 0.5f),
-                        exit = fadeOut(tween(120)) + androidx.compose.animation.scaleOut(tween(120), targetScale = 0.5f),
+                        // When the text is sent or erased the pill is one line again at once, and a button that fades out up there would
+                        // slide over the send button: it goes away at that moment, without an animation.
+                        exit = if (lines >= 2 && value.isNotBlank()) fadeOut(tween(90)) else androidx.compose.animation.ExitTransition.None,
                     ) {
                         Box(Modifier.size(34.dp).clip(CircleShape).pressable(scaleTo = 0.88f, onClick = { editorOpen = true }), contentAlignment = Alignment.Center) {
                             Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_arrows_diagonal), stringResource(R.string.editor_expand), tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
