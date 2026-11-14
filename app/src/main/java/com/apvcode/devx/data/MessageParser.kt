@@ -41,6 +41,9 @@ fun parseBlocks(text: String): List<Block> {
             blocks += when {
                 info == "devx-card" -> if (closed) Block.Ui(content) else Block.Building
                 info == "svg" && closed && "<svg" in content -> Block.Svg("", content)
+                info == "devx-map" -> if (closed) Block.Map(content) else Block.Building
+                info == "devx-image" -> if (closed) Block.Image(content) else Block.Building
+                info == "devx-chart" -> if (closed) Block.Chart(content) else Block.Building
                 info == "devx-file" && closed -> Block.File(content.trim())
                 info == "devx-file" -> Block.Building
                 info == "svg" && !closed -> Block.Building

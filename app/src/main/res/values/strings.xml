@@ -1004,4 +1004,11 @@
     <string name="remote_media_failed">The picture could not be loaded</string>
     <string name="remote_media_looked">Looked at: %1$s</string>
     <string name="remote_media_sent">%1$s</string>
+    <string name="rich_map_loading">Loading the map…</string>
+    <string name="rich_map_failed">The map could not be drawn</string>
+    <string name="rich_open_maps">Open in Maps</string>
+    <string name="rich_route">Route</string>
+    <string name="rich_no_maps">No map app can open this</string>
+    <string name="rich_no_2gis">2GIS is not installed</string>
+    <string name="rich_image_missing">Picture not found: %1$s</string>
 </resources>

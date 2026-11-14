@@ -50,7 +50,7 @@ import org.json.JSONObject
  * The element set is a small vocabulary, not a template: the assistant picks and combines elements.
  * Unknown elements are skipped, depth and size are limited, and nothing here can run code.
  *
- * Elements: card, section, text, input, choice, button, svg, code, score, divider.
+ * Elements: card, section, text, input, choice, button, svg, code, score, divider, map, image, chart.
  * Buttons: action = check | reset | submit. `when` = always | unchecked | checked | unsubmitted.
  */
 
@@ -76,6 +76,9 @@ sealed interface UiNode {
     ) : UiNode
     data class Svg(val caption: String?, val svg: String) : UiNode
     data class Code(val language: String, val code: String) : UiNode
+
+    /** A map, a picture or a chart inside a card: [json] is the element itself (see RichBlocks.kt). */
+    data class Rich(val kind: String, val json: String) : UiNode
     data class Score(val label: String, val whenState: String) : UiNode
     data object Divider : UiNode
 }
@@ -139,6 +142,7 @@ object UiParser {
             )
             "svg" -> obj.str("svg")?.let { UiNode.Svg(obj.str("caption"), it) }
             "code" -> UiNode.Code(obj.optString("language"), obj.optString("code"))
+            "map", "image", "chart" -> UiNode.Rich(obj.optString("type"), obj.toString())
             "score" -> UiNode.Score(obj.optString("label"), obj.optString("when", "checked"))
             "divider" -> UiNode.Divider
             else -> null
@@ -272,6 +276,11 @@ private fun RenderNode(node: UiNode, ctx: UiContext, modifier: Modifier = Modifi
         is UiNode.Button -> ButtonView(node, ctx, modifier)
         is UiNode.Svg -> SvgView(node.caption.orEmpty(), node.svg, modifier)
         is UiNode.Code -> CodeView(node.language, node.code, modifier)
+        is UiNode.Rich -> when (node.kind) {
+            "map" -> MapBlock(node.json, modifier)
+            "image" -> ImageBlock(node.json, modifier)
+            else -> ChartBlock(node.json, modifier)
+        }
         is UiNode.Score -> if (visible(node.whenState, ctx.state)) ScoreView(node, ctx, modifier)
         UiNode.Divider -> HorizontalDivider(modifier, color = DevxColors.Outline, thickness = 0.5.dp)
     }

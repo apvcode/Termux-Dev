@@ -173,7 +173,7 @@ fun SelectTextScreen(text: String, onClose: () -> Unit, modifier: Modifier = Mod
 
 /** A photo at full size: pinch to zoom, drag to move it when zoomed. */
 @Composable
-fun PhotoViewer(file: java.io.File, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun PhotoViewer(file: Any, onClose: () -> Unit, modifier: Modifier = Modifier) {
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     Box(

@@ -84,6 +84,15 @@ class ParseBlocksTest {
         assertEquals("kotlin", (b[4] as Block.Code).language)
     }
 
+    @Test fun mapsPicturesAndChartsStandWhereTheyAreWritten() {
+        val text = "Here:\n```devx-map\n{\"markers\":[{\"lat\":55.7,\"lon\":37.6}]}\n```\nAnd my photo:\n```devx-image\n{\"src\":\"gallery:5\"}\n```\nThen:\n```devx-chart\n{\"kind\":\"bar\"}\n```\nDone"
+        val b = parseBlocks(text)
+        assertEquals(listOf("Text", "Map", "Text", "Image", "Text", "Chart", "Text"), b.map { it::class.simpleName })
+        assertEquals("{\"src\":\"gallery:5\"}", (b[3] as Block.Image).json)
+        // Still being written: shown as "being built", like a card.
+        assertEquals(listOf("Text", "Building"), parseBlocks("x\n```devx-map\n{\"mark").map { if (it is Block.Building) "Building" else it::class.simpleName })
+    }
+
     @Test fun unfinishedCardIsBuilding() {
         val b = parseBlocks("Here:\n```devx-card\n{\"type\":\"ca")
         assertEquals(listOf("Text", "Building"), b.map { if (it is Block.Building) "Building" else it::class.simpleName })

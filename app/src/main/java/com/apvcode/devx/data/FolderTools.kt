@@ -45,6 +45,12 @@ class FolderTools(private val context: Context) {
         }
     }
 
+    /** The address of a file inside the chosen folder (to show a picture from it in a chat), or null. */
+    fun uriOf(path: String): Uri? {
+        val base = root() ?: return null
+        return runCatching { find(base, path)?.takeIf { it.isFile }?.uri }.getOrNull()
+    }
+
     private fun parts(path: String): List<String> = path.trim().trim('/').split('/').filter { it.isNotEmpty() && it != "." }.also { p -> require(p.none { it == ".." }) { "\"..\" is not allowed" } }
 
     private fun find(base: DocumentFile, path: String): DocumentFile? {

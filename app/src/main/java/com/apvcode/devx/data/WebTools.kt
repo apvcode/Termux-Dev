@@ -103,22 +103,54 @@ class WebTools(context: Context) {
 
     private val searchHttp = http.newBuilder().callTimeout(6, TimeUnit.SECONDS).build()
 
+    private val FIREFOX_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+
+    /**
+     * The quick ways, plain requests: DuckDuckGo's page (asked by POST, which its bot check likes better), then Bing's. Either one
+     * sometimes answers a "prove you are a person" page instead of results, so the next is tried; then the slow way, a browser.
+     */
     private suspend fun httpHits(q: String): List<Hit> = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = Request.Builder().url("https://html.duckduckgo.com/html/?q=$q")
-                .header("User-Agent", USER_AGENT).header("Accept-Language", "en,ru;q=0.8").build()
-            searchHttp.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use emptyList<Hit>()
-                val doc = Jsoup.parse(response.body?.string().orEmpty(), "https://html.duckduckgo.com/")
-                val rows = JSONArray()
+        val query = URLDecoder.decode(q, "UTF-8")
+        val lang = if (Regex("[\\u0400-\\u04FF]").containsMatchIn(query)) "ru-RU,ru;q=0.9,en;q=0.5" else "en-US,en;q=0.9"
+        fun rowsOf(doc: org.jsoup.nodes.Document, bing: Boolean): List<Hit> {
+            val rows = JSONArray()
+            if (bing) {
+                doc.select("li.b_algo").forEach { d ->
+                    val a = d.selectFirst("h2 a") ?: return@forEach
+                    rows.put(JSONObject().put("t", a.text()).put("u", a.attr("href")).put("s", d.selectFirst("p.b_lineclamp2, .b_caption p, p")?.text().orEmpty()))
+                }
+            } else {
                 doc.select("div.result").forEach { d ->
                     if (d.hasClass("result--ad")) return@forEach
                     val a = d.selectFirst("a.result__a") ?: return@forEach
                     rows.put(JSONObject().put("t", a.text()).put("u", a.attr("href")).put("s", d.selectFirst(".result__snippet")?.text().orEmpty()))
                 }
-                parseHits(rows.toString())
             }
-        }.getOrDefault(emptyList())
+            return parseHits(rows.toString())
+        }
+        val attempts: List<() -> List<Hit>> = listOf(
+            {
+                val request = Request.Builder().url("https://html.duckduckgo.com/html/")
+                    .post(okhttp3.FormBody.Builder().add("q", query).build())
+                    .header("User-Agent", FIREFOX_UA).header("Accept-Language", lang).build()
+                searchHttp.newCall(request).execute().use { r -> rowsOf(Jsoup.parse(r.body?.string().orEmpty(), "https://html.duckduckgo.com/"), false) }
+            },
+            {
+                val request = Request.Builder().url("https://www.bing.com/search?q=$q&setlang=" + (if (lang.startsWith("ru")) "ru" else "en"))
+                    .header("User-Agent", FIREFOX_UA).header("Accept-Language", lang).build()
+                searchHttp.newCall(request).execute().use { r -> rowsOf(Jsoup.parse(r.body?.string().orEmpty(), "https://www.bing.com/"), true) }
+            },
+            {
+                val request = Request.Builder().url("https://html.duckduckgo.com/html/?q=$q")
+                    .header("User-Agent", USER_AGENT).header("Accept-Language", lang).build()
+                searchHttp.newCall(request).execute().use { r -> rowsOf(Jsoup.parse(r.body?.string().orEmpty(), "https://html.duckduckgo.com/"), false) }
+            },
+        )
+        for (attempt in attempts) {
+            val hits = runCatching { attempt() }.getOrDefault(emptyList())
+            if (hits.isNotEmpty()) return@withContext hits
+        }
+        emptyList()
     }
 
     private fun parseHits(raw: String): List<Hit> {

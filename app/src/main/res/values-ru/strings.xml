@@ -997,4 +997,11 @@
     <string name="remote_media_failed">Не удалось загрузить</string>
     <string name="remote_media_looked">Просмотрено: %1$s</string>
     <string name="remote_media_sent">%1$s</string>
+    <string name="rich_map_loading">Загружаю карту…</string>
+    <string name="rich_map_failed">Не удалось нарисовать карту</string>
+    <string name="rich_open_maps">Открыть в картах</string>
+    <string name="rich_route">Маршрут</string>
+    <string name="rich_no_maps">Нет приложения карт, которое это откроет</string>
+    <string name="rich_no_2gis">2ГИС не установлен</string>
+    <string name="rich_image_missing">Картинка не найдена: %1$s</string>
 </resources>

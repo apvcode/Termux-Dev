@@ -314,6 +314,9 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
             }
         }
     }
+    val imageContext = androidx.compose.ui.platform.LocalContext.current
+    val imageResolver = remember(vm) { { src: String -> resolveImageSource(vm, imageContext, src) } }
+    androidx.compose.runtime.CompositionLocalProvider(LocalImageResolver provides imageResolver) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         blocks.forEach { block ->
             when (block) {
@@ -322,6 +325,9 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
                 is Block.File -> RevealBlock(animate) { ArtifactCard(block.id, vm, host.onOpenFile) }
                 is Block.Svg -> RevealBlock(animate) { SvgView(block.caption, block.svg) }
                 is Block.Ui -> RevealBlock(animate) { GenerativeCard(block.json, host.onSend) }
+                is Block.Map -> RevealBlock(animate) { MapBlock(block.json) }
+                is Block.Image -> RevealBlock(animate) { ImageBlock(block.json) }
+                is Block.Chart -> RevealBlock(animate) { ChartBlock(block.json) }
                 is Block.Approval -> ApprovalCard(block.command)
                 Block.Building -> BuildingCard()
             }
@@ -353,6 +359,7 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
         if (!streaming && (msg.text.isNotBlank() || msg.error != null)) {
             AssistantActions(msg, vm, host)
         }
+    }
     }
     }
 }

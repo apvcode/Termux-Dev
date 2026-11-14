@@ -20,6 +20,11 @@ sealed interface Block {
      */
     data class Ui(val json: String) : Block
 
+    /** A map with places and/or a route, a picture from the phone or the web, or a chart: each a JSON object in a fenced block. */
+    data class Map(val json: String) : Block
+    data class Image(val json: String) : Block
+    data class Chart(val json: String) : Block
+
     /** The agent on the computer asks for permission to do something risky. */
     data class Approval(val command: String) : Block
 
