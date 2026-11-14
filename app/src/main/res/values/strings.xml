@@ -977,13 +977,13 @@
     <string name="mcp_token_gmaps">Google Maps API key</string>
     <string name="mcp_about_gmaps">Places, routes and weather from Google Maps, for travel and abroad. You need an API key with the Maps Grounding Lite API turned on in Google Cloud.</string>
     <string name="settings_twogis">2GIS maps</string>
-    <string name="settings_twogis_hint">Places and routes on 2GIS, the map for Russia and the CIS countries. The assistant uses it there, and Google Maps (an MCP server) elsewhere.</string>
+    <string name="settings_twogis_hint">Optional, for more detail. Places and routes work without keys on the free OpenStreetMap map; a 2GIS key adds ratings, hours and public transport in Russia and the CIS countries.</string>
     <string name="settings_twogis_key">2GIS key</string>
     <string name="settings_twogis_key_hint">Key from dev.2gis.com (a free demo key is enough)</string>
     <string name="settings_twogis_key_set">Set</string>
     <string name="settings_twogis_key_none">Not set</string>
     <string name="va_can_places">Places and routes</string>
-    <string name="va_can_places_hint">\"What is near me\", \"how long to the airport\": your position (with permission) and 2GIS in the CIS countries, Google Maps abroad.</string>
+    <string name="va_can_places_hint">\"What is near me\", \"how long to the airport\", \"weather here\": your position (with permission) and the free OpenStreetMap map, no keys; 2GIS and Google Maps add detail if you give their keys.</string>
     <string name="va_location">Location</string>
     <string name="va_location_no">Allow it so that the assistant can answer \"what is near me\" and \"how far is it\". It reads the position only when you ask.</string>
     <string name="va_photos">Photos</string>

@@ -970,13 +970,13 @@
     <string name="mcp_token_gmaps">Ключ Google Maps API</string>
     <string name="mcp_about_gmaps">Места, маршруты и погода из Google Maps, для поездок и заграницы. Нужен API-ключ с включённым Maps Grounding Lite API в Google Cloud.</string>
     <string name="settings_twogis">Карты 2ГИС</string>
-    <string name="settings_twogis_hint">Места и маршруты в 2ГИС, карте России и стран СНГ. Помощник использует её там, а Google Maps (MCP-сервер) в остальном мире.</string>
+    <string name="settings_twogis_hint">Необязательно, для детальности. Места и маршруты работают без ключей на бесплатной карте OpenStreetMap; ключ 2ГИС добавляет рейтинги, часы работы и общественный транспорт в России и странах СНГ.</string>
     <string name="settings_twogis_key">Ключ 2ГИС</string>
     <string name="settings_twogis_key_hint">Ключ с dev.2gis.com (хватит бесплатного демо-ключа)</string>
     <string name="settings_twogis_key_set">Задан</string>
     <string name="settings_twogis_key_none">Не задан</string>
     <string name="va_can_places">Места и маршруты</string>
-    <string name="va_can_places_hint">«Что рядом», «сколько ехать до аэропорта»: ваше положение (с разрешения) и 2ГИС в странах СНГ, Google Maps за границей.</string>
+    <string name="va_can_places_hint">«Что рядом», «сколько ехать до аэропорта», «погода здесь»: ваше положение (с разрешения) и бесплатная карта OpenStreetMap без ключей; 2ГИС и Google Maps добавляют детали, если дать их ключи.</string>
     <string name="va_location">Местоположение</string>
     <string name="va_location_no">Разрешите, чтобы помощник мог ответить «что рядом» и «как далеко». Положение читается только по вашей просьбе.</string>
     <string name="va_photos">Фото</string>
