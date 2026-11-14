@@ -1,3 +1,4 @@
+import { searchWeb } from './search-backends.js';
 import dns from 'dns/promises';
 import net from 'net';
 import { Tool } from '../core/types.js';
@@ -145,7 +146,7 @@ export const webSearchTool: Tool = {
   name: 'web_search',
   definition: {
     name: 'web_search',
-    description: 'Search the web using DuckDuckGo to get fresh documentation, API references, library examples, or solutions for code bugs.',
+    description: 'Search the web (DuckDuckGo, with Bing as a second try) to get fresh documentation, API references, library examples, or solutions for code bugs.',
     parameters: {
       type: 'object',
       properties: {
@@ -160,53 +161,8 @@ export const webSearchTool: Tool = {
   async execute(args: { query: string }) {
     try {
       const encoded = encodeURIComponent(args.query);
-      const url = `https://html.duckduckgo.com/html/?q=${encoded}`;
-      
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        },
-        signal: AbortSignal.timeout(10000)
-      });
-
-      if (!res.ok) {
-        throw new Error(`DuckDuckGo returned status ${res.status}`);
-      }
-
-      const html = await res.text();
-      const results: Array<{ title: string; snippet: string; link: string }> = [];
-
-      // Extract results from DDG HTML
-      const resultRegex = /<a class="result__url" href="([^"]+)".*?<a class="result__snippet[^>]*>(.*?)<\/a>/gs;
-      const titleRegex = /<a class="result__a" href="([^"]+)">(.*?)<\/a>/g;
-
-      const titles: Array<{ link: string; title: string }> = [];
-      let match;
-      while ((match = titleRegex.exec(html)) !== null && titles.length < 6) {
-        let rawLink = match[1];
-        if (rawLink.includes('uddg=')) {
-          const urlParam = rawLink.split('uddg=')[1]?.split('&')[0];
-          if (urlParam) rawLink = decodeURIComponent(urlParam);
-        }
-        titles.push({
-          link: rawLink,
-          title: stripHtml(match[2])
-        });
-      }
-
-      const snippetRegex = /<a class="result__snippet[^>]*>(.*?)<\/a>/g;
-      const snippets: string[] = [];
-      while ((match = snippetRegex.exec(html)) !== null && snippets.length < 6) {
-        snippets.push(stripHtml(match[1]));
-      }
-
-      for (let i = 0; i < titles.length; i++) {
-        results.push({
-          title: titles[i].title,
-          link: titles[i].link,
-          snippet: snippets[i] || ''
-        });
-      }
+      const found = await searchWeb(args.query);
+      const results = found?.hits ?? [];
 
       if (results.length === 0) {
         // Fallback: try Instant Answer API
@@ -231,7 +187,7 @@ export const webSearchTool: Tool = {
         return `No web results found for "${args.query}".`;
       }
 
-      const formatted = results.map((r, i) => 
+      const formatted = results.map((r, i) =>
         `[${i + 1}] ${r.title}\nURL: ${r.link}\nSnippet: ${r.snippet}`
       ).join('\n\n');
 
