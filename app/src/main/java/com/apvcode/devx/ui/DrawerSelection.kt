@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -34,7 +35,9 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.apvcode.devx.R
 import com.apvcode.devx.ui.components.DevxIcons
 import com.apvcode.devx.ui.components.glass
@@ -76,12 +79,13 @@ fun SelectDot(selected: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun SelectionBar(count: Int, total: Int, onCancel: () -> Unit, onToggleAll: () -> Unit, onArchive: () -> Unit, onDelete: () -> Unit) {
     val ready by animateFloatAsState(if (count > 0) 1f else 0f, tween(240), label = "selection-ready")
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(50.dp).pressable(scaleTo = 0.9f, onClick = onCancel).glass(CircleShape), contentAlignment = Alignment.Center) {
-            Icon(Icons.Outlined.Close, stringResource(R.string.select_cancel), tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(46.dp).pressable(scaleTo = 0.9f, onClick = onCancel).glass(CircleShape), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.Close, stringResource(R.string.select_cancel), tint = DevxColors.TextPrimary, modifier = Modifier.size(21.dp))
         }
+        // One calm capsule of a fixed height: the count takes what is left (and is cut, never wrapped), the word "All" keeps its place.
         Row(
-            Modifier.weight(1f).pressable(scaleTo = 0.96f, onClick = onToggleAll).clip(CircleShape).glass(CircleShape).padding(horizontal = 16.dp, vertical = 13.dp),
+            Modifier.weight(1f).height(46.dp).pressable(scaleTo = 0.96f, onClick = onToggleAll).clip(CircleShape).glass(CircleShape).padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -96,19 +100,22 @@ fun SelectionBar(count: Int, total: Int, onCancel: () -> Unit, onToggleAll: () -
             ) { n ->
                 Text(
                     if (n == 0) stringResource(R.string.select_pick) else stringResource(R.string.select_count, n),
-                    style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1,
+                    style = DevxType.Body.copy(fontSize = 15.sp), color = DevxColors.TextPrimary, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
                 )
             }
             Box(Modifier.weight(1f))
-            Text(stringResource(if (count == total && total > 0) R.string.select_none else R.string.select_all), style = DevxType.Caption, color = DevxColors.TextSecondary)
+            Text(
+                stringResource(if (count == total && total > 0) R.string.select_none else R.string.select_all),
+                style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, softWrap = false,
+            )
         }
         Box(
-            Modifier.size(50.dp).graphicsLayer { alpha = 0.4f + 0.6f * ready }.pressable(enabled = count > 0, scaleTo = 0.9f, onClick = onArchive).glass(CircleShape),
+            Modifier.size(46.dp).graphicsLayer { alpha = 0.4f + 0.6f * ready }.pressable(enabled = count > 0, scaleTo = 0.9f, onClick = onArchive).glass(CircleShape),
             contentAlignment = Alignment.Center,
-        ) { Icon(DevxIcons.Archive, stringResource(R.string.menu_archive), tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp)) }
+        ) { Icon(DevxIcons.Archive, stringResource(R.string.menu_archive), tint = DevxColors.TextPrimary, modifier = Modifier.size(21.dp)) }
         Box(
-            Modifier.size(50.dp).graphicsLayer { alpha = 0.4f + 0.6f * ready }.pressable(enabled = count > 0, scaleTo = 0.9f, onClick = onDelete).glass(CircleShape),
+            Modifier.size(46.dp).graphicsLayer { alpha = 0.4f + 0.6f * ready }.pressable(enabled = count > 0, scaleTo = 0.9f, onClick = onDelete).glass(CircleShape),
             contentAlignment = Alignment.Center,
-        ) { Icon(DevxIcons.ChatOff, stringResource(R.string.menu_delete), tint = DevxColors.Danger, modifier = Modifier.size(22.dp)) }
+        ) { Icon(DevxIcons.ChatOff, stringResource(R.string.menu_delete), tint = DevxColors.Danger, modifier = Modifier.size(21.dp)) }
     }
 }

@@ -74,10 +74,24 @@ class VoiceSession(private val context: Context, private val vmSource: () -> Cha
     private var closed = false
     private var fresh = true
 
+    /** The chat that was open in the app when the assistant came: it is given back when the assistant leaves. */
+    private var before: String? = null
+    private var kept = false
+
+    /** The talk is going on in the chat of the app now, so that chat is not given back. */
+    fun keepChat() { kept = true }
+
+    /**
+     * Whether the assistant's own answer is being written. Before the first question the assistant has no chat yet, and whatever
+     * the app is busy with (an answer in the chat that was open) is not its business: it is never shown as the assistant's
+     * thinking, and nothing the assistant does can stop it.
+     */
+    private val busy: Boolean get() = !fresh && vmSource()?.generating == true
+
     val phase: VoicePhase
         get() = when {
             speaker.speaking -> VoicePhase.Speaking
-            vmSource()?.generating == true -> VoicePhase.Thinking
+            busy -> VoicePhase.Thinking
             voice.state == VoiceInput.State.Listening -> VoicePhase.Listening
             else -> VoicePhase.Idle
         }
@@ -93,7 +107,7 @@ class VoiceSession(private val context: Context, private val vmSource: () -> Cha
         if (closed) return
         if (!voice.available()) { noRecognizer = true; return }
         if (!PermissionBridge.has(context, Manifest.permission.RECORD_AUDIO)) { askForMic?.invoke(); return }
-        if (vmSource()?.generating == true) return
+        if (busy) return
         micDenied = false
         speaker.stop()
         tick()
@@ -115,14 +129,14 @@ class VoiceSession(private val context: Context, private val vmSource: () -> Cha
         when (phase) {
             VoicePhase.Listening -> voice.finish { if (it.isNotBlank()) submit(it, true) }
             VoicePhase.Speaking -> { speaker.stop(); spokenTurn = false; listen() }
-            VoicePhase.Thinking -> vmSource()?.stop()
+            VoicePhase.Thinking -> if (busy) vmSource()?.stop()
             VoicePhase.Idle -> listen()
         }
     }
 
     fun submit(text: String, byVoice: Boolean) {
         val t = text.trim()
-        if (t.isEmpty() || vmSource()?.generating == true || closed) return
+        if (t.isEmpty() || busy || closed) return
         com.apvcode.devx.data.VoiceTrace.mark("question sent")
         // Opened from cold: the chat model and the saved data may still be coming in. The question is shown at once and sent when they are.
         val model = vmSource()
@@ -147,6 +161,7 @@ class VoiceSession(private val context: Context, private val vmSource: () -> Cha
         spokenIdx = 0
         // Each talk is a chat of its own: the first question starts it, the follow-ups go on in it.
         if (fresh) {
+            before = vm.currentId
             vm.newChat()
             fresh = false
         }
@@ -211,6 +226,12 @@ class VoiceSession(private val context: Context, private val vmSource: () -> Cha
         turn?.cancel()
         voice.release()
         speaker.stop()
-        vmSource()?.voiceMode = false
+        val model = vmSource()
+        model?.voiceMode = false
+        // The chat the person had open in the app comes back (it went on being written all this time); the talk stays in the history.
+        if (model != null && !fresh && !kept) {
+            val back = before
+            if (back != null && model.chats.any { it.id == back }) model.openChat(back) else if (back == null) model.newChat()
+        }
     }
 }

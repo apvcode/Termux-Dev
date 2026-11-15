@@ -32,7 +32,7 @@ class DeviceTools(private val context: Context, private val openPage: suspend (I
         ),
         tool(
             "do_not_disturb",
-            "Turn Do Not Disturb on or off, or ask for its state. Modes: \"alarms\" (default: only alarms may sound), \"priority\" (alarms and the calls and messages the phone's own settings allow), \"total\" (nothing, not even alarms: use only when asked for total silence). Give minutes to have it end by itself. Needs a one-time permission that the person gives in the phone's settings (the tool opens that page the first time).",
+            "Turn Do Not Disturb on or off, or ask its state. Modes: alarms (default), priority (what the phone's settings allow), total (nothing, not even alarms: only when asked for total silence). minutes makes it end by itself. Needs a one-time permission (the tool opens that page).",
             schema(
                 "action" to str("\"on\", \"off\" or \"status\" (default on)."),
                 "mode" to str("alarms, priority or total (default alarms)."),

@@ -10,7 +10,7 @@ class TaskTools(private val context: Context) {
     fun definitions(): List<WireTool> = listOf(
         tool(
             "task_create",
-            "Make a scheduled task: at a set time (every day or on chosen days) Devx by itself asks the model the prompt and saves the answer as a chat, with a notification. Use it when the person wants something done regularly (\"every morning find AI news\", \"on Fridays summarise my week\"). Write the prompt as a complete request to a model that has no other context, in the person's language, and say what the answer should look like. The task can use the web search and the other tools.",
+            "Make a scheduled task: at a set time (daily or on chosen days) Devx asks the model the prompt by itself and saves the answer as a chat, with a notification. For things wanted regularly (\"every morning find AI news\"). Write the prompt as a complete request for a model with no other context, in the person's language, and say what the answer should look like.",
             schema(
                 "title" to str("A short name for the task."),
                 "prompt" to str("What the model is asked each time: a complete, self-contained request."),

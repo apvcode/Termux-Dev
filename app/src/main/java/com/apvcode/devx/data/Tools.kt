@@ -121,6 +121,12 @@ class Toolbox(
         if (phoneOn) out += phone.definitions()
         // The servers the person added: always there when they are connected.
         out += mcp.definitions()
+        // The long formats of cards, pictures and blocks are read when needed (see SystemPrompt.guide); only offered where there are tools at all.
+        if (out.isNotEmpty()) out += tool(
+            "guide",
+            "The exact format of the rich elements you can put in your answer. Call it before you use one for the first time in a conversation, and follow it.",
+            schema("topic" to str("cards (forms and quizzes), pictures (svg and mermaid), or blocks (map, image, chart, weather, timer, checklist, table, contact, link, apps)."), required = listOf("topic")),
+        )
         return out
     }
 
@@ -128,6 +134,7 @@ class Toolbox(
         val args = runCatching { JSONObject(call.arguments.ifBlank { "{}" }) }.getOrDefault(JSONObject())
         return try {
             when (call.name) {
+                "guide" -> ToolOutcome(com.apvcode.devx.data.SystemPrompt.guide(args.optString("topic")))
                 "web_search", "open_url", "search_apps" -> web.run(call.name, args, report)
                 in work.names -> work.run(call.name, args, chatId, report)
                 in memory.names -> memory.run(call.name, args, report, chatId, project)

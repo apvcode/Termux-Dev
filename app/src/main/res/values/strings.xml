@@ -174,6 +174,8 @@
     <string name="quiz_title">Question cards</string>
     <string name="quiz_question">Question %1$d</string>
     <string name="quiz_hint">Type your answer…</string>
+    <string name="card_pick_several">You can pick several</string>
+    <string name="card_other">Something else…</string>
     <string name="quiz_check">Check</string>
     <string name="quiz_correct">Correct</string>
     <string name="quiz_answer">Answer: %1$s</string>
@@ -383,6 +385,8 @@
     <string name="voice_tap_interrupt">Tap to interrupt</string>
     <string name="voice_tap_talk">Tap the orb and speak</string>
     <string name="voice_placeholder">Ask Devx</string>
+    <string name="voice_swipe_hint">Hold and swipe up to open the app</string>
+    <string name="voice_type_hint">Write a message…</string>
     <string name="voice_mute">Turn the voice off</string>
     <string name="voice_unmute">Turn the voice on</string>
     <string name="voice_mic">Speak</string>
@@ -549,6 +553,7 @@
     <string name="memory_edited">Edited by hand</string>
     <string name="memory_edited_hint">You wrote this summary. It is not rewritten by itself: "Update" replaces it with a new one.</string>
     <string name="memory_edit_hint">The summary, in Markdown</string>
+    <string name="memory_ask_hint">Ask devx to fix something…</string>
     <string name="memory_edit_note">Saved as it is. Leave it empty to let the assistant write the summary again.</string>
     <string name="tool_mcp">Using an MCP server</string>
     <string name="mcp_add">Add a server</string>
@@ -989,6 +994,10 @@
     <string name="settings_twogis_key_hint">Key from dev.2gis.com (a free demo key is enough)</string>
     <string name="settings_twogis_key_set">Set</string>
     <string name="settings_twogis_key_none">Not set</string>
+    <string name="settings_search_key">Search key (optional)</string>
+    <string name="settings_search_key_hint">Better web search with your own Tavily or Brave key</string>
+    <string name="settings_search_key_about">A free key from tavily.com (starts with tvly-) or brave.com/search/api (starts with BSA) makes the assistant\'s web search noticeably more accurate. Without a key it reads search pages itself.</string>
+    <string name="settings_search_key_bad">The key must start with tvly- or BSA</string>
     <string name="va_can_places">Places and routes</string>
     <string name="va_can_places_hint">\"What is near me\", \"how long to the airport\", \"weather here\": your position (with permission) and the free OpenStreetMap map, no keys; 2GIS and Google Maps add detail if you give their keys.</string>
     <string name="va_location">Location</string>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app comes up out of the assistant: it rises a little, grows to its size and fades in. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
+    <translate
+        android:fromYDelta="9%"
+        android:toYDelta="0%"
+        android:duration="360"
+        android:interpolator="@android:interpolator/fast_out_slow_in" />
+    <scale
+        android:fromXScale="0.94"
+        android:fromYScale="0.94"
+        android:toXScale="1"
+        android:toYScale="1"
+        android:pivotX="50%"
+        android:pivotY="100%"
+        android:duration="360"
+        android:interpolator="@android:interpolator/fast_out_slow_in" />
+    <alpha
+        android:fromAlpha="0"
+        android:toAlpha="1"
+        android:duration="260"
+        android:interpolator="@android:interpolator/decelerate_cubic" />
+</set>

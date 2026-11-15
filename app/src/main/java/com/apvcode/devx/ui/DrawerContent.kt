@@ -500,6 +500,7 @@ private fun ChatItem(
     Box(modifier.pressAnchor(press)) {
         ChatCard(
             chat,
+            current = vm.currentId == chat.id,
             selecting = selecting,
             selected = selected,
             onClick = if (selecting) onToggle else onOpen,
@@ -580,13 +581,27 @@ private fun ChatItem(
 /** One chat as its own card: title, one line of preview, time, and an icon for its status. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatCard(chat: ChatSummary, selecting: Boolean, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun ChatCard(chat: ChatSummary, current: Boolean, selecting: Boolean, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
+    // The chat that is open now stands out: a little lighter, with a quiet edge and a bright bar on the left, and its name rolls
+    // past if it is too long to be seen whole.
     val lift by androidx.compose.animation.animateColorAsState(
-        if (selected) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.10f).compositeOver(DevxColors.Card) else DevxColors.Card,
+        when {
+            selected -> androidx.compose.ui.graphics.Color.White.copy(alpha = 0.10f).compositeOver(DevxColors.Card)
+            current -> androidx.compose.ui.graphics.Color.White.copy(alpha = 0.06f).compositeOver(DevxColors.Card)
+            else -> DevxColors.Card
+        },
         tween(260), label = "card-color",
     )
-    val border by androidx.compose.animation.animateColorAsState(if (selected) DevxColors.Accent.copy(alpha = 0.85f) else androidx.compose.ui.graphics.Color.Transparent, tween(260), label = "card-border")
+    val border by androidx.compose.animation.animateColorAsState(
+        when {
+            selected -> DevxColors.Accent.copy(alpha = 0.85f)
+            current -> androidx.compose.ui.graphics.Color.White.copy(alpha = 0.20f)
+            else -> androidx.compose.ui.graphics.Color.Transparent
+        },
+        tween(260), label = "card-border",
+    )
+    val barHeight by androidx.compose.animation.core.animateDpAsState(if (current && !selecting) 22.dp else 0.dp, spring(dampingRatio = 0.7f, stiffness = 420f), label = "here-bar")
     Row(
         Modifier
             .fillMaxWidth()
@@ -606,6 +621,8 @@ private fun ChatCard(chat: ChatSummary, selecting: Boolean, selected: Boolean, o
         ) {
             SelectDot(selected, Modifier.padding(end = 12.dp))
         }
+        // The bar that says "you are here".
+        Box(Modifier.padding(end = if (barHeight > 0.dp) 10.dp else 0.dp).size(width = if (barHeight > 0.dp) 4.dp else 0.dp, height = barHeight).clip(CircleShape).background(DevxColors.Accent))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 when (chat.status) {
@@ -614,11 +631,13 @@ private fun ChatCard(chat: ChatSummary, selecting: Boolean, selected: Boolean, o
                     ChatStatus.Waiting -> Icon(DevxIcons.ChatQuestion, null, tint = DevxColors.Warning, modifier = Modifier.size(18.dp))
                     ChatStatus.Idle -> Unit
                 }
-                Text(
-                    chat.title,
+                com.apvcode.devx.ui.components.AnimatedChatTitle(
+                    title = chat.title,
+                    naming = chat.naming,
                     style = DevxType.BodyStrong,
                     color = DevxColors.TextPrimary,
-                    maxLines = 1,
+                    marquee = current && !selecting,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 if (chat.locked) {

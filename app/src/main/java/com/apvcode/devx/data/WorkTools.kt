@@ -52,7 +52,7 @@ class WorkTools(
             out += tool(
                 "attach_file",
                 "Hand a file from your working folder to the person as a card (an archive you made, a picture you edited, anything).",
-                schema("path" to str("Path in your working folder."), "title" to str("Name to show (default: the file's own)."), required = listOf("path")),
+                schema("path" to str("Path in your working folder."), "title" to str("The file name the person sees, with its extension (for example \"Resume.pdf\"). Default: the file's own name."), required = listOf("path")),
             )
             out += tool(
                 "write_file",
@@ -102,7 +102,7 @@ class WorkTools(
             )
             out += tool(
                 "image_edit",
-                "Edit a picture: resize, crop, rotate, flip, turn grey, change type (jpg, png, webp) and quality. Steps run in this order: crop, rotate, flip, grayscale, resize.",
+                "Edit a picture: crop, rotate, flip, grayscale, resize, change type (jpg, png, webp) and quality, in that order.",
                 JSONObject()
                     .put("type", "object")
                     .put(
@@ -112,7 +112,7 @@ class WorkTools(
                             .put("output", str("Where to save (the type follows the extension: .jpg .png .webp)."))
                             .put("width", int("New width in pixels."))
                             .put("height", int("New height in pixels."))
-                            .put("mode", str("With both width and height: \"fit\" keeps proportions inside the box (default), \"fill\" fills the box and cuts the rest, \"stretch\" distorts."))
+                            .put("mode", str("With width and height: fit (default), fill (cuts the rest) or stretch."))
                             .put("crop", JSONObject().put("type", "object").put("description", "Cut out a part: x, y, width, height in pixels.")
                                 .put("properties", JSONObject().put("x", int("Left.")).put("y", int("Top.")).put("width", int("Width.")).put("height", int("Height."))))
                             .put("rotate", int("Degrees clockwise (90, 180, 270 or any)."))

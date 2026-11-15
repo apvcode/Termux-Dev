@@ -60,6 +60,8 @@ data class ChatSummary(
     val status: ChatStatus,
     val pinned: Boolean = false,
     val locked: Boolean = false,
+    /** The title is being written by the model right now. */
+    val naming: Boolean = false,
 )
 
 enum class TaskStatus { Running, Done, Failed }

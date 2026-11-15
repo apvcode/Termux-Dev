@@ -31,9 +31,12 @@ The API key is kept encrypted on the phone (Android Keystore) and goes only to t
 - Memory: the assistant keeps useful notes and a summary about you, on the phone only. You can read, edit and delete them.
 - Skills (written guides the assistant reads when a task matches): built in, imported (`.skill` or `SKILL.md`) or written by you.
 - MCP servers over https (GitHub, documentation and others) with approvals and a read-only switch.
-- Web search, files and archives, a terminal and Python inside the app, in a folder of its own. Each can be switched off.
+- Web search (it reads search pages itself; a free Tavily or Brave key in Settings makes it noticeably more accurate), files and archives, a terminal and Python inside the app, in a folder of its own. Each can be switched off.
+- Forms the assistant draws for you: labelled questions with hints, choices (one or several), sliders and switches; what you fill in is kept, and a sent form stays sent.
+- Chat names are written while the answer is, with a small animation; the chat you are in is marked in the list.
 - Rich answers: cards, tables, charts, maps, weather, timers, checklists, Mermaid diagrams, app cards from Google Play and F-Droid. Rotating greetings on the home screen.
 - A full-screen editor with Markdown preview for long messages. Select several chats to delete or archive.
+- Paste pictures and files straight into the message field (from the clipboard or the keyboard). "Ask devx" on selected text does not touch your clipboard.
 - Backup and restore of chats, projects, memory, skills and settings in one file.
 - Widgets and a quick-settings tile.
 
@@ -44,6 +47,7 @@ The API key is kept encrypted on the phone (Android Keystore) and goes only to t
 - Looks at your gallery, reads on-screen notifications, works in one folder you pick, but only when you ask and only if you allowed it.
 - Scheduled tasks: "every morning send me the news about AI". They run by themselves and arrive as a chat and a notification.
 - Speech speed, voice and a separate fast model for talking are in **Settings → Voice assistant**.
+- Tap the pill to write instead of speaking; hold it and swipe up to open the app with the same chat. The microphone has its own soft sounds instead of the speech service's beep.
 
 **Devx Remote**
 - Control devx running on your computer: every chat, live replies and reasoning, approval cards, questions, the plan (with *Go and compact context*), plan/agent/YOLO modes, model and provider, context and cost, `/compact` and other commands. Files and photos go both ways.

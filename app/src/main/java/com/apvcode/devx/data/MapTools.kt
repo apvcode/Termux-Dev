@@ -36,7 +36,7 @@ class MapTools(private val context: Context) {
         add(
             tool(
                 "find_places",
-                "Find places, businesses and addresses on the free OpenStreetMap map (no key needed, the whole world): \"pharmacy\", \"coffee\", \"Lenina 5, Kazan\". Give the coordinates of a centre (from get_location) to get what is near it, nearest first. Gives names, addresses, kinds, opening hours and phone when the map has them, and coordinates (use them for get_route).",
+                "Find places, businesses and addresses on OpenStreetMap (worldwide, no key): \"pharmacy\", \"Lenina 5, Kazan\". With a centre's coordinates (from get_location) it gives what is near, nearest first: names, addresses, hours, phone and coordinates (for get_route).",
                 schema(
                     "query" to str("What or where to look for."),
                     "lat" to number("Latitude of the centre (optional)."),
@@ -50,7 +50,7 @@ class MapTools(private val context: Context) {
         add(
             tool(
                 "get_route",
-                "How long a trip takes and how far it is, on OpenStreetMap roads and paths (no key needed): by car, on foot or by bicycle. Needs coordinates of both ends (from get_location and find_places). Public transport is not covered.",
+                "Time and distance of a trip on OpenStreetMap roads: by car, on foot or by bicycle (no public transport). Needs the coordinates of both ends.",
                 schema(
                     "from_lat" to number("Start latitude."), "from_lon" to number("Start longitude."),
                     "to_lat" to number("End latitude."), "to_lon" to number("End longitude."),

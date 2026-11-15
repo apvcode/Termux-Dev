@@ -170,6 +170,8 @@
     <string name="quiz_title">Карточки с вопросами</string>
     <string name="quiz_question">Вопрос %1$d</string>
     <string name="quiz_hint">Впиши свой ответ…</string>
+    <string name="card_pick_several">Можно выбрать несколько</string>
+    <string name="card_other">Другое…</string>
     <string name="quiz_check">Проверить</string>
     <string name="quiz_correct">Верно</string>
     <string name="quiz_answer">Ответ: %1$s</string>
@@ -368,6 +370,8 @@
     <string name="voice_tap_interrupt">Нажмите, чтобы перебить</string>
     <string name="voice_tap_talk">Нажмите на шар и говорите</string>
     <string name="voice_placeholder">Спросите Devx</string>
+    <string name="voice_swipe_hint">Задержи и проведи вверх, чтобы открыть приложение</string>
+    <string name="voice_type_hint">Напишите сообщение…</string>
     <string name="voice_mute">Выключить голос</string>
     <string name="voice_unmute">Включить голос</string>
     <string name="voice_mic">Говорить</string>
@@ -535,6 +539,7 @@
     <string name="memory_edited">Изменено вручную</string>
     <string name="memory_edited_hint">Эту сводку написали вы. Сама она не перезаписывается: «Обновить» заменит её новой.</string>
     <string name="memory_edit_hint">Сводка в формате Markdown</string>
+    <string name="memory_ask_hint">Попросить devx поправить…</string>
     <string name="memory_edit_note">Сохраняется как есть. Оставьте пустой, чтобы ассистент написал сводку заново.</string>
     <string name="tool_mcp">Использую MCP-сервер</string>
     <string name="mcp_add">Добавить сервер</string>
@@ -975,6 +980,10 @@
     <string name="settings_twogis_key_hint">Ключ с dev.2gis.com (хватит бесплатного демо-ключа)</string>
     <string name="settings_twogis_key_set">Задан</string>
     <string name="settings_twogis_key_none">Не задан</string>
+    <string name="settings_search_key">Ключ поиска (необязательно)</string>
+    <string name="settings_search_key_hint">Точнее веб-поиск со своим ключом Tavily или Brave</string>
+    <string name="settings_search_key_about">Бесплатный ключ с tavily.com (начинается с tvly-) или brave.com/search/api (начинается с BSA) делает веб-поиск ассистента заметно точнее. Без ключа он читает страницы поиска сам.</string>
+    <string name="settings_search_key_bad">Ключ должен начинаться с tvly- или BSA</string>
     <string name="va_can_places">Места и маршруты</string>
     <string name="va_can_places_hint">«Что рядом», «сколько ехать до аэропорта», «погода здесь»: ваше положение (с разрешения) и бесплатная карта OpenStreetMap без ключей; 2ГИС и Google Maps добавляют детали, если дать их ключи.</string>
     <string name="va_location">Местоположение</string>

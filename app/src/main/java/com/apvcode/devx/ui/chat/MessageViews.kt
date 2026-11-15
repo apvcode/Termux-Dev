@@ -300,19 +300,8 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
         exit = fadeOut(tween(220)) + shrinkVertically(tween(360)),
     ) {
         Column(Modifier.padding(bottom = 12.dp)) {
-            when {
-                msg.reconnect > 0 -> ReconnectRow(msg.reconnect)
-                msg.activity != null -> ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
-                else -> {
-                    val headline = rememberThinkingHeadline(msg)
-                    ThinkingLabel(
-                        text = headline,
-                        enabled = msg.reasoning.isNotBlank() || msg.steps.isNotEmpty(),
-                        onClick = { host.onShowThinking(msg) },
-                    )
-                    if (msg.text.isEmpty() && msg.sources.isNotEmpty()) ToolActivityRow(msg, onClick = { host.onShowThinking(msg) })
-                }
-            }
+            if (msg.reconnect > 0) ReconnectRow(msg.reconnect)
+            else AssistantStatus(msg, onClick = { host.onShowThinking(msg) })
         }
     }
     val imageContext = androidx.compose.ui.platform.LocalContext.current

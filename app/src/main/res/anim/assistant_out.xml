@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The assistant leaves upward, thinning out, while the app comes up. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
+    <translate
+        android:fromYDelta="0%"
+        android:toYDelta="-6%"
+        android:duration="300"
+        android:interpolator="@android:interpolator/accelerate_cubic" />
+    <alpha
+        android:fromAlpha="1"
+        android:toAlpha="0"
+        android:duration="260"
+        android:interpolator="@android:interpolator/accelerate_cubic" />
+</set>

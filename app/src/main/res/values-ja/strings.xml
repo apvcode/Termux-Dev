@@ -166,6 +166,8 @@
     <string name="quiz_title">質問カード</string>
     <string name="quiz_question">質問 %1$d</string>
     <string name="quiz_hint">回答を入力…</string>
+    <string name="card_pick_several">複数選べます</string>
+    <string name="card_other">その他…</string>
     <string name="quiz_check">確認</string>
     <string name="quiz_correct">正解</string>
     <string name="quiz_answer">答え: %1$s</string>
@@ -360,6 +362,8 @@
     <string name="voice_tap_interrupt">タップして中断</string>
     <string name="voice_tap_talk">球をタップして話してください</string>
     <string name="voice_placeholder">Devx に聞く</string>
+    <string name="voice_swipe_hint">長押しして上にスワイプするとアプリが開きます</string>
+    <string name="voice_type_hint">メッセージを入力…</string>
     <string name="voice_mute">音声をオフにする</string>
     <string name="voice_unmute">音声をオンにする</string>
     <string name="voice_mic">話す</string>
@@ -524,6 +528,7 @@
     <string name="memory_edited">手動で編集</string>
     <string name="memory_edited_hint">この要約はあなたが書いたものです。自動では書き直されません。「更新」で新しい要約に置き換わります。</string>
     <string name="memory_edit_hint">要約(Markdown)</string>
+    <string name="memory_ask_hint">devx に修正を頼む…</string>
     <string name="memory_edit_note">そのまま保存されます。空にすると、アシスタントが要約を書き直します。</string>
     <string name="tool_mcp">MCPサーバーを使用中</string>
     <string name="mcp_add">サーバーを追加</string>
@@ -957,6 +962,10 @@
     <string name="settings_twogis_key_hint">dev.2gis.com のキー(無料のデモキーで十分)</string>
     <string name="settings_twogis_key_set">設定済み</string>
     <string name="settings_twogis_key_none">未設定</string>
+    <string name="settings_search_key">検索キー（任意）</string>
+    <string name="settings_search_key_hint">自分の Tavily または Brave キーでウェブ検索をより正確に</string>
+    <string name="settings_search_key_about">tavily.com（tvly- で始まる）または brave.com/search/api（BSA で始まる）の無料キーを使うと、アシスタントのウェブ検索が大きく正確になります。キーがない場合は検索ページを自分で読みます。</string>
+    <string name="settings_search_key_bad">キーは tvly- または BSA で始まる必要があります</string>
     <string name="va_can_places">場所とルート</string>
     <string name="va_can_places_hint">「近くに何がある」「空港までどれくらい」「ここの天気」: 位置情報(許可があれば)と無料のOpenStreetMap地図をキーなしで使います。2GISとGoogleマップはキーを渡すと詳細が加わります。</string>
     <string name="va_location">位置情報</string>

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.Title
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -63,6 +64,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -82,8 +86,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import com.apvcode.devx.R
 import com.apvcode.devx.ui.components.DevxDialog
+import com.apvcode.devx.ui.components.LocalGlass
+import com.apvcode.devx.ui.components.glass
 import com.apvcode.devx.ui.components.MenuRow
 import com.apvcode.devx.ui.components.PillButton
 import com.apvcode.devx.ui.components.PopupMenu
@@ -142,39 +150,57 @@ private fun FullEditor(initial: String, canSend: Boolean, onChange: (String) -> 
         runCatching { focus.requestFocus() }
     }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(DevxColors.Bg)
-            .graphicsLayer { alpha = appear.value; translationY = (1f - appear.value) * 40.dp.toPx() }
-            .systemBarsPadding()
-            .imePadding(),
-    ) {
-        Column(Modifier.fillMaxSize()) {
-            // The top: back to the field, "Edit | Preview", undo and redo.
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                RoundTool(onClick = onClose) { Icon(painterResource(R.drawable.ic_arrows_diagonal_minimize), stringResource(R.string.editor_collapse), tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp)) }
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    Row(Modifier.clip(CircleShape).background(DevxColors.Card).padding(3.dp)) {
-                        Segment(stringResource(R.string.editor_edit), !preview) { preview = false }
-                        Segment(stringResource(R.string.editor_preview), preview) { preview = true }
-                    }
-                }
-                Row(Modifier.clip(CircleShape).background(DevxColors.Card)) {
-                    Box(Modifier.size(44.dp).pressable(enabled = undoCount > 0, scaleTo = 0.9f, haptic = false) { doUndo() }, contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Outlined.Undo, null, tint = if (undoCount > 0) DevxColors.TextPrimary else DevxColors.TextDisabled, modifier = Modifier.size(22.dp)) }
-                    Box(Modifier.size(44.dp).pressable(enabled = redoCount > 0, scaleTo = 0.9f, haptic = false) { doRedo() }, contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Outlined.Redo, null, tint = if (redoCount > 0) DevxColors.TextPrimary else DevxColors.TextDisabled, modifier = Modifier.size(22.dp)) }
-                }
-            }
+    // The page runs under the two bars, which are glass: the text scrolls beneath them and shows through, blurred.
+    val haze = rememberHazeState()
+    val density = LocalDensity.current
+    var topPx by remember { mutableIntStateOf(0) }
+    var bottomPx by remember { mutableIntStateOf(0) }
+    var viewportPx by remember { mutableIntStateOf(0) }
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val scroll = rememberScrollState()
+    val previewScroll = rememberScrollState()
+    val padTop = with(density) { topPx.toDp() } + 8.dp
+    val padBottom = with(density) { bottomPx.toDp() } + 24.dp
 
+    // Writing long text: the line being typed glides into view above the keyboard and the bar, never hidden behind them.
+    LaunchedEffect(tf.selection, layout, viewportPx, topPx, bottomPx, scroll.maxValue, preview) {
+        if (preview || viewportPx == 0) return@LaunchedEffect
+        val l = layout ?: return@LaunchedEffect
+        val at = tf.selection.end.coerceIn(0, l.layoutInput.text.length)
+        val rect = l.getCursorRect(at)
+        val lead = with(density) { 8.dp.toPx() } + topPx
+        val margin = with(density) { 28.dp.toPx() }
+        val top = lead + rect.top
+        val bottom = lead + rect.bottom
+        val visTop = scroll.value + topPx
+        val visBottom = scroll.value + viewportPx - bottomPx
+        val target = when {
+            bottom + margin > visBottom -> scroll.value + (bottom + margin - visBottom).toInt()
+            top - margin < visTop -> scroll.value - (visTop - (top - margin)).toInt()
+            else -> null
+        } ?: return@LaunchedEffect
+        scroll.animateScrollTo(target.coerceIn(0, scroll.maxValue), tween(240, easing = FastOutSlowInEasing))
+    }
+
+    CompositionLocalProvider(LocalGlass provides haze) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(DevxColors.Bg)
+                .graphicsLayer { alpha = appear.value; translationY = (1f - appear.value) * 40.dp.toPx() }
+                .systemBarsPadding()
+                .imePadding()
+                .onSizeChanged { viewportPx = it.height },
+        ) {
             // The page.
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            Box(Modifier.fillMaxSize().hazeSource(haze)) {
                 if (preview) {
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 26.dp, vertical = 12.dp)) {
+                    Column(Modifier.fillMaxSize().verticalScroll(previewScroll).padding(start = 26.dp, end = 26.dp, top = padTop, bottom = padBottom)) {
                         if (tf.text.isBlank()) Text(stringResource(R.string.editor_empty_preview), style = DevxType.Body, color = DevxColors.TextDisabled)
                         else MarkdownText(tf.text)
                     }
                 } else {
-                    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 26.dp, vertical = 12.dp)) {
+                    Box(Modifier.fillMaxSize().verticalScroll(scroll).padding(start = 26.dp, end = 26.dp, top = padTop, bottom = padBottom)) {
                         if (tf.text.isEmpty()) Text(stringResource(R.string.editor_placeholder), style = DevxType.Body.copy(fontSize = 19.sp, lineHeight = 30.sp), color = DevxColors.TextDisabled)
                         BasicTextField(
                             value = tf,
@@ -182,19 +208,41 @@ private fun FullEditor(initial: String, canSend: Boolean, onChange: (String) -> 
                             textStyle = DevxType.Body.copy(fontSize = 19.sp, lineHeight = 30.sp, color = DevxColors.TextPrimary),
                             cursorBrush = SolidColor(DevxColors.Accent),
                             visualTransformation = MarkdownHighlight,
+                            onTextLayout = { layout = it },
                             modifier = Modifier.fillMaxWidth().focusRequester(focus),
                         )
                     }
                 }
             }
 
+            // The top: back to the field, "Edit | Preview", undo and redo, each a glass capsule with no ground of its own.
+            Row(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).onSizeChanged { topPx = it.height },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RoundTool(onClick = onClose) { Icon(painterResource(R.drawable.ic_arrows_diagonal_minimize), stringResource(R.string.editor_collapse), tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp)) }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Row(Modifier.glass(CircleShape).padding(3.dp)) {
+                        Segment(stringResource(R.string.editor_edit), !preview) { preview = false }
+                        Segment(stringResource(R.string.editor_preview), preview) { preview = true }
+                    }
+                }
+                Row(Modifier.glass(CircleShape)) {
+                    Box(Modifier.size(44.dp).pressable(enabled = undoCount > 0, scaleTo = 0.9f, haptic = false) { doUndo() }, contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Outlined.Undo, null, tint = if (undoCount > 0) DevxColors.TextPrimary else DevxColors.TextDisabled, modifier = Modifier.size(22.dp)) }
+                    Box(Modifier.size(44.dp).pressable(enabled = redoCount > 0, scaleTo = 0.9f, haptic = false) { doRedo() }, contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Outlined.Redo, null, tint = if (redoCount > 0) DevxColors.TextPrimary else DevxColors.TextDisabled, modifier = Modifier.size(22.dp)) }
+                }
+            }
+
             // The bottom: how much is written, the tools and the send button.
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp).onSizeChanged { bottomPx = it.height },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 val words = remember(tf.text) { tf.text.split(Regex("\\s+")).count { it.isNotBlank() } }
                 Text(stringResource(R.string.editor_count, tf.text.length, words), style = DevxType.Caption, color = DevxColors.TextDisabled, modifier = Modifier.padding(start = 10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
-                        Modifier.weight(1f).clip(CircleShape).background(DevxColors.Card).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
+                        Modifier.weight(1f).glass(CircleShape).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // Text styles.
@@ -223,9 +271,9 @@ private fun FullEditor(initial: String, canSend: Boolean, onChange: (String) -> 
                         ToolButton(Icons.Outlined.Link, stringResource(R.string.fmt_link)) { edit { link(it) } }
                     }
                     Box(
-                        Modifier.size(52.dp).clip(CircleShape).background(if (canSend) DevxColors.Accent else DevxColors.Outline).pressable(enabled = canSend, scaleTo = 0.9f, onClick = onSend),
+                        Modifier.size(52.dp).pressable(enabled = canSend, scaleTo = 0.9f, onClick = onSend).glass(CircleShape),
                         contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Filled.ArrowUpward, stringResource(R.string.voice_send), tint = if (canSend) DevxColors.OnAccent else DevxColors.TextDisabled, modifier = Modifier.size(24.dp)) }
+                    ) { Icon(Icons.Filled.ArrowUpward, stringResource(R.string.voice_send), tint = if (canSend) DevxColors.TextPrimary else DevxColors.TextDisabled, modifier = Modifier.size(24.dp)) }
                 }
             }
         }
@@ -238,14 +286,14 @@ private fun FullEditor(initial: String, canSend: Boolean, onChange: (String) -> 
 
 @Composable
 private fun RoundTool(onClick: () -> Unit, content: @Composable () -> Unit) {
-    Box(Modifier.size(44.dp).clip(CircleShape).background(DevxColors.Card).pressable(scaleTo = 0.9f, onClick = onClick), contentAlignment = Alignment.Center) { content() }
+    Box(Modifier.size(44.dp).pressable(scaleTo = 0.9f, onClick = onClick).glass(CircleShape), contentAlignment = Alignment.Center) { content() }
 }
 
 @Composable
 private fun Segment(text: String, on: Boolean, onClick: () -> Unit) {
     Text(
-        text, style = DevxType.Caption.copy(fontWeight = FontWeight.Medium), color = if (on) DevxColors.OnAccent else DevxColors.TextSecondary,
-        modifier = Modifier.clip(CircleShape).background(if (on) DevxColors.Accent else Color.Transparent).pressable(scaleTo = 0.95f, haptic = false, onClick = onClick).padding(horizontal = 18.dp, vertical = 10.dp),
+        text, style = DevxType.Caption.copy(fontWeight = FontWeight.Medium), color = if (on) DevxColors.TextPrimary else DevxColors.TextSecondary,
+        modifier = Modifier.clip(CircleShape).background(if (on) Color.White.copy(alpha = 0.16f) else Color.Transparent).pressable(scaleTo = 0.95f, haptic = false, onClick = onClick).padding(horizontal = 18.dp, vertical = 10.dp),
     )
 }
 

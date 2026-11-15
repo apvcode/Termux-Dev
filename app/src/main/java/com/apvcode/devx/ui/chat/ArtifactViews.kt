@@ -118,7 +118,7 @@ fun ArtifactCard(id: String, vm: ChatViewModel, onOpen: (Artifact) -> Unit, modi
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                artifact.name.substringBeforeLast('.').ifBlank { artifact.name },
+                artifact.name,
                 style = DevxType.BodyStrong,
                 color = DevxColors.TextPrimary,
                 maxLines = 1,

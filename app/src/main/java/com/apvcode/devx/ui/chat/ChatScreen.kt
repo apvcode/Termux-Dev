@@ -96,6 +96,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.placeCursorAtEnd
+import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
+import androidx.compose.foundation.text.contextmenu.builder.item
+import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDownward
@@ -221,7 +225,7 @@ fun ChatScreen(
     val pasteImages = {
         val clip = runCatching { clipboardManager?.primaryClip }.getOrNull()
         val uris = buildList { if (clip != null) for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { add(it) } }
-        if (uris.isNotEmpty()) vm.attachMedia(uris) else android.widget.Toast.makeText(context, R.string.paste_image_failed, android.widget.Toast.LENGTH_SHORT).show()
+        if (uris.isNotEmpty()) vm.attachFiles(uris) else android.widget.Toast.makeText(context, R.string.paste_image_failed, android.widget.Toast.LENGTH_SHORT).show()
         clipDismissedAt = clipImageAt
     }
     var attachOpen by remember { mutableStateOf(false) }
@@ -736,6 +740,7 @@ fun ChatScreen(
                 onToggleAttach = { attachOpen = !attachOpen },
                 clipImage = clipImageAt != 0L && clipImageAt != clipDismissedAt,
                 onPasteImage = pasteImages,
+                onPasteUris = { vm.attachFiles(it) },
                 onDismissClip = { clipDismissedAt = clipImageAt },
                 onMic = {
                     keyboard?.hide()
@@ -959,6 +964,7 @@ private fun Composer(
     onVoiceLanguage: (String) -> Unit,
     clipImage: Boolean = false,
     onPasteImage: () -> Unit = {},
+    onPasteUris: (List<android.net.Uri>) -> Unit = {},
     onDismissClip: () -> Unit = {},
 ) {
     val origin = LocalSendOrigin.current
@@ -1086,17 +1092,33 @@ private fun Composer(
                             .onGloballyPositioned { origin.field = it.boundsInWindow() },
                         contentAlignment = Alignment.CenterStart,
                     ) {
+                        // The field is the kind that tells the keyboard what it takes (pictures, files), so that pasting those works.
+                        val fieldState = androidx.compose.foundation.text.input.rememberTextFieldState(value)
+                        val latestValue = androidx.compose.runtime.rememberUpdatedState(value)
+                        val latestChange = androidx.compose.runtime.rememberUpdatedState(onValueChange)
+                        // What the rest of the screen sets (sent, a shared text, dictation) goes into the field...
+                        LaunchedEffect(value) {
+                            if (fieldState.text.toString() != value) {
+                                fieldState.edit { replace(0, length, value); placeCursorAtEnd() }
+                            }
+                        }
+                        // ...and what is typed goes out.
+                        LaunchedEffect(fieldState) {
+                            androidx.compose.runtime.snapshotFlow { fieldState.text.toString() }.collect { typed ->
+                                if (typed != latestValue.value) latestChange.value(typed)
+                            }
+                        }
                         BasicTextField(
-                            value = value,
-                            onValueChange = onValueChange,
+                            state = fieldState,
                             textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
                             cursorBrush = SolidColor(DevxColors.Accent),
-                            maxLines = 6,
-                            onTextLayout = { lines = it.lineCount },
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).focusRequester(fieldFocus).onFocusChanged { focused = it.isFocused },
-                            decorationBox = { inner ->
+                            lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.MultiLine(minHeightInLines = 1, maxHeightInLines = 6),
+                            onTextLayout = { layout -> lines = layout()?.lineCount ?: 1 },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).focusRequester(fieldFocus).onFocusChanged { focused = it.isFocused }
+                                .pasteFiles(onPasteUris, onPasteImage),
+                            decorator = androidx.compose.foundation.text.input.TextFieldDecorator { inner ->
                                 Box(contentAlignment = Alignment.CenterStart) {
-                                    if (value.isEmpty()) {
+                                    if (fieldState.text.isEmpty()) {
                                         Text(stringResource(R.string.chat_placeholder), style = DevxType.Body, color = DevxColors.TextSecondary, maxLines = 1)
                                     }
                                     inner()
@@ -1239,4 +1261,37 @@ internal fun SendButton(canSend: Boolean, generating: Boolean, onSend: () -> Uni
             }
         }
     }
+}
+
+
+/**
+ * What is pasted into the field may be more than words: a picture, a video or a file (from the clipboard, or sent by the keyboard).
+ * Those join the message as attachments, as if they had been picked. The menu over the field also offers "Paste" when the
+ * clipboard holds something that is not text, since the system's own Paste is only for words.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.pasteFiles(onUris: (List<android.net.Uri>) -> Unit, onPasteClipboard: () -> Unit): Modifier {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pasteLabel = remember { context.getString(android.R.string.paste) }
+    val latestUris = androidx.compose.runtime.rememberUpdatedState(onUris)
+    val latestPaste = androidx.compose.runtime.rememberUpdatedState(onPasteClipboard)
+    return this
+        .contentReceiver(object : androidx.compose.foundation.content.ReceiveContentListener {
+            override fun onReceive(transferableContent: androidx.compose.foundation.content.TransferableContent): androidx.compose.foundation.content.TransferableContent? {
+                val clip = transferableContent.clipEntry.clipData
+                val items = (0 until clip.itemCount).map { clip.getItemAt(it) }
+                // Only what is no words (a picture, a file) is taken as an attachment; words are pasted as they are.
+                val files = items.filter { it.uri != null && it.text == null && it.htmlText == null }
+                if (files.isEmpty()) return transferableContent
+                latestUris.value(files.mapNotNull { it.uri })
+                return if (files.size == items.size) null else transferableContent
+            }
+        })
+        .appendTextContextMenuComponents {
+            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+            val d = runCatching { clipboard?.primaryClipDescription }.getOrNull()
+            val holdsFile = d != null && (0 until d.mimeTypeCount).any { !d.getMimeType(it).startsWith("text/") }
+            if (holdsFile) item(key = "devx-paste-files", label = pasteLabel) { latestPaste.value(); close() }
+        }
 }

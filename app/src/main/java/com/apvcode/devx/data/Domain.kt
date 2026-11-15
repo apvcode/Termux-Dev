@@ -136,6 +136,9 @@ class Chat(val id: String, title: String, project: String?, val createdAt: Long)
     /** False until the model has named the chat (or the user did): then it is not renamed again. */
     var titleFinal by mutableStateOf(false)
 
+    /** The title is being written by the model right now (not saved: it only drives the animation). */
+    var naming by mutableStateOf(false)
+
     /** The model this chat talks to: kept with the chat, so every chat remembers its own. */
     var model by mutableStateOf<ModelRef?>(null)
     val messages = mutableStateListOf<Msg>()

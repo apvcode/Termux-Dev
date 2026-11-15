@@ -394,6 +394,37 @@ fun AssistantScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Un
                     }
                 }
                 SettingsDivider()
+                var searchKeyDialog by remember { mutableStateOf(false) }
+                var searchHasKey by remember { mutableStateOf(!com.apvcode.devx.data.Secrets(twoGisContext).get(com.apvcode.devx.data.SearchApi.KEY_ID).isNullOrBlank()) }
+                SettingsRow(
+                    title = stringResource(R.string.settings_search_key),
+                    subtitle = stringResource(R.string.settings_search_key_hint),
+                    value = stringResource(if (searchHasKey) R.string.settings_twogis_key_set else R.string.settings_twogis_key_none),
+                    showChevron = true,
+                    onClick = { searchKeyDialog = true },
+                )
+                if (searchKeyDialog) {
+                    var text by remember { mutableStateOf("") }
+                    val valid = com.apvcode.devx.data.SearchApi.kindOf(text.trim()) != null
+                    com.apvcode.devx.ui.components.DevxDialog(stringResource(R.string.settings_search_key), onDismiss = { searchKeyDialog = false }) {
+                        androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
+                            androidx.compose.material3.Text(stringResource(R.string.settings_search_key_about), style = com.apvcode.devx.ui.theme.DevxType.Caption, color = com.apvcode.devx.ui.theme.DevxColors.TextSecondary)
+                            com.apvcode.devx.ui.components.DevxTextField("tvly-… / BSA…", text, { text = it }, password = true)
+                            if (text.isNotBlank() && !valid) androidx.compose.material3.Text(stringResource(R.string.settings_search_key_bad), style = com.apvcode.devx.ui.theme.DevxType.Caption, color = com.apvcode.devx.ui.theme.DevxColors.Warning)
+                            com.apvcode.devx.ui.components.PillButton(stringResource(R.string.task_save), enabled = valid, onClick = {
+                                com.apvcode.devx.data.Secrets(twoGisContext).put(com.apvcode.devx.data.SearchApi.KEY_ID, text.trim())
+                                searchHasKey = true
+                                searchKeyDialog = false
+                            })
+                            if (searchHasKey) com.apvcode.devx.ui.components.PillButton(stringResource(R.string.menu_delete), filled = false, onClick = {
+                                com.apvcode.devx.data.Secrets(twoGisContext).remove(com.apvcode.devx.data.SearchApi.KEY_ID)
+                                searchHasKey = false
+                                searchKeyDialog = false
+                            })
+                        }
+                    }
+                }
+                SettingsDivider()
                 SettingsRow(
                     title = stringResource(R.string.settings_max_photos),
                     subtitle = stringResource(R.string.settings_max_photos_hint),
@@ -442,11 +473,11 @@ fun AboutScreen(onBack: () -> Unit) {
                 SettingsRow(
                     title = stringResource(R.string.about_github),
                     icon = com.apvcode.devx.ui.components.DevxIcons.BrandGithub,
-                    value = "apvcode",
+                    value = "termux-dev",
                     showChevron = true,
                     onClick = {
                         runCatching {
-                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/apvcode")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/apvcode/Termux-Dev")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
                         }
                     },
                 )

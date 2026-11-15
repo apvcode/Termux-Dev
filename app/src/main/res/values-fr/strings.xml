@@ -166,6 +166,8 @@
     <string name="quiz_title">Cartes de questions</string>
     <string name="quiz_question">Question %1$d</string>
     <string name="quiz_hint">Saisissez votre réponse…</string>
+    <string name="card_pick_several">Vous pouvez en choisir plusieurs</string>
+    <string name="card_other">Autre chose…</string>
     <string name="quiz_check">Vérifier</string>
     <string name="quiz_correct">Correct</string>
     <string name="quiz_answer">Réponse : %1$s</string>
@@ -360,6 +362,8 @@
     <string name="voice_tap_interrupt">Touchez pour interrompre</string>
     <string name="voice_tap_talk">Touchez la sphère et parlez</string>
     <string name="voice_placeholder">Demandez à Devx</string>
+    <string name="voice_swipe_hint">Maintenez et glissez vers le haut pour ouvrir l\'appli</string>
+    <string name="voice_type_hint">Écrivez un message…</string>
     <string name="voice_mute">Couper la voix</string>
     <string name="voice_unmute">Activer la voix</string>
     <string name="voice_mic">Parler</string>
@@ -524,6 +528,7 @@
     <string name="memory_edited">Modifié à la main</string>
     <string name="memory_edited_hint">Vous avez écrit ce résumé. Il n\'est pas réécrit tout seul : « Mettre à jour » le remplace par un nouveau.</string>
     <string name="memory_edit_hint">Le résumé, en Markdown</string>
+    <string name="memory_ask_hint">Demander à devx de corriger…</string>
     <string name="memory_edit_note">Enregistré tel quel. Laissez vide pour que l\'assistant réécrive le résumé.</string>
     <string name="tool_mcp">Utilisation d\'un serveur MCP</string>
     <string name="mcp_add">Ajouter un serveur</string>
@@ -957,6 +962,10 @@
     <string name="settings_twogis_key_hint">Clé de dev.2gis.com (une clé de démonstration gratuite suffit)</string>
     <string name="settings_twogis_key_set">Définie</string>
     <string name="settings_twogis_key_none">Non définie</string>
+    <string name="settings_search_key">Clé de recherche (facultatif)</string>
+    <string name="settings_search_key_hint">Une recherche web plus précise avec votre clé Tavily ou Brave</string>
+    <string name="settings_search_key_about">Une clé gratuite de tavily.com (commence par tvly-) ou brave.com/search/api (commence par BSA) rend la recherche web nettement plus précise. Sans clé, l\'assistant lit lui-même les pages de recherche.</string>
+    <string name="settings_search_key_bad">La clé doit commencer par tvly- ou BSA</string>
     <string name="va_can_places">Lieux et itinéraires</string>
     <string name="va_can_places_hint">« Qu\'y a-t-il près de moi », « combien de temps jusqu\'à l\'aéroport », « la météo ici » : votre position (avec autorisation) et la carte libre OpenStreetMap, sans clés ; 2GIS et Google Maps ajoutent du détail si vous donnez leurs clés.</string>
     <string name="va_location">Position</string>

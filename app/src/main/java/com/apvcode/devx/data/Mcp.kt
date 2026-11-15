@@ -73,7 +73,7 @@ class McpSession(private val http: OkHttpClient, private val url: String, privat
         val init = rpc("initialize", JSONObject()
             .put("protocolVersion", PROTOCOL)
             .put("capabilities", JSONObject())
-            .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.1.0")), retry = false)
+            .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.2.0")), retry = false)
         init.optString("protocolVersion").takeIf { it.isNotEmpty() }?.let { protocol = it }
         serverName = init.optJSONObject("serverInfo")?.optString("title")?.takeIf { it.isNotBlank() }
             ?: init.optJSONObject("serverInfo")?.optString("name")?.takeIf { it.isNotBlank() }
@@ -132,7 +132,7 @@ class McpSession(private val http: OkHttpClient, private val url: String, privat
             if (!retry || method == "initialize") throw McpException("The server closed the session.")
             sessionId = null
             val init = rpc("initialize", JSONObject().put("protocolVersion", PROTOCOL).put("capabilities", JSONObject())
-                .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.1.0")), retry = false)
+                .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.2.0")), retry = false)
             init.optString("protocolVersion").takeIf { it.isNotEmpty() }?.let { protocol = it }
             post(JSONObject().put("jsonrpc", "2.0").put("method", "notifications/initialized"), expectId = null)
             rpc(method, params, retry = false)
@@ -393,9 +393,9 @@ class McpTools(private val store: McpStore) {
         val github = if (rest.isEmpty()) emptyList() else listOf(
             WireTool(
                 GithubRest_TOOL,
-                "Send a request to the GitHub API (api.github.com) as the person (${rest.first().serverName}), with their token. Use it for repositories, files, branches, commits, issues, pull requests and search: " +
-                    "for example GET /user/repos, GET /repos/{owner}/{repo}/contents/{path}, PUT /repos/{owner}/{repo}/contents/{path} (content in base64, with the sha of the old file to change one), POST /repos/{owner}/{repo}/issues, GET /search/code?q=. " +
-                    "It changes real data: before anything that deletes or overwrites, tell the person what you are going to do and ask.",
+                "A request to the GitHub API (api.github.com) as the person (${rest.first().serverName}), with their token: repositories, files, branches, commits, issues, pull requests, search. " +
+                    "For example GET /user/repos, GET /repos/{o}/{r}/contents/{path}, PUT the same path (base64 content, plus the old file's sha to change one), POST /repos/{o}/{r}/issues, GET /search/code?q=. " +
+                    "It changes real data: before anything that deletes or overwrites, say what you will do and ask.",
                 JSONObject().put("type", "object")
                     .put("properties", JSONObject()
                         .put("method", str("GET, POST, PATCH, PUT or DELETE."))

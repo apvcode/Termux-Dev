@@ -166,6 +166,8 @@
     <string name="quiz_title">问题卡片</string>
     <string name="quiz_question">问题 %1$d</string>
     <string name="quiz_hint">输入你的答案…</string>
+    <string name="card_pick_several">可多选</string>
+    <string name="card_other">其他…</string>
     <string name="quiz_check">检查</string>
     <string name="quiz_correct">正确</string>
     <string name="quiz_answer">答案：%1$s</string>
@@ -360,6 +362,8 @@
     <string name="voice_tap_interrupt">点按以打断</string>
     <string name="voice_tap_talk">点按圆球并说话</string>
     <string name="voice_placeholder">问问 Devx</string>
+    <string name="voice_swipe_hint">按住并向上滑动即可打开应用</string>
+    <string name="voice_type_hint">输入消息…</string>
     <string name="voice_mute">关闭语音</string>
     <string name="voice_unmute">开启语音</string>
     <string name="voice_mic">说话</string>
@@ -524,6 +528,7 @@
     <string name="memory_edited">手动编辑</string>
     <string name="memory_edited_hint">这份摘要是你写的。它不会自动重写：“更新”会用新摘要替换它。</string>
     <string name="memory_edit_hint">摘要（Markdown）</string>
+    <string name="memory_ask_hint">让 devx 修改一下…</string>
     <string name="memory_edit_note">将按原样保存。留空则让助手重新撰写摘要。</string>
     <string name="tool_mcp">正在使用 MCP 服务器</string>
     <string name="mcp_add">添加服务器</string>
@@ -957,6 +962,10 @@
     <string name="settings_twogis_key_hint">来自 dev.2gis.com 的密钥（免费的演示密钥即可）</string>
     <string name="settings_twogis_key_set">已设置</string>
     <string name="settings_twogis_key_none">未设置</string>
+    <string name="settings_search_key">搜索密钥（可选）</string>
+    <string name="settings_search_key_hint">使用自己的 Tavily 或 Brave 密钥，网页搜索更准确</string>
+    <string name="settings_search_key_about">来自 tavily.com（以 tvly- 开头）或 brave.com/search/api（以 BSA 开头）的免费密钥可让助手的网页搜索明显更准确。没有密钥时，它会自己读取搜索页面。</string>
+    <string name="settings_search_key_bad">密钥必须以 tvly- 或 BSA 开头</string>
     <string name="va_can_places">地点和路线</string>
     <string name="va_can_places_hint">“我附近有什么”“到机场要多久”“这里的天气”：你的位置（经许可）和免费的 OpenStreetMap 地图，无需密钥；如果你提供密钥，2GIS 和 Google 地图会补充细节。</string>
     <string name="va_location">位置</string>

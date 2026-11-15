@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.apvcode.devx.data.AppLock.init(applicationContext)
+        com.apvcode.devx.data.Earcon.recover(applicationContext)
         takeChatFrom(intent)
         com.apvcode.devx.remote.RemoteHub.init(applicationContext)
         com.apvcode.devx.remote.RemoteHub.memory = viewModel.memory

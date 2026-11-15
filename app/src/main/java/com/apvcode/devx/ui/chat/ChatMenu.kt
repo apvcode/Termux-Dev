@@ -80,6 +80,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
@@ -148,13 +149,15 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
             ) { shown ->
                 Column {
                     if (shown == 0) {
-                        Text(
-                            chat.title,
-                            style = DevxType.Caption,
-                            color = DevxColors.TextSecondary,
-                            maxLines = 1,
+                        // The name of this chat in full (it wraps instead of being cut), animated while the model is still writing it.
+                        com.apvcode.devx.ui.components.AnimatedChatTitle(
+                            title = chat.title,
+                            naming = chat.naming,
+                            style = DevxType.BodyStrong.copy(fontSize = 14.sp, lineHeight = 19.sp),
+                            color = DevxColors.TextPrimary,
+                            maxLines = 3,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = if (chat.messages.isEmpty()) 6.dp else 0.dp),
+                            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = if (chat.messages.isEmpty()) 6.dp else 2.dp),
                         )
                         // What the provider counted, when it said; otherwise the rough estimate, set against the model's window.
                         val shown = chat.activePath()

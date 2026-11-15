@@ -129,6 +129,14 @@ class AssistantActivity : ComponentActivity() {
         val intent = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         if (action != null && chatId != null) intent.setAction(action).putExtra(MainActivity.EXTRA_CHAT_ID, chatId)
         startActivity(intent)
+        // The app comes up out of the assistant (it rises and fades in while the assistant thins out upward).
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, com.apvcode.devx.R.anim.app_rise, com.apvcode.devx.R.anim.assistant_out)
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, com.apvcode.devx.R.anim.app_rise, com.apvcode.devx.R.anim.assistant_out)
+        } else {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(com.apvcode.devx.R.anim.app_rise, com.apvcode.devx.R.anim.assistant_out)
+        }
         finish()
     }
 

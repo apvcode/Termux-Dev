@@ -238,6 +238,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 status = if (chat.id in streaming) ChatStatus.Working else ChatStatus.Idle,
                 pinned = chat.pinned,
                 locked = chat.locked,
+                naming = chat.naming,
             )
         }
 
@@ -780,6 +781,20 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
         val key = secrets.get(provider.id).orEmpty()
         val wire = provider.copy(kind = formatOf(provider, ref.model))
+        // The title is written at the same time as the answer, from the question alone: it is there (and animated) while the answer is
+        // still coming, not after it.
+        if (resume == null && !chat.temporary && !chat.titleFinal) {
+            chat.titleFinal = true
+            chat.naming = true
+            val asked = user.text.ifBlank { user.attachments.joinToString { it.name } }
+            viewModelScope.launch {
+                try {
+                    nameChat(chat, wire, key, ref.model, asked)
+                } finally {
+                    chat.naming = false
+                }
+            }
+        }
         val caps = capsFor(ref)
         val level = levelFor(ref)
         // The voice assistant wants its answer fast: no long thinking.
@@ -821,6 +836,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     if (memoryOn) memory.summary else null,
                     phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
                     voice = if (voiceMode) SystemPrompt.VOICE else null,
+                    guidesAsTool = tools.isNotEmpty(),
                 )
                 if (Prefs.workTools || Prefs.terminal) withContext(Dispatchers.IO) { workspace.syncUploads(chat.id, files, attachmentStore) }
                 var messages = withContext(Dispatchers.IO) { historyFor(chat, user, withTools = tools.isNotEmpty()) }.toMutableList()
@@ -1060,10 +1076,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     touch(chat)
                 }
             }
-            if (!chat.temporary && !chat.titleFinal && assistant.error == null && assistant.text.isNotBlank()) {
-                chat.titleFinal = true
-                launch { nameChat(chat, wire, key, ref.model, user.text.ifBlank { user.attachments.joinToString { it.name } }, assistant.text) }
-            }
         }
     }
 
@@ -1139,6 +1151,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             null,
             if (memoryOn) memory.summary else null,
             phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
+            guidesAsTool = tools.isNotEmpty(),
         )
         val messages = historyFor(chat, upTo, withTools = tools.isNotEmpty())
         val letters = system.length +
@@ -1280,8 +1293,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (id in streaming || compacting != null) return null
         val path = chat.activePath()
         val from = chat.summaryUpTo?.let { up -> path.indexOfFirst { it.id == up } }?.takeIf { it >= 0 }?.plus(1) ?: 0
-        // The last messages stay as they are: the cut is made before one of the person's, leaving about four.
-        val cut = (path.size - KEEP_AFTER_SHORTENING downTo from + 1).firstOrNull { path[it].role == Role.User } ?: return null
+        // Everything so far is told short, up to the very last message: the card stands under the end of the chat, where the person is.
+        val cut = path.size
         if (cut - from < 2) return null
         val ref = chat.model ?: model ?: return null
         val provider = providers.firstOrNull { it.id == ref.providerId } ?: return null
@@ -1306,6 +1319,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val prompt = buildString {
                 append("Shorten the conversation below into notes that let it continue without the original messages. ")
                 append("Keep: what the person wants, decisions made, facts and names, file names, commands and code that matter, open questions, and the person's preferences. ")
+                append("The end of the conversation matters most: say exactly what was being discussed last, what was decided, and what the person is waiting for or about to do. ")
                 append("Drop pleasantries and repetition. Write in the language of the conversation, as plain text with short paragraphs or a list, no preamble.\n\n")
                 if (chat.summary.isNotBlank() && from > 0) append("Notes so far:\n").append(chat.summary).append("\n\n")
                 append("Conversation:\n").append(transcript)
@@ -1318,6 +1332,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             if (summary.isBlank()) return null
             chat.summary = summary
             chat.summaryUpTo = path[cut - 1].id
+            // What the provider counted for the answers so far was the size before this: it no longer says how big the chat is.
+            path.forEach { it.contextTokens = 0 }
             val after = contextEstimate(chat)
             chat.summaryBefore = before
             chat.summaryAfter = after
@@ -1334,12 +1350,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun nameChat(chat: Chat, provider: Provider, key: String, model: String, question: String, answer: String) {
-        val prompt = "Write a very short title (at most 5 words) for this conversation, in the same language as the user. " +
-            "Answer with the title only: no quotes, no full stop.\n\nUser: ${question.take(500)}\n\nAssistant: ${answer.take(500)}"
+    private suspend fun nameChat(chat: Chat, provider: Provider, key: String, model: String, question: String) {
+        val prompt = "Write a very short title (at most 5 words) for a conversation that begins with the message below, in the same language as the message. " +
+            "Say what it is about, not what is asked of the assistant. Answer with the title only: no quotes, no full stop.\n\nMessage: ${question.take(700)}"
+        val before = chat.title
         val title = runCatching { api.complete(provider, key, model, "", listOf(WireMessage("user", prompt))) }
             .getOrNull()?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()?.trim('"', '«', '»', '.', '*', '#', ' ')?.take(60)
-        if (!title.isNullOrBlank()) {
+        // Not if the person gave the chat a name of their own while the model was thinking.
+        if (!title.isNullOrBlank() && chat.title == before) {
             chat.title = title
             save(chat)
         }
@@ -1454,6 +1472,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val wire = provider.copy(kind = formatOf(provider, ref.model))
         val prompt = (if (project == null) SUMMARY_PROMPT else PROJECT_SUMMARY_PROMPT) +
             (if (project != null) "\n\n## The project: $project\n" + about.ifBlank { "(no description)" } else "") +
+            (if (store.summary.isNotBlank() && !store.summaryManual) "\n\n## The overview written last time (it may be out of date: keep what the notes and messages below still support, and change or drop what they contradict or no longer mention)\n" + store.summary else "") +
             "\n\n## Notes the assistant saved\n" + notes.ifBlank { "(none)" } +
             "\n\n## The person's messages in " + (if (project == null) "recent chats" else "this project's chats") + "\n" + chats.toString().ifBlank { "(none)" }
         // The overview is worth thinking about: the model reasons as hard as it offers (high where there is a high).
@@ -1471,6 +1490,45 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     if (e.kind == ErrorKind.BadRequest && strong != null) api.complete(wire, key, ref.model, "", history) else throw e
                 }.trim()
                 if (text.isNotBlank()) store.saveSummary(text) else store.summaryError = ErrorKind.Unknown
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                store.summaryError = e.kind
+            } catch (e: Exception) {
+                store.summaryError = ErrorKind.Unknown
+            } finally {
+                store.summarizing = false
+            }
+        }
+    }
+
+    /**
+     * The person asks for a correction of the overview ("I am not a student", "make it shorter"): the model gets the overview as it is,
+     * the notes, and the request, and writes the overview again. What comes out is kept as the person's own (it is not rewritten
+     * behind their back, as an edit by hand is not); "Update" still makes a new one from scratch.
+     */
+    fun reviseMemorySummary(project: String?, request: String) {
+        val store = memoryOf(project) ?: return
+        val ask = request.trim()
+        if (store.summarizing || ask.isEmpty() || store.summary.isBlank()) return
+        val ref = Prefs.summaryModel?.takeIf { r -> providers.any { it.id == r.providerId } } ?: model
+        val provider = ref?.let { r -> providers.firstOrNull { it.id == r.providerId } }
+        if (ref == null || provider == null) {
+            store.summaryError = if (providers.isEmpty()) ErrorKind.NoProvider else ErrorKind.NoModel
+            return
+        }
+        val key = secrets.get(provider.id).orEmpty()
+        val wire = provider.copy(kind = formatOf(provider, ref.model))
+        val notes = store.notes.sortedBy { it.createdAt }.joinToString("\n") { "- " + it.text }
+        val prompt = REVISE_PROMPT + "\n\n## The overview now\n" + store.summary +
+            "\n\n## Notes the assistant saved (for reference)\n" + notes.ifBlank { "(none)" } +
+            "\n\n## What the person asks\n" + ask.take(1_500)
+        store.summarizing = true
+        store.summaryError = null
+        viewModelScope.launch {
+            try {
+                val text = api.complete(wire, key, ref.model, "", listOf(WireMessage("user", prompt))).trim()
+                if (text.isNotBlank()) store.editSummary(text) else store.summaryError = ErrorKind.Unknown
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
@@ -1530,7 +1588,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         /** Photos and PDFs go along only for this many of my latest messages. */
         const val RESEND_LAST_MESSAGES = 3
-        const val KEEP_AFTER_SHORTENING = 4
 
         /** A text longer than this is not put into the message whole when the model has tools to read it. */
         const val INLINE_TEXT_LIMIT = 20_000
@@ -1569,6 +1626,13 @@ Below is what a chat assistant knows about one of the person's projects: what it
 - Say only what is really there. Do not guess or invent. Leave out small talk and anything sensitive (passwords, keys).
 - Write in the language the person mostly writes in.
 - Answer with the overview only.
+""".trim()
+
+    private val REVISE_PROMPT = """
+Below is the overview of what a chat assistant knows about the person (shown on their "Memory" or project screen), the notes it saved, and a correction or request from the person. Change the overview as the person asks: fix what is wrong, add what they say, remove what they want gone, or rewrite it the way they ask.
+- Keep everything that they did not ask to change, with the same format (Markdown sections with "## Heading") and the same language. Keep it short: at most 1800 characters in all.
+- What the person says about themself is true: put it in as it is. Do not invent anything else. Leave out anything sensitive (passwords, keys).
+- Answer with the whole new overview only, with no comment.
 """.trim()
 
     private val SUMMARY_PROMPT = """

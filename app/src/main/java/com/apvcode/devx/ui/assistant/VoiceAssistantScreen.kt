@@ -22,6 +22,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +70,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -99,6 +106,9 @@ import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxFonts
 import com.apvcode.devx.ui.theme.DevxType
 import kotlin.math.abs
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import kotlin.math.sin
 
 private val PillColor = Color(0xF2101012)
@@ -167,6 +177,49 @@ fun VoiceAssistantScreen(
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) { enter.animateTo(1f, tween(380, easing = FastOutSlowInEasing)) }
 
+    // Held and drawn upward, the whole assistant follows the finger and, let go high enough, flies up into the app.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val drag = remember { Animatable(0f) }
+    val threshold = with(density) { 150.dp.toPx() }
+    val flyTo = with(density) { 340.dp.toPx() }
+    val lift = (-drag.value / threshold).coerceIn(0f, 1.4f)
+    var opening by remember { mutableStateOf(false) }
+    val openApp: () -> Unit = {
+        if (!opening) {
+            opening = true
+            session.keepChat()
+            scope.launch {
+                drag.animateTo(-flyTo, tween(260, easing = FastOutSlowInEasing))
+                onOpenChat()
+            }
+        }
+    }
+    // Once, the first time: the pill lifts and settles back by itself, with a line that says what it is for.
+    var hintOn by remember { mutableStateOf(false) }
+    var hintJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    LaunchedEffect(Unit) {
+        if (com.apvcode.devx.data.Prefs.assistantSwipeHintSeen) return@LaunchedEffect
+        hintJob = launch {
+            try {
+                kotlinx.coroutines.delay(1300)
+                if (session.asked.isNotEmpty()) return@launch
+                hintOn = true
+                val peek = with(density) { 64.dp.toPx() }
+                repeat(2) {
+                    drag.animateTo(-peek, tween(620, easing = FastOutSlowInEasing))
+                    kotlinx.coroutines.delay(260)
+                    drag.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = 260f))
+                    kotlinx.coroutines.delay(420)
+                }
+                kotlinx.coroutines.delay(500)
+            } finally {
+                hintOn = false
+                com.apvcode.devx.data.Prefs.markAssistantSwipeHintSeen()
+            }
+        }
+    }
+    val stopHint = { hintJob?.cancel(); hintJob = null }
+
     Box(Modifier.fillMaxSize()) {
         // A tap on the free part of the screen closes the assistant.
         Box(
@@ -178,7 +231,7 @@ fun VoiceAssistantScreen(
         Box(
             Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = enter.value }
+                .graphicsLayer { alpha = enter.value * (1f - 0.7f * lift.coerceAtMost(1f)) }
                 .background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.40f), 0.5f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.85f))),
         )
 
@@ -189,7 +242,14 @@ fun VoiceAssistantScreen(
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 14.dp)
-                .padding(bottom = 14.dp),
+                .padding(bottom = 14.dp)
+                .graphicsLayer {
+                    translationY = drag.value
+                    alpha = (1f - 0.55f * lift).coerceIn(0f, 1f)
+                    val grow = 1f + 0.025f * lift.coerceAtMost(1f)
+                    scaleX = grow; scaleY = grow
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+                },
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             val showCard = session.asked.isNotEmpty() || session.micDenied || session.noRecognizer
@@ -198,12 +258,20 @@ fun VoiceAssistantScreen(
                 enter = fadeIn(tween(260)) + expandVertically(spring(dampingRatio = 0.85f, stiffness = 380f), expandFrom = Alignment.Bottom),
                 exit = fadeOut(tween(160)) + shrinkVertically(),
             ) {
-                AnswerCard(session, onOpenChat = onOpenChat, onClose = onClose, onOpenSettings = onOpenSettings)
+                AnswerCard(session, onOpenChat = { session.keepChat(); onOpenChat() }, onClose = onClose, onOpenSettings = onOpenSettings)
             }
             AnimatedVisibility(visible = !showCard, enter = fadeIn(tween(400, delayMillis = 200)), exit = fadeOut(tween(120))) {
                 Greeting(session)
             }
-            Pill(session, energy = { energy.floatValue }, clock = { clock.floatValue }, enter = { enter.value })
+            AnimatedVisibility(
+                visible = hintOn,
+                enter = fadeIn(tween(360)) + expandVertically(spring(dampingRatio = 0.85f, stiffness = 380f)),
+                exit = fadeOut(tween(260)) + shrinkVertically(tween(260)),
+            ) { SwipeHint() }
+            Pill(
+                session, energy = { energy.floatValue }, clock = { clock.floatValue }, enter = { enter.value },
+                drag = drag, threshold = threshold, maxPull = flyTo, onOpen = openApp, onTouch = stopHint,
+            )
         }
     }
 }
@@ -320,12 +388,54 @@ private fun Greeting(session: VoiceSession) {
 
 // ---------- the pill ----------
 
-/** The one bar at the bottom: write here, or speak. It shows what is heard, and what the assistant is doing. */
+/** What the first-time hint says: three chevrons that climb, and a line. */
 @Composable
-private fun Pill(session: VoiceSession, energy: () -> Float, clock: () -> Float, enter: () -> Float) {
+private fun SwipeHint() {
+    val t = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        val start = androidx.compose.runtime.withFrameNanos { it }
+        while (true) androidx.compose.runtime.withFrameNanos { t.floatValue = (it - start) / 1_000_000_000f }
+    }
+    Column(Modifier.fillMaxWidth().padding(bottom = 2.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (i in 0 until 3) {
+            // A wave of light climbs the three chevrons from the bottom to the top.
+            val phase = (t.floatValue * 1.6f - (2 - i) * 0.28f)
+            val a = (0.2f + 0.8f * (0.5f + 0.5f * sin(phase * 6.28f - 1.57f))).coerceIn(0.2f, 1f)
+            Icon(Icons.Filled.KeyboardArrowUp, null, tint = Color.White.copy(alpha = a), modifier = Modifier.size(22.dp).offset(y = (i * -6).dp))
+        }
+        Text(stringResource(R.string.voice_swipe_hint), style = DevxType.Caption, color = Color.White.copy(alpha = 0.82f))
+    }
+}
+
+/**
+ * The one bar at the bottom: write here, or speak. It shows what is heard, and what the assistant is doing.
+ * A tap on it grows it into a place to write (the speaker button steps aside, the field opens upward); held a moment and drawn
+ * upward it carries the whole assistant with it into the app.
+ */
+@Composable
+private fun Pill(
+    session: VoiceSession,
+    energy: () -> Float,
+    clock: () -> Float,
+    enter: () -> Float,
+    drag: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
+    threshold: Float,
+    maxPull: Float,
+    onOpen: () -> Unit,
+    onTouch: () -> Unit,
+) {
     val focus = LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
     var text by remember { mutableStateOf("") }
+    var focused by remember { mutableStateOf(false) }
+    var lines by remember { mutableStateOf(1) }
+    // While the whole assistant is being pulled up, the field does not take part (it would answer a hold with its own menu).
+    var pulling by remember { mutableStateOf(false) }
+    val fieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val phase = session.phase
+    val typing = focused || text.isNotEmpty()
     val send = {
         val t = text.trim()
         if (t.isNotEmpty()) {
@@ -334,8 +444,22 @@ private fun Pill(session: VoiceSession, energy: () -> Float, clock: () -> Float,
             text = ""
         }
     }
+    val startTyping: () -> Unit = {
+        onTouch()
+        session.stopListening()
+        runCatching { fieldFocus.requestFocus() }
+        keyboard?.show()
+    }
     val rise = remember { Animatable(0f) }
     LaunchedEffect(Unit) { rise.animateTo(1f, spring(dampingRatio = 0.78f, stiffness = 320f)) }
+    // The pill opens upward as a place to write: it gets taller, and taller still with each line.
+    val height by androidx.compose.animation.core.animateDpAsState(
+        if (typing) (46 + 26 * lines.coerceIn(2, 5)).dp else 62.dp,
+        spring(dampingRatio = 0.82f, stiffness = 360f), label = "pill-height",
+    )
+    val corner by androidx.compose.animation.core.animateDpAsState(if (typing) 30.dp else 31.dp, tween(260), label = "pill-corner")
+    val shape = RoundedCornerShape(corner)
+    var crossed by remember { mutableStateOf(false) }
     Row(
         Modifier
             .fillMaxWidth()
@@ -343,65 +467,130 @@ private fun Pill(session: VoiceSession, energy: () -> Float, clock: () -> Float,
                 alpha = rise.value.coerceIn(0f, 1f)
                 translationY = (1f - rise.value) * 60.dp.toPx()
             }
-            .height(62.dp)
-            .clip(CircleShape)
+            .height(height)
+            .clip(shape)
             .background(PillColor)
-            .border(1.dp, Hair, CircleShape)
-            .padding(start = 6.dp, end = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        SmallButton(onClick = { session.toggleMuted() }) {
-            Icon(
-                if (session.muted) Icons.AutoMirrored.Outlined.VolumeOff else Icons.AutoMirrored.Outlined.VolumeUp,
-                stringResource(if (session.muted) R.string.voice_unmute else R.string.voice_mute),
-                tint = if (session.muted) DevxColors.TextDisabled else DevxColors.TextSecondary,
-                modifier = Modifier.size(21.dp),
-            )
-        }
-        // The field is always there: a tap on it (while the microphone is listening too) stops the listening and opens the keyboard.
-        Box(Modifier.weight(1f).padding(horizontal = 6.dp).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
-            if (text.isEmpty()) {
-                if (phase == VoicePhase.Listening) {
-                    val heard = session.voice.heard
-                    Text(
-                        heard.ifBlank { stringResource(R.string.voice_listening) },
-                        style = DevxType.Body,
-                        color = if (heard.isBlank()) DevxColors.TextSecondary else Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else {
-                    Text(
-                        stringResource(
-                            when (phase) {
-                                VoicePhase.Thinking -> R.string.voice_thinking
-                                VoicePhase.Speaking -> R.string.voice_tap_interrupt
-                                else -> R.string.voice_placeholder
-                            },
-                        ),
-                        style = DevxType.Body, color = DevxColors.TextDisabled, maxLines = 1,
-                    )
+            .border(1.dp, Hair, shape)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = startTyping)
+            .pointerInput(Unit) {
+                // Watched before the buttons and the field see the touch, so that they cannot take it: a hold a moment long
+                // that does not slip sideways is the start of the pull; a tap or a quick move is left to them.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val held = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis * 7 / 10) {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
+                            if (!change.pressed) return@withTimeoutOrNull false
+                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull false
+                        }
+                        @Suppress("UNREACHABLE_CODE") false
+                    }
+                    if (held != null) return@awaitEachGesture
+                    // Held long enough: the pull begins.
+                    pulling = true
+                    onTouch()
+                    crossed = false
+                    focus.clearFocus()
+                    scope.launch { drag.stop() }
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        change.consume()
+                        if (!change.pressed) break
+                        val dy = change.position.y - change.previousPosition.y
+                        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { drag.snapTo((drag.value + dy).coerceIn(-maxPull, 0f)) }
+                        // A small tick as the pull goes past the point where letting go opens the app, and again if it goes back.
+                        val over = -drag.value > threshold
+                        if (over != crossed) {
+                            crossed = over
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        }
+                    }
+                    pulling = false
+                    if (-drag.value > threshold) onOpen()
+                    else scope.launch { drag.animateTo(0f, spring(dampingRatio = 0.72f, stiffness = 380f)) }
                 }
             }
-            BasicTextField(
-                value = text,
-                onValueChange = { text = it },
-                singleLine = true,
-                textStyle = DevxType.Body.copy(color = Color.White),
-                cursorBrush = SolidColor(Color.White),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { send() }),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged { if (it.isFocused) session.stopListening() },
-            )
+            .padding(start = 6.dp, end = 7.dp),
+    ) {
+        AnimatedVisibility(
+            visible = !typing,
+            modifier = Modifier.align(Alignment.CenterVertically),
+            enter = fadeIn(tween(220, delayMillis = 80)) + androidx.compose.animation.expandHorizontally(spring(dampingRatio = 0.85f, stiffness = 420f)),
+            exit = fadeOut(tween(120)) + androidx.compose.animation.shrinkHorizontally(tween(200)),
+        ) {
+            SmallButton(onClick = { session.toggleMuted() }) {
+                Icon(
+                    if (session.muted) Icons.AutoMirrored.Outlined.VolumeOff else Icons.AutoMirrored.Outlined.VolumeUp,
+                    stringResource(if (session.muted) R.string.voice_unmute else R.string.voice_mute),
+                    tint = if (session.muted) DevxColors.TextDisabled else DevxColors.TextSecondary,
+                    modifier = Modifier.size(21.dp),
+                )
+            }
         }
-        // The round button: send (when there are words), or what the voice is doing right now.
+        // The field is always there: a tap on it (while the microphone is listening too) stops the listening and opens the keyboard.
+        val sidePad by androidx.compose.animation.core.animateDpAsState(if (typing) 14.dp else 6.dp, tween(260), label = "field-pad")
+        Box(Modifier.weight(1f).padding(start = sidePad, end = 6.dp).fillMaxHeight()) {
+            // The first line sits where the middle of a one-line pill is, so that nothing jumps when it opens.
+            Box(Modifier.fillMaxWidth().padding(top = 19.dp)) {
+                if (text.isEmpty()) {
+                    if (phase == VoicePhase.Listening) {
+                        val heard = session.voice.heard
+                        Text(
+                            heard.ifBlank { stringResource(R.string.voice_listening) },
+                            style = DevxType.Body,
+                            color = if (heard.isBlank()) DevxColors.TextSecondary else Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else {
+                        Text(
+                            stringResource(
+                                when {
+                                    typing -> R.string.voice_type_hint
+                                    phase == VoicePhase.Thinking -> R.string.voice_thinking
+                                    phase == VoicePhase.Speaking -> R.string.voice_tap_interrupt
+                                    else -> R.string.voice_placeholder
+                                },
+                            ),
+                            style = DevxType.Body, color = DevxColors.TextDisabled, maxLines = 1,
+                        )
+                    }
+                }
+                BasicTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    enabled = !pulling,
+                    singleLine = false,
+                    maxLines = 5,
+                    onTextLayout = { lines = it.lineCount },
+                    textStyle = DevxType.Body.copy(color = Color.White),
+                    cursorBrush = SolidColor(Color.White),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { send() }),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(fieldFocus)
+                        .onFocusChanged {
+                            focused = it.isFocused
+                            if (it.isFocused) session.stopListening()
+                        },
+                )
+            }
+        }
+        // The round button: send (when there are words), or what the voice is doing right now; at the bottom corner when the pill is tall.
         val typed = text.isNotBlank() && phase != VoicePhase.Listening
         Box(
             Modifier
+                .align(Alignment.Bottom)
+                .padding(bottom = 7.dp)
                 .size(48.dp)
-                .pressable(scaleTo = 0.9f, onClick = { if (typed) send() else session.tapOrb() })
+                .pressable(scaleTo = 0.9f, onClick = {
+                    onTouch()
+                    if (typed) send() else { focus.clearFocus(); session.tapOrb() }
+                })
                 .clip(CircleShape)
                 .background(Color.White),
             contentAlignment = Alignment.Center,

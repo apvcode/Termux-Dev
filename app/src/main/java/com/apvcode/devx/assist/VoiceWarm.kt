@@ -20,6 +20,7 @@ object VoiceWarm {
 
     fun warm(app: Application) {
         Prefs.init(app)
+        com.apvcode.devx.data.Earcon.recover(app)
         speaker(app)
         if (model) return
         model = true

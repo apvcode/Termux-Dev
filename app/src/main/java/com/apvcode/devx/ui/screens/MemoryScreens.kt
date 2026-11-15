@@ -54,6 +54,16 @@ import com.apvcode.devx.ui.markdown.MarkdownText
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import java.util.Date
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.Color
+import com.apvcode.devx.ui.components.glass
+import com.apvcode.devx.ui.components.pressable
+import dev.chrisbanes.haze.hazeSource
 
 /** Settings, Memory: the switch, the overview, and the saved notes. */
 @Composable
@@ -204,8 +214,12 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
                 PillButton(stringResource(R.string.memory_save), onClick = { memory.editSummary(draft); editing = false })
                 PillButton(stringResource(R.string.settings_cancel), filled = false, onClick = { editing = false })
             }
-        } else Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp),
+        } else {
+        val haze = dev.chrisbanes.haze.rememberHazeState()
+        androidx.compose.runtime.CompositionLocalProvider(com.apvcode.devx.ui.components.LocalGlass provides haze) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxSize().hazeSource(haze).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = if (memory.summary.isNotEmpty()) 96.dp else 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (memory.summaryManual && memory.summary.isNotEmpty()) {
@@ -223,6 +237,60 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
                     color = DevxColors.Danger,
                 )
             }
+        }
+        // To put something right: say it here and the overview is written again with it taken into account.
+        if (memory.summary.isNotEmpty()) {
+            AskDevxBar(
+                busy = memory.summarizing,
+                onSend = { vm.reviseMemorySummary(project, it) },
+                modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+            )
+        }
+        }
+        }
+        }
+    }
+}
+
+/** The line at the bottom of the overview: a translucent capsule over the text, where a correction is written. */
+@Composable
+private fun AskDevxBar(busy: Boolean, onSend: (String) -> Unit, modifier: Modifier = Modifier) {
+    var text by remember { mutableStateOf("") }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val ready = text.isNotBlank() && !busy
+    fun send() {
+        if (!ready) return
+        onSend(text)
+        text = ""
+        focus.clearFocus()
+    }
+    Row(
+        modifier.fillMaxWidth().glass(CircleShape).padding(start = 20.dp, end = 6.dp).heightIn(min = 52.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        androidx.compose.foundation.text.BasicTextField(
+            value = text,
+            onValueChange = { text = it },
+            enabled = !busy,
+            textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(DevxColors.Accent),
+            maxLines = 4,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Send),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { send() }),
+            modifier = Modifier.weight(1f).padding(vertical = 12.dp),
+            decorationBox = { inner ->
+                Box {
+                    if (text.isEmpty()) Text(stringResource(R.string.memory_ask_hint), style = DevxType.Body, color = DevxColors.TextDisabled, maxLines = 1)
+                    inner()
+                }
+            },
+        )
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).background(if (ready) DevxColors.Accent else Color.Transparent).pressable(enabled = ready, scaleTo = 0.9f, onClick = ::send),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.ArrowUpward, stringResource(R.string.voice_send), tint = if (ready) DevxColors.OnAccent else DevxColors.TextDisabled, modifier = Modifier.size(20.dp))
         }
     }
 }

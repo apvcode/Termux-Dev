@@ -36,7 +36,7 @@ class AccessTools(private val context: Context, private val openPage: suspend (I
             add(
                 tool(
                     "list_photos",
-                    "List photos and screenshots in the phone's gallery, the newest first: number, file name, album (Camera, Screenshots...), date and size. Filter by album or words in the name, or by how many days back. Then look at the ones you need with view_photos.",
+                    "List photos and screenshots in the phone's gallery, newest first (number, name, album, date, size), filtered by album, name or days back. Then look at some with view_photos.",
                     schema(
                         "album" to str("Part of an album's name, e.g. Screenshots or Camera (optional)."),
                         "query" to str("Part of the file name (optional)."),
@@ -49,7 +49,7 @@ class AccessTools(private val context: Context, private val openPage: suspend (I
             add(
                 tool(
                     "view_photos",
-                    "Look at one to six photos from the gallery by their numbers from list_photos. size is the longest side in pixels: 384 is enough to find a photo among several, use 1280 to read small text.",
+                    "Look at one to six gallery photos by their numbers from list_photos. size is the longest side: 384 to pick among several, 1280 to read small text.",
                     schema("ids" to JSONObject().put("type", "array").put("items", JSONObject().put("type", "integer")).put("description", "Photo numbers from list_photos."), "size" to int("Longest side, 256 to 2048 (default 1024)."), required = listOf("ids")),
                 ),
             )

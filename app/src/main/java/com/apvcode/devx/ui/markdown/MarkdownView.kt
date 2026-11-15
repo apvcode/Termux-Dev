@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -60,7 +61,8 @@ import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 
 /** How fast new text appears, and how many characters at the edge are still fading in. */
-private const val CHARS_PER_SECOND = 75f
+private const val CHARS_PER_SECOND = 80f
+private const val MAX_CHARS_PER_SECOND = 650f
 private const val FADE_CHARS = 14
 
 /**
@@ -93,18 +95,25 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boole
     }
     val total = remember(placed) { placed.sumOf { it.block.revealLength() } + FADE_CHARS }
     val reveal = remember { Animatable(if (smooth) 0f else total.toFloat()) }
-    LaunchedEffect(total) {
-        if (!smooth) {
-            reveal.snapTo(total.toFloat())
-        } else {
-            val remaining = total - reveal.value
-            if (remaining > 0.5f) {
-                // Catch up faster when the text arrives faster than it can be shown.
-                val speed = maxOf(CHARS_PER_SECOND, remaining * 1.6f)
-                reveal.animateTo(total.toFloat(), tween((remaining * 1000f / speed).toInt().coerceAtLeast(16), easing = LinearEasing))
+    val goal = androidx.compose.runtime.rememberUpdatedState(total)
+    LaunchedEffect(smooth) {
+        if (!smooth) return@LaunchedEffect
+        // One steady pace, frame by frame, that never restarts when more text arrives: the text is written out at a calm speed that
+        // grows only gently with how far behind it is, up to a ceiling. A fast model is followed with a little lag instead of the
+        // words all appearing at once.
+        androidx.compose.runtime.snapshotFlow { goal.value }.collectLatest { target ->
+            var last = androidx.compose.runtime.withFrameNanos { it }
+            while (reveal.value < target) {
+                val now = androidx.compose.runtime.withFrameNanos { it }
+                val dt = ((now - last) / 1_000_000_000f).coerceIn(0f, 0.05f)
+                last = now
+                val behind = target - reveal.value
+                val speed = (CHARS_PER_SECOND + behind * 0.8f).coerceAtMost(MAX_CHARS_PER_SECOND)
+                reveal.snapTo(minOf(target.toFloat(), reveal.value + speed * dt))
             }
         }
     }
+    LaunchedEffect(total) { if (!smooth) reveal.snapTo(total.toFloat()) }
     // The count of blocks that have begun to show: the layout is rebuilt only when a new block starts, not with every
     // character. The edge inside a block moves in the drawing (see [revealing]), so it costs no new layout.
     val begun by remember(placed) { derivedStateOf { val v = reveal.value.toInt(); offsets.count { it < v } } }

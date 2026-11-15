@@ -64,7 +64,7 @@ class ArtifactStore(context: Context) {
 
     fun add(source: File, name: String): Artifact {
         val id = UUID.randomUUID().toString().take(12)
-        val safe = name.substringAfterLast('/').ifBlank { "file" }
+        val safe = withExtension(name.substringAfterLast('/').ifBlank { "file" }, source.name)
         val dir = File(root, id).apply { mkdirs() }
         val target = File(dir, safe)
         source.copyTo(target, overwrite = true)
@@ -86,6 +86,19 @@ class ArtifactStore(context: Context) {
     }
 
     companion object {
+        private val REAL_EXTENSION = Regex("[A-Za-z0-9]{1,8}")
+
+        /**
+         * A name the assistant gave to a file ("Resume") keeps the kind of the file it is ("Resume.pdf"): a name without its
+         * extension cannot be opened, and is taken for a broken file. A name that already ends in an extension is left as it is.
+         */
+        fun withExtension(name: String, sourceName: String): String {
+            val sourceExt = sourceName.substringAfterLast('.', "")
+            if (sourceExt.isEmpty() || !REAL_EXTENSION.matches(sourceExt)) return name
+            val ext = name.substringAfterLast('.', "")
+            return if (ext.isNotEmpty() && REAL_EXTENSION.matches(ext)) name else name.trimEnd('.') + "." + sourceExt
+        }
+
         fun mimeOf(name: String): String =
             MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: when (name.substringAfterLast('.', "").lowercase()) {
                 "py", "kt", "js", "ts", "go", "rs", "java", "c", "cpp", "h", "sh", "md", "yml", "yaml", "toml", "ini", "log", "csv", "json", "xml", "html", "css" -> "text/plain"

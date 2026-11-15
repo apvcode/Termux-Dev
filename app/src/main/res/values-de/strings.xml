@@ -166,6 +166,8 @@
     <string name="quiz_title">Fragekarten</string>
     <string name="quiz_question">Frage %1$d</string>
     <string name="quiz_hint">Gib deine Antwort ein…</string>
+    <string name="card_pick_several">Mehrere möglich</string>
+    <string name="card_other">Etwas anderes…</string>
     <string name="quiz_check">Prüfen</string>
     <string name="quiz_correct">Richtig</string>
     <string name="quiz_answer">Antwort: %1$s</string>
@@ -360,6 +362,8 @@
     <string name="voice_tap_interrupt">Tippen zum Unterbrechen</string>
     <string name="voice_tap_talk">Tippe auf die Kugel und sprich</string>
     <string name="voice_placeholder">Devx fragen</string>
+    <string name="voice_swipe_hint">Halten und nach oben wischen, um die App zu öffnen</string>
+    <string name="voice_type_hint">Nachricht schreiben…</string>
     <string name="voice_mute">Stimme ausschalten</string>
     <string name="voice_unmute">Stimme einschalten</string>
     <string name="voice_mic">Sprechen</string>
@@ -524,6 +528,7 @@
     <string name="memory_edited">Von Hand bearbeitet</string>
     <string name="memory_edited_hint">Du hast diese Zusammenfassung geschrieben. Sie wird nicht von selbst neu geschrieben: „Aktualisieren“ ersetzt sie durch eine neue.</string>
     <string name="memory_edit_hint">Die Zusammenfassung in Markdown</string>
+    <string name="memory_ask_hint">devx um eine Korrektur bitten…</string>
     <string name="memory_edit_note">Wird unverändert gespeichert. Lass das Feld leer, damit der Assistent die Zusammenfassung neu schreibt.</string>
     <string name="tool_mcp">Nutze einen MCP-Server</string>
     <string name="mcp_add">Server hinzufügen</string>
@@ -957,6 +962,10 @@
     <string name="settings_twogis_key_hint">Schlüssel von dev.2gis.com (ein kostenloser Demo-Schlüssel reicht)</string>
     <string name="settings_twogis_key_set">Gesetzt</string>
     <string name="settings_twogis_key_none">Nicht gesetzt</string>
+    <string name="settings_search_key">Suchschlüssel (optional)</string>
+    <string name="settings_search_key_hint">Genauere Websuche mit eigenem Tavily- oder Brave-Schlüssel</string>
+    <string name="settings_search_key_about">Ein kostenloser Schlüssel von tavily.com (beginnt mit tvly-) oder brave.com/search/api (beginnt mit BSA) macht die Websuche spürbar genauer. Ohne Schlüssel liest der Assistent die Suchseiten selbst.</string>
+    <string name="settings_search_key_bad">Der Schlüssel muss mit tvly- oder BSA beginnen</string>
     <string name="va_can_places">Orte und Routen</string>
     <string name="va_can_places_hint">„Was ist in meiner Nähe“, „wie lange zum Flughafen“, „Wetter hier“: dein Standort (mit Erlaubnis) und die freie OpenStreetMap-Karte, ohne Schlüssel; 2GIS und Google Maps ergänzen Details, wenn du ihre Schlüssel angibst.</string>
     <string name="va_location">Standort</string>

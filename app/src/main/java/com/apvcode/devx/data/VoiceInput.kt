@@ -96,6 +96,9 @@ class VoiceInput(private val context: Context, private val keepWarm: Boolean = f
         state = State.Listening
         startedAt = now()
         quietSince = now()
+        // The recognizer's own beeps go quiet; ours plays instead (it is over before the microphone is open).
+        Earcon.quiet(context)
+        Earcon.start(context)
         listen()
         handler.post(ticker)
     }
@@ -127,6 +130,7 @@ class VoiceInput(private val context: Context, private val keepWarm: Boolean = f
         val done = onFinished ?: return@Runnable
         val text = join(committed, partial)
         cleanup()
+        if (text.isNotBlank()) Earcon.done(context)
         done(text)
     }
 
@@ -182,6 +186,7 @@ class VoiceInput(private val context: Context, private val keepWarm: Boolean = f
         wanted = false
         runCatching { recognizer?.cancel() }
         handler.removeCallbacks(ticker)
+        Earcon.restore(context)
     }
 
     private fun cleanup() {
@@ -198,6 +203,7 @@ class VoiceInput(private val context: Context, private val keepWarm: Boolean = f
         confirmed = ""
         pending = ""
         state = State.Idle
+        Earcon.restore(context)
         loud = 0f
         shown = 0f
         levels.fill(0f)
@@ -253,6 +259,7 @@ class VoiceInput(private val context: Context, private val keepWarm: Boolean = f
                 val done = onHeard
                 val words = committed
                 cleanup()
+                Earcon.done(context)
                 done?.invoke(words)
             } else if (finishing) deliver.run() else again()
         }

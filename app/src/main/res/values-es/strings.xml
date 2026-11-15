@@ -166,6 +166,8 @@
     <string name="quiz_title">Tarjetas de preguntas</string>
     <string name="quiz_question">Pregunta %1$d</string>
     <string name="quiz_hint">Escribe tu respuesta…</string>
+    <string name="card_pick_several">Puedes elegir varias</string>
+    <string name="card_other">Otra cosa…</string>
     <string name="quiz_check">Comprobar</string>
     <string name="quiz_correct">Correcto</string>
     <string name="quiz_answer">Respuesta: %1$s</string>
@@ -360,6 +362,8 @@
     <string name="voice_tap_interrupt">Toca para interrumpir</string>
     <string name="voice_tap_talk">Toca la esfera y habla</string>
     <string name="voice_placeholder">Pregunta a Devx</string>
+    <string name="voice_swipe_hint">Mantén y desliza hacia arriba para abrir la app</string>
+    <string name="voice_type_hint">Escribe un mensaje…</string>
     <string name="voice_mute">Desactivar la voz</string>
     <string name="voice_unmute">Activar la voz</string>
     <string name="voice_mic">Hablar</string>
@@ -524,6 +528,7 @@
     <string name="memory_edited">Editado a mano</string>
     <string name="memory_edited_hint">Tú escribiste este resumen. No se reescribe solo: «Actualizar» lo sustituye por uno nuevo.</string>
     <string name="memory_edit_hint">El resumen, en Markdown</string>
+    <string name="memory_ask_hint">Pedir a devx que lo corrija…</string>
     <string name="memory_edit_note">Se guarda tal cual. Déjalo vacío para que el asistente escriba el resumen de nuevo.</string>
     <string name="tool_mcp">Usando un servidor MCP</string>
     <string name="mcp_add">Añadir un servidor</string>
@@ -957,6 +962,10 @@
     <string name="settings_twogis_key_hint">Clave de dev.2gis.com (basta una clave demo gratuita)</string>
     <string name="settings_twogis_key_set">Definida</string>
     <string name="settings_twogis_key_none">Sin definir</string>
+    <string name="settings_search_key">Clave de búsqueda (opcional)</string>
+    <string name="settings_search_key_hint">Búsqueda web más precisa con tu clave de Tavily o Brave</string>
+    <string name="settings_search_key_about">Una clave gratuita de tavily.com (empieza por tvly-) o brave.com/search/api (empieza por BSA) hace la búsqueda web mucho más precisa. Sin clave, el asistente lee las páginas de búsqueda por sí mismo.</string>
+    <string name="settings_search_key_bad">La clave debe empezar por tvly- o BSA</string>
     <string name="va_can_places">Lugares y rutas</string>
     <string name="va_can_places_hint">«Qué hay cerca de mí», «cuánto se tarda al aeropuerto», «el tiempo aquí»: tu posición (con permiso) y el mapa libre de OpenStreetMap, sin claves; 2GIS y Google Maps añaden detalle si das sus claves.</string>
     <string name="va_location">Ubicación</string>

@@ -65,6 +65,9 @@ object Prefs {
 
     /** The voice assistant does not read its answers aloud. */
     var assistantMuted by mutableStateOf(false)
+
+    /** The hint that the assistant opens the app with a swipe up was shown once (it is not shown again). */
+    var assistantSwipeHintSeen by mutableStateOf(false)
         private set
 
     /** The voice assistant listens again after it has read an answer. */
@@ -110,6 +113,7 @@ object Prefs {
         galleryTools = p.getBoolean("galleryTools", true)
         notificationTools = p.getBoolean("notificationTools", true)
         assistantMuted = p.getBoolean("assistantMuted", false)
+        assistantSwipeHintSeen = p.getBoolean("assistantSwipeHintSeen2", false)
         voiceHandsFree = p.getBoolean("voiceHandsFree", true)
         memory = p.getBoolean("memory", true)
         remoteMemory = p.getBoolean("remoteMemory", true)
@@ -147,6 +151,11 @@ object Prefs {
     fun saveTerminal(value: Boolean) {
         terminal = value
         store?.edit()?.putBoolean("terminal", value)?.apply()
+    }
+
+    fun markAssistantSwipeHintSeen() {
+        assistantSwipeHintSeen = true
+        store?.edit()?.putBoolean("assistantSwipeHintSeen2", true)?.apply()
     }
 
     fun saveAssistantMuted(value: Boolean) {

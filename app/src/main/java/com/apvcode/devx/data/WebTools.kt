@@ -9,13 +9,18 @@ import android.webkit.WebViewClient
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -60,10 +65,13 @@ class WebTools(context: Context) {
         ),
         tool(
             "web_search",
-            "Search the internet (one search is usually enough; take the best results and read them together). Use it when you need current or recent information, when you are not sure of a fact, " +
-                "for documentation, versions, prices, news, or anything you may not know. Gives titles, addresses and short excerpts; " +
-                "open a result with open_url to read it in full.",
-            schema("query" to str("What to search for. Plain words, like in a search box.")),
+            "Search the internet. Use it when you need current or recent information, when you are not sure of a fact, " +
+                "for documentation, versions, prices, news, or anything you may not know. Gives titles, addresses, snippets and, for the best results, the passage of the page that matches. " +
+                "Write the query like a person would: 2 to 6 specific words (the exact name of the thing, plus what you want to know: \"Grok 4 context window\"), " +
+                "no quotes, no OR/AND, no pile of keywords, no question sentences. The search engine sees only the words, so every extra word can pull in unrelated pages. " +
+                "If the results are off-topic, do not give up and do not tell the person that search is broken: search again with different, shorter words, or open_url the official site or docs page directly. " +
+                "Open a result with open_url to read it in full.",
+            schema("query" to str("2 to 6 plain, specific words, like in a search box. No quotes, no operators.")),
         ),
         tool(
             "open_url",
@@ -111,18 +119,63 @@ class WebTools(context: Context) {
 
     private suspend fun search(query: String, report: ToolReport): ToolOutcome {
         if (query.isEmpty()) return ToolOutcome("Give the words to search for.")
-        report.activity(ToolActivity(ToolKind.Search, query))
-        val hits = findHits(query)
-        if (hits.isEmpty()) return ToolOutcome("The search gave nothing: the search engines did not answer. Try other words, or tell the person that searching did not work.")
+        val clean = SearchText.tidy(query)
+        report.activity(ToolActivity(ToolKind.Search, clean))
+        val hits = findHits(clean)
+        if (hits.isEmpty()) return ToolOutcome("The search gave nothing: the search engines did not answer. Try other, shorter words, or open_url the official page directly.")
         hits.forEach { report.source(Source(it.url, it.title, opened = false)) }
-        report.activity(ToolActivity(ToolKind.Search, query, note = "${hits.size} · " + hits.map { hostOf(it.url) }.distinct().take(4).joinToString(", ")))
+        report.activity(ToolActivity(ToolKind.Search, clean, note = "${hits.size} · " + hits.map { hostOf(it.url) }.distinct().take(4).joinToString(", ")))
+        // What the pages themselves say about it: the engines' snippets are often a line of nothing, the page has the answer.
+        val passages = passagesOf(hits.take(3), clean)
+        val note = if (clean != query) "\n(Searched as \"$clean\".)" else ""
         return ToolOutcome(
-            UNTRUSTED + "Results for \"$query\":\n\n" +
-                hits.mapIndexed { i, h -> "${i + 1}. ${h.title}\n   ${h.url}\n   ${h.snippet}" }.joinToString("\n\n"),
+            UNTRUSTED + "Results for \"$clean\":$note\n\n" +
+                hits.mapIndexed { i, h ->
+                    "${i + 1}. ${h.title}\n   ${h.url}\n   ${h.snippet}" + (passages[h.url]?.let { "\n   From the page: $it" } ?: "")
+                }.joinToString("\n\n") +
+                "\n\nIf these do not answer it, search again with different, shorter words or open_url the most likely page; do not say that search does not work.",
         )
     }
 
+    /** For the first results: the stretch of the page that talks most about the words searched for. Quick plain requests only, in parallel. */
+    private suspend fun passagesOf(hits: List<Hit>, query: String): Map<String, String> = coroutineScope {
+        val terms = SearchText.terms(query)
+        if (terms.isEmpty()) return@coroutineScope emptyMap()
+        hits.map { h ->
+            async(Dispatchers.IO) {
+                val text = withTimeoutOrNull(6_000) {
+                    if (!isPublic(h.url)) null else runCatching { httpFetch(h.url) }.getOrNull()?.text
+                }
+                h.url to text?.let { SearchText.bestPassage(it, terms) }
+            }
+        }.awaitAll().mapNotNull { (u, p) -> p?.let { u to it } }.toMap()
+    }
+
+    /** Search through the person's own key (Tavily or Brave), when they gave one. Empty when there is no key or the service did not answer. */
+    private suspend fun apiHits(query: String, count: Int): List<Hit> = withContext(Dispatchers.IO) {
+        val key = Secrets(app).get(SearchApi.KEY_ID)?.trim().orEmpty()
+        val kind = SearchApi.kindOf(key) ?: return@withContext emptyList()
+        runCatching {
+            val rows = when (kind) {
+                SearchApi.Kind.Tavily -> {
+                    val body = JSONObject().put("query", query).put("max_results", count).put("search_depth", "basic").toString()
+                    val request = Request.Builder().url("https://api.tavily.com/search")
+                        .header("Authorization", "Bearer $key")
+                        .post(body.toRequestBody("application/json".toMediaType())).build()
+                    searchHttp.newCall(request).execute().use { r -> if (r.isSuccessful) SearchApi.parseTavily(r.body?.string().orEmpty()) else emptyList() }
+                }
+                SearchApi.Kind.Brave -> {
+                    val request = Request.Builder().url("https://api.search.brave.com/res/v1/web/search?q=" + URLEncoder.encode(query, "UTF-8") + "&count=$count")
+                        .header("X-Subscription-Token", key).header("Accept", "application/json").build()
+                    searchHttp.newCall(request).execute().use { r -> if (r.isSuccessful) SearchApi.parseBrave(r.body?.string().orEmpty()) else emptyList() }
+                }
+            }
+            rows.map { Hit(it.title, it.url, it.snippet) }
+        }.getOrDefault(emptyList())
+    }
+
     suspend fun findHits(query: String, count: Int = 8): List<Hit> {
+        apiHits(query, count).takeIf { it.isNotEmpty() }?.let { return it.take(count) }
         val q = URLEncoder.encode(query, "UTF-8")
         // First the quick way: a plain request to the light page of DuckDuckGo answers in about a second.
         httpHits(q).takeIf { it.isNotEmpty() }?.let { return it.take(count) }
@@ -180,11 +233,20 @@ class WebTools(context: Context) {
                 searchHttp.newCall(request).execute().use { r -> rowsOf(Jsoup.parse(r.body?.string().orEmpty(), "https://html.duckduckgo.com/"), false) }
             },
         )
-        for (attempt in attempts) {
-            val hits = runCatching { attempt() }.getOrDefault(emptyList())
-            if (hits.isNotEmpty()) return@withContext hits
+        // The first two at once: each leans a different way, and together they give a wider, less one-sided list than one of them.
+        val (first, second) = coroutineScope {
+            val a = async { runCatching { attempts[0]() }.getOrDefault(emptyList()) }
+            val b = async { runCatching { attempts[1]() }.getOrDefault(emptyList()) }
+            a.await() to b.await()
         }
-        emptyList()
+        val seen = HashSet<String>()
+        val merged = ArrayList<Hit>()
+        for (i in 0 until maxOf(first.size, second.size)) {
+            // Bing's answer first at each place: it is the one that does not turn the phone away.
+            for (h in listOfNotNull(second.getOrNull(i), first.getOrNull(i))) if (seen.add(h.url.substringBefore('#').trimEnd('/'))) merged += h
+        }
+        if (merged.isNotEmpty()) return@withContext merged
+        runCatching { attempts[2]() }.getOrDefault(emptyList())
     }
 
     private fun parseHits(raw: String): List<Hit> {
