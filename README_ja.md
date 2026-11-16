@@ -15,6 +15,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
 [![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
+[![Android app](https://img.shields.io/badge/Android-app%20%28APK%29-3ddc84.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
 
 <br/>
 
@@ -193,7 +194,7 @@ devx
 
 ## スマートフォンからのリモート操作
 
-**アプリの入手：** Android の APK `devx-android-x.y.z.apk` は、各[リリース](https://github.com/apvcode/Termux-Dev/releases/latest)に添付されています（スマートフォンで開き、この提供元からのインストールを許可してください）。アプリのソースコードと専用の README は [`android` ブランチ](https://github.com/apvcode/Termux-Dev/tree/android)にあります。アプリ内では、devx の `/phones` または `devx remote revoke <name>` でスマートフォンをコンピューターから削除できます。
+**アプリの入手：** Android アプリには Termux-Dev に専用のページがあります：**[Releases → devx for Android](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)**。各バージョンはそこに `devx-android-X.Y.Z.apk` というファイルとして置かれます（最新のものをスマートフォンで開き、この提供元からのインストールを許可してください）。新しいバージョンは古いものの隣に追加されます。アプリのソースコードと専用の README は [`android` ブランチ](https://github.com/apvcode/Termux-Dev/tree/android)にあります。 アプリ内では、devx の `/phones` または `devx remote revoke <name>` でスマートフォンをコンピューターから削除できます。
 
 devx 2.0 は devx の Android アプリから操作できます。小さなホストがコンピューターのバックグラウンドで動き、スマートフォンがそれに接続して同じセッションを見て操作します。すべてのチャット、ライブの回答と推論、承認カード、質問、プラン、plan/agent/YOLO モード、モデルとプロバイダー、コンテキストとコスト、`/compact` などのコマンドです。ファイルや写真はスマートフォンから送れ、エージェントもファイルや画像を送り返せます。それらはスマートフォンのチャットにカードとして表示されます。ターミナルを閉じていてもすべて動作します。
 
@@ -204,6 +205,10 @@ devx 2.0 は devx の Android アプリから操作できます。小さなホ�
 - **場所と天気**は OpenStreetMap から、キー不要で取得します。頼めば写真や通知も見られます。
 - **スケジュールタスク**：「毎朝AIのニュースを送って」。
 - **カードでの回答**：表、グラフ、地図、天気、タイマー、チェックリスト、図、Google Play と F-Droid のアプリカード。
+- **ノートブック**：ひとつのテーマで学んだりアイデアを集めたりする場所で、独自のソース（ファイル、写真、ウェブページ。どのアプリからでもリンクを共有できます）を持ちます。学習ノートブックには目標とレッスン計画、フォーム形式の質問、間隔反復のカード（専用画面、ホーム画面ウィジェット、リマインダー）、学習の統計、聞くための音声の概要、タップできるチップでソースを示す回答があります。
+- **メッセージ中の `@`** はノートブック、プロジェクト、ファイル、スケジュール済みタスクを指します。アシスタントはその中身を受け取ります。ひとつの検索でチャット、ノートブック、ファイル、その中の文章を横断できます。
+- **ライブラリとバックアップ**：添付したファイルやアシスタントが作ったファイルをすべて保管し、PDF・Word・スライド・表計算の内蔵ビューアで開けます。すべてを1つのバックアップファイルに、または選んだフォルダへの毎週の自動コピーにできます。
+- **自分らしい見た目と性格**：黒・ダークグレー・ライトのテーマ、アシスタントの話し方と名前、画面ロックや生体認証によるアプリロック、個別チャットのロック。チャットはピン留め、アーカイブ、ホーム画面への追加ができ、ウィジェット4つとクイック設定タイル2つがあります。
 - **9つの言語**：devx と同じです。
 
 ```

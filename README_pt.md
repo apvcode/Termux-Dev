@@ -15,6 +15,7 @@ Feito especialmente para **Android Termux**, **Windows**, **macOS** e **Linux**.
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
 [![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
+[![Android app](https://img.shields.io/badge/Android-app%20%28APK%29-3ddc84.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
 
 <br/>
 
@@ -193,7 +194,7 @@ devx
 
 ## Controle remoto pelo celular
 
-**Baixe o app:** o APK do Android, `devx-android-x.y.z.apk`, está anexado a cada [release](https://github.com/apvcode/Termux-Dev/releases/latest) (abra-o no celular e permita a instalação desta fonte). O código-fonte do app e o README dele estão na [branch `android`](https://github.com/apvcode/Termux-Dev/tree/android). No app, um celular é removido do computador com `/phones` no devx ou `devx remote revoke <name>`.
+**Baixe o app:** o app Android tem uma página própria no Termux-Dev: **[Releases → devx for Android](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)**. Cada versão é um arquivo ali, `devx-android-X.Y.Z.apk` (abra o mais recente no celular e permita a instalação desta fonte); as versões novas são adicionadas ao lado das antigas. O código-fonte do app e o README dele estão na [branch `android`](https://github.com/apvcode/Termux-Dev/tree/android). No app, um celular é removido do computador com `/phones` no devx ou `devx remote revoke <name>`.
 
 O devx 2.0 pode ser controlado pelo app devx para Android. Um pequeno host roda em segundo plano no seu computador; o celular se conecta a ele e vê e controla as mesmas sessões: cada chat, respostas e raciocínio ao vivo, cartões de aprovação, perguntas, o plano, os modos plan/agent/YOLO, o modelo e o provedor, o contexto e o custo, `/compact` e os demais comandos. Arquivos e fotos podem ser enviados do celular, e o agente pode mandar arquivos e imagens de volta: eles aparecem no chat do celular como cartões. Tudo funciona com o terminal fechado.
 
@@ -204,6 +205,10 @@ O app também é um assistente de bolso por conta própria, sem conta e sem um s
 - **Lugares e clima** do OpenStreetMap, sem chaves; também pode olhar suas fotos e notificações quando você pede.
 - **Tarefas agendadas**: "toda manhã me envie as notícias sobre IA".
 - **Respostas como cartões**: tabelas, gráficos, mapas, clima, timers, listas de verificação, diagramas e cartões de apps do Google Play e do F-Droid.
+- **Cadernos**: um lugar para aprender ou reunir ideias sobre um tema, com fontes próprias (arquivos, fotos, páginas da web; compartilhe um link de qualquer app). Um caderno de estudo tem meta e plano de lições, perguntas como formulários, cartões com repetição espaçada (tela própria, widget, lembrete), estatísticas de estudo, um resumo em áudio para ouvir e respostas que citam suas fontes com chips tocáveis.
+- **`@` na mensagem** aponta para um caderno, um projeto, um arquivo ou uma tarefa agendada; o assistente recebe o que há neles. Uma única busca cobre conversas, cadernos, arquivos e o texto dentro deles.
+- **Biblioteca e backup**: todos os arquivos que você anexou ou o assistente criou, com visualizador integrado de PDF, Word, slides e planilhas; tudo em um arquivo de backup ou uma cópia semanal automática numa pasta à sua escolha.
+- **Sua própria aparência e personalidade**: tema preto, cinza-escuro ou claro, o jeito e o nome do assistente, bloqueio do app com o bloqueio de tela ou biometria e trancas em conversas isoladas. As conversas podem ser fixadas, arquivadas e adicionadas à tela inicial; quatro widgets e dois blocos de configurações rápidas.
 - **Nove idiomas**, os mesmos do devx.
 
 ```

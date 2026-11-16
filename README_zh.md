@@ -15,6 +15,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
 [![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
+[![Android app](https://img.shields.io/badge/Android-app%20%28APK%29-3ddc84.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
 
 <br/>
 
@@ -193,7 +194,7 @@ devx
 
 ## 从手机远程控制
 
-**获取应用：** Android APK `devx-android-x.y.z.apk` 附在每个[发布版本](https://github.com/apvcode/Termux-Dev/releases/latest)中（在手机上打开，并允许从此来源安装）。应用的源代码及其自己的 README 位于 [`android` 分支](https://github.com/apvcode/Termux-Dev/tree/android)。在应用中，可以用 devx 里的 `/phones` 或 `devx remote revoke <name>` 将手机从电脑上移除。
+**获取应用：** Android 应用在 Termux-Dev 上有自己的页面：**[Releases → devx for Android](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)**。每个版本都是页面上的一个文件 `devx-android-X.Y.Z.apk`（在手机上打开最新的，并允许从此来源安装）；新版本添加在旧版本旁边。应用的源代码及其自己的 README 位于 [`android` 分支](https://github.com/apvcode/Termux-Dev/tree/android)。 在应用中，可以用 devx 里的 `/phones` 或 `devx remote revoke <name>` 将手机从电脑上移除。
 
 devx 2.0 可以由 devx Android 应用来驱动。一个小型主机在你电脑的后台运行；手机连接到它，看到并控制相同的会话：每个聊天、实时回答和推理、批准卡片、提问、计划、plan/agent/YOLO 模式、模型和服务商、上下文和费用、`/compact` 及其他命令。可以从手机发送文件和照片，智能体也可以把文件和图片发回来：它们会以卡片形式出现在手机聊天中。终端关闭时一切照常运行。
 
@@ -204,6 +205,10 @@ devx 2.0 可以由 devx Android 应用来驱动。一个小型主机在你电脑
 - **地点和天气**来自 OpenStreetMap，无需密钥；你询问时，它还可以查看你的照片和通知。
 - **定时任务**：“每天早上给我发 AI 新闻”。
 - **以卡片呈现的回答**：表格、图表、地图、天气、计时器、清单、图示，以及来自 Google Play 和 F-Droid 的应用卡片。
+- **笔记本**：围绕一个主题学习或收集想法的地方，有自己的资料（文件、照片、网页；可从任何应用分享链接）。学习笔记本有目标和课程计划、表单形式的提问、间隔重复的卡片（独立界面、主屏幕小组件、提醒）、学习统计、可收听的音频概览，以及用可点按的标签引用资料来源的回答。
+- **消息中的 `@`** 可指向笔记本、项目、文件或定时任务；助手会收到其中的内容。一次搜索即可覆盖聊天、笔记本、文件及其中的文字。
+- **资料库与备份**：你附加过或助手生成的所有文件，内置 PDF、Word、幻灯片和表格查看器；一切都在一个备份文件里，或每周自动复制到你选择的文件夹。
+- **自己的外观与性格**：黑色、深灰或浅色主题，助手的风格和名字，用屏幕锁或生物识别的应用锁，以及单个聊天的锁。聊天可以置顶、归档并添加到主屏幕；四个小组件和两个快速设置磁贴。
 - **九种语言**，与 devx 相同。
 
 ```

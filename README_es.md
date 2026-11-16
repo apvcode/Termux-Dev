@@ -15,6 +15,7 @@ Creado especialmente para **Android Termux**, **Windows**, **macOS** y **Linux**
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
 [![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
+[![Android app](https://img.shields.io/badge/Android-app%20%28APK%29-3ddc84.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
 
 <br/>
 
@@ -193,7 +194,7 @@ devx
 
 ## Control remoto desde el teléfono
 
-**Consigue la app:** el APK de Android, `devx-android-x.y.z.apk`, está adjunto a cada [release](https://github.com/apvcode/Termux-Dev/releases/latest) (ábrelo en el teléfono y permite instalar desde esta fuente). El código de la app y su propio README están en la [rama `android`](https://github.com/apvcode/Termux-Dev/tree/android). En la app, un teléfono se quita del ordenador con `/phones` en devx o `devx remote revoke <name>`.
+**Consigue la app:** la app de Android tiene su propia página en Termux-Dev: **[Releases → devx for Android](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)**. Cada versión es allí un archivo `devx-android-X.Y.Z.apk` (abre el más reciente en el teléfono y permite instalar desde esta fuente); las versiones nuevas se añaden junto a las antiguas. El código de la app y su propio README están en la [rama `android`](https://github.com/apvcode/Termux-Dev/tree/android). En la app, un teléfono se quita del ordenador con `/phones` en devx o `devx remote revoke <name>`.
 
 devx 2.0 se puede manejar desde la app devx para Android. Un pequeño host se ejecuta en segundo plano en tu ordenador; el teléfono se conecta a él y ve y controla las mismas sesiones: cada chat, respuestas y razonamiento en directo, tarjetas de aprobación, preguntas, el plan, los modos plan/agent/YOLO, el modelo y el proveedor, el contexto y el coste, `/compact` y los demás comandos. Se pueden enviar archivos y fotos desde el teléfono, y el agente puede devolver archivos e imágenes: aparecen en el chat del teléfono como tarjetas. Todo funciona con el terminal cerrado.
 
@@ -204,6 +205,10 @@ La app es además un asistente de bolsillo por sí misma, sin cuenta y sin un se
 - **Lugares y tiempo** de OpenStreetMap, sin claves; también puede mirar tus fotos y notificaciones cuando se lo pides.
 - **Tareas programadas**: «cada mañana envíame las noticias sobre IA».
 - **Respuestas como tarjetas**: tablas, gráficos, mapas, tiempo, temporizadores, listas de control, diagramas y tarjetas de apps de Google Play y F-Droid.
+- **Cuadernos**: un lugar para aprender o reunir ideas sobre un tema, con sus propias fuentes (archivos, fotos, páginas web; puedes compartir un enlace desde cualquier app). Un cuaderno de estudio tiene meta y plan de lecciones, preguntas como formularios, tarjetas con repetición espaciada (pantalla propia, widget, recordatorio), estadísticas de estudio, un resumen en audio para escuchar y respuestas que citan sus fuentes con chips pulsables.
+- **`@` en el mensaje** señala un cuaderno, un proyecto, un archivo o una tarea programada; el asistente recibe lo que contienen. Una sola búsqueda abarca chats, cuadernos, archivos y el texto dentro de ellos.
+- **Biblioteca y copia de seguridad**: todos los archivos que adjuntaste o creó el asistente, con visor integrado de PDF, Word, diapositivas y hojas de cálculo; todo en un archivo de copia o una copia semanal automática en una carpeta que elijas.
+- **Tu propio aspecto y carácter**: tema negro, gris oscuro o claro, el estilo y el nombre del asistente, bloqueo de la app con el bloqueo de pantalla o biometría y bloqueos en chats sueltos. Los chats se pueden fijar, archivar y añadir a la pantalla de inicio; cuatro widgets y dos mosaicos de ajustes rápidos.
 - **Nueve idiomas**, los mismos que devx.
 
 ```

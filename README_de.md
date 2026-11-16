@@ -15,6 +15,7 @@ Speziell entwickelt für **Android Termux**, **Windows**, **macOS** und **Linux*
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
 [![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
+[![Android app](https://img.shields.io/badge/Android-app%20%28APK%29-3ddc84.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
 
 <br/>
 
@@ -193,7 +194,7 @@ devx
 
 ## Fernsteuerung vom Handy
 
-**Die App holen:** Das Android-APK `devx-android-x.y.z.apk` hängt an jedem [Release](https://github.com/apvcode/Termux-Dev/releases/latest) (auf dem Handy öffnen und die Installation aus dieser Quelle erlauben). Den Quellcode der App und ihre eigene README findest du im [Branch `android`](https://github.com/apvcode/Termux-Dev/tree/android). In der App wird ein Handy mit `/phones` in devx oder `devx remote revoke <name>` vom Computer entfernt.
+**Die App holen:** Die Android-App hat auf Termux-Dev eine eigene Seite: **[Releases → devx for Android](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)**. Jede Version liegt dort als Datei `devx-android-X.Y.Z.apk` (die neueste auf dem Handy öffnen und die Installation aus dieser Quelle erlauben); neue Versionen kommen neben die alten. Den Quellcode der App und ihre eigene README findest du im [Branch `android`](https://github.com/apvcode/Termux-Dev/tree/android). In der App wird ein Handy mit `/phones` in devx oder `devx remote revoke <name>` vom Computer entfernt.
 
 devx 2.0 lässt sich über die devx-Android-App steuern. Ein kleiner Host läuft im Hintergrund auf deinem Computer; das Handy verbindet sich mit ihm und sieht und steuert dieselben Sitzungen: jeden Chat, Live-Antworten und Denkvorgänge, Freigabekarten, Fragen, den Plan, die Modi plan/agent/YOLO, Modell und Anbieter, Kontext und Kosten, `/compact` und die übrigen Befehle. Dateien und Fotos lassen sich vom Handy senden, und der Agent kann Dateien und Bilder zurückschicken: Sie erscheinen im Handy-Chat als Karten. Alles funktioniert auch bei geschlossenem Terminal.
 
@@ -204,6 +205,10 @@ Die App ist außerdem ein eigener Taschenassistent, ohne Konto und ohne einen Se
 - **Orte und Wetter** von OpenStreetMap, ohne Schlüssel; auf Wunsch schaut sie sich auch deine Fotos und Benachrichtigungen an.
 - **Geplante Aufgaben**: „schick mir jeden Morgen die KI-Nachrichten“.
 - **Antworten als Karten**: Tabellen, Diagramme, Karten, Wetter, Timer, Checklisten, Schaubilder und App-Karten aus Google Play und F-Droid.
+- **Notizbücher**: ein Ort zum Lernen oder Sammeln von Ideen zu einem Thema, mit eigenen Quellen (Dateien, Fotos, Webseiten; einen Link kannst du aus jeder App teilen). Ein Lern-Notizbuch hat ein Ziel und einen Lektionsplan, Fragen als Formulare, Lernkarten mit verteilter Wiederholung (eigener Bildschirm, Widget, Erinnerung), Lernstatistik, einen Audio-Überblick zum Anhören und Antworten, die ihre Quellen als antippbare Chips nennen.
+- **`@` in der Nachricht** verweist auf ein Notizbuch, ein Projekt, eine Datei oder eine geplante Aufgabe; der Assistent bekommt, was darin steckt. Eine Suche durchsucht Chats, Notizbücher, Dateien und den Text darin.
+- **Bibliothek und Backup**: jede Datei, die du angehängt hast oder der Assistent erstellt hat, mit eingebautem Viewer für PDF, Word, Folien und Tabellen; alles in einer Backup-Datei oder als automatische wöchentliche Kopie in einen Ordner deiner Wahl.
+- **Eigenes Aussehen und Charakter**: schwarzes, dunkelgraues oder helles Design, Art und Name des Assistenten, App-Sperre mit Bildschirmsperre oder Biometrie und Sperren für einzelne Chats. Chats lassen sich anheften, archivieren und auf den Startbildschirm legen; vier Widgets und zwei Schnelleinstellungs-Kacheln.
 - **Neun Sprachen**, dieselben wie bei devx.
 
 ```

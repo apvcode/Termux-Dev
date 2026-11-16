@@ -15,6 +15,7 @@ Built specifically for **Android Termux**, **Windows**, **macOS**, and **Linux**
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
 [![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
+[![Android app](https://img.shields.io/badge/Android-app%20%28APK%29-3ddc84.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
 
 <br/>
 
@@ -193,7 +194,7 @@ devx
 
 ## Remote control from your phone
 
-**Get the app:** the Android APK, `devx-android-x.y.z.apk`, is attached to each [release](https://github.com/apvcode/Termux-Dev/releases/latest) (open it on the phone and allow installing from this source). The app's source and its own README are in the [`android` branch](https://github.com/apvcode/Termux-Dev/tree/android). In the app, a phone is removed from the computer with `/phones` in devx or `devx remote revoke <name>`.
+**Get the app:** the Android app has its own page on Termux-Dev: **[Releases → devx for Android](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)**. Every version is a file there, `devx-android-X.Y.Z.apk` (open the newest on the phone and allow installing from this source); new versions are added next to the old ones. The app's source and its own README are in the [`android` branch](https://github.com/apvcode/Termux-Dev/tree/android). In the app, a phone is removed from the computer with `/phones` in devx or `devx remote revoke <name>`.
 
 devx 2.0 can be driven from the devx Android app. A small host runs in the background on your computer; the phone connects to it, and sees and controls the same sessions: every chat, live replies and reasoning, approval cards, questions, the plan, plan/agent/YOLO modes, the model and provider, context and cost, `/compact` and the other commands. Files and photos can be sent from the phone, and the agent can send files and pictures back: they show up in the phone chat as cards. Everything works with the terminal closed.
 
@@ -204,6 +205,10 @@ The app is also a pocket assistant of its own, with no account and no server of 
 - **Places and weather** from OpenStreetMap, no keys; it can also look at your photos and notifications when you ask.
 - **Scheduled tasks**: "every morning send me the news about AI".
 - **Answers as cards**: tables, charts, maps, weather, timers, checklists, diagrams and app cards from Google Play and F-Droid.
+- **Notebooks**: a place to learn or collect ideas on one topic, with its own sources (files, photos, web pages; share a link from any app). A study notebook has a goal and a plan of lessons, questions as forms, flashcards with spaced repetition (a screen of their own, a home-screen widget, a reminder), study stats, an audio overview to listen to, and answers that cite their sources as tappable chips.
+- **`@` in the message** points at a notebook, a project, a file or a scheduled task; the assistant is given what it holds. One search covers chats, notebooks, files and the text inside them.
+- **Library and backup**: every file you attached or the assistant made, with a built-in viewer for PDF, Word, slides and spreadsheets; everything in one backup file, or an automatic weekly copy into a folder you choose.
+- **Your own look and character**: black, dark gray or light theme, the assistant's manner and name, app lock with the screen lock or biometrics, and locks on single chats. Chats can be pinned, archived and added to the home screen; four widgets and two quick-settings tiles.
 - **Nine languages**, the same as devx.
 
 ```

@@ -15,6 +15,7 @@ Conçu spécialement pour **Android Termux**, **Windows**, **macOS** et **Linux*
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-3fb950.svg?style=flat-square&labelColor=0a0c11)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://www.typescriptlang.org)
 [![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-d97a3a.svg?style=flat-square&labelColor=0a0c11)](#quick-start)
+[![Android app](https://img.shields.io/badge/Android-app%20%28APK%29-3ddc84.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
 
 <br/>
 
@@ -193,7 +194,7 @@ devx
 
 ## Contrôle à distance depuis le téléphone
 
-**Obtenir l'app :** l'APK Android, `devx-android-x.y.z.apk`, est joint à chaque [release](https://github.com/apvcode/Termux-Dev/releases/latest) (ouvrez-le sur le téléphone et autorisez l'installation depuis cette source). Le code source de l'app et son propre README sont dans la [branche `android`](https://github.com/apvcode/Termux-Dev/tree/android). Dans l'app, un téléphone est retiré de l'ordinateur avec `/phones` dans devx ou `devx remote revoke <name>`.
+**Obtenir l'app :** l'application Android a sa propre page sur Termux-Dev : **[Releases → devx for Android](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)**. Chaque version y est un fichier `devx-android-X.Y.Z.apk` (ouvrez le plus récent sur le téléphone et autorisez l'installation depuis cette source) ; les nouvelles versions s'ajoutent à côté des anciennes. Le code source de l'app et son propre README sont dans la [branche `android`](https://github.com/apvcode/Termux-Dev/tree/android). Dans l'app, un téléphone est retiré de l'ordinateur avec `/phones` dans devx ou `devx remote revoke <name>`.
 
 devx 2.0 peut être piloté depuis l'app devx pour Android. Un petit hôte tourne en arrière-plan sur votre ordinateur ; le téléphone s'y connecte, et voit et contrôle les mêmes sessions : chaque chat, les réponses et le raisonnement en direct, les cartes d'approbation, les questions, le plan, les modes plan/agent/YOLO, le modèle et le fournisseur, le contexte et le coût, `/compact` et les autres commandes. Des fichiers et des photos peuvent être envoyés depuis le téléphone, et l'agent peut renvoyer des fichiers et des images : ils apparaissent dans le chat du téléphone sous forme de cartes. Tout fonctionne terminal fermé.
 
@@ -204,6 +205,10 @@ L'app est aussi un assistant de poche à part entière, sans compte et sans serv
 - **Lieux et météo** d'OpenStreetMap, sans clés ; elle peut aussi regarder vos photos et vos notifications quand vous le demandez.
 - **Tâches planifiées** : « chaque matin, envoie-moi les actualités sur l'IA ».
 - **Réponses en cartes** : tableaux, graphiques, cartes, météo, minuteurs, listes de contrôle, schémas et cartes d'apps de Google Play et F-Droid.
+- **Carnets** : un lieu pour apprendre ou réunir des idées sur un sujet, avec ses propres sources (fichiers, photos, pages web ; partagez un lien depuis n'importe quelle appli). Un carnet d'étude a un objectif et un plan de leçons, des questions sous forme de formulaires, des cartes à répétition espacée (écran dédié, widget, rappel), des statistiques d'étude, un résumé audio à écouter et des réponses qui citent leurs sources par des pastilles cliquables.
+- **`@` dans le message** désigne un carnet, un projet, un fichier ou une tâche planifiée ; l'assistant reçoit ce qu'ils contiennent. Une seule recherche couvre discussions, carnets, fichiers et le texte qu'ils contiennent.
+- **Bibliothèque et sauvegarde** : tous les fichiers que vous avez joints ou que l'assistant a créés, avec une visionneuse intégrée pour PDF, Word, diapositives et tableurs ; tout dans un seul fichier de sauvegarde, ou une copie hebdomadaire automatique dans un dossier de votre choix.
+- **Votre propre apparence et caractère** : thème noir, gris foncé ou clair, la manière et le nom de l'assistant, verrouillage de l'appli par le verrouillage d'écran ou la biométrie, et verrous sur des discussions isolées. Les discussions peuvent être épinglées, archivées et ajoutées à l'écran d'accueil ; quatre widgets et deux tuiles de réglages rapides.
 - **Neuf langues**, les mêmes que devx.
 
 ```
