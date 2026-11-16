@@ -8,6 +8,7 @@ import com.apvcode.devx.R
 /** Tabler Icons (MIT, see NOTICE) as vector drawables. One set, one stroke width. */
 object DevxIcons {
     /** The list of chats. */
+    val Speaker: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_c_speakerphone)
     val ChatList: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_chat_list)
 
     /** A new chat. */

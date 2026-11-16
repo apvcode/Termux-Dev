@@ -42,6 +42,8 @@ class ScheduledTask(
     var enabled: Boolean,
     var lastRun: Long = 0L,
     var lastChatId: String? = null,
+    /** The notebook the answer's chat belongs to (a reminder to study); none: an ordinary chat. */
+    var project: String? = null,
 ) {
     val daily: Boolean get() = days and ALL == ALL
 
@@ -79,6 +81,7 @@ object Tasks {
                 enabled = o.optBoolean("enabled", true),
                 lastRun = o.optLong("lastRun", 0L),
                 lastChatId = o.optString("lastChat").takeIf { it.isNotEmpty() },
+                project = o.optString("project").takeIf { it.isNotEmpty() },
             )
         }
     }.getOrDefault(emptyList())
@@ -90,17 +93,18 @@ object Tasks {
                 .put("days", t.days).put("enabled", t.enabled).put("lastRun", t.lastRun)
             t.model?.let { o.put("model", JSONObject().put("p", it.providerId).put("m", it.model)) }
             t.lastChatId?.let { o.put("lastChat", it) }
+            t.project?.let { o.put("project", it) }
             array.put(o)
         }
         file(context).writeText(array.toString())
     }
 
     /** Saves a new task (its id is made here) and sets its alarm. */
-    fun add(context: Context, title: String, prompt: String, hour: Int, minute: Int, days: Int, model: ModelRef?): ScheduledTask {
+    fun add(context: Context, title: String, prompt: String, hour: Int, minute: Int, days: Int, model: ModelRef?, project: String? = null): ScheduledTask {
         val task: ScheduledTask
         synchronized(lock) {
             val list = read(context)
-            task = ScheduledTask((list.maxOfOrNull { it.id } ?: 0) + 1, title.trim(), prompt.trim(), hour, minute, days.takeIf { it and ScheduledTask.ALL != 0 } ?: ScheduledTask.ALL, model, true)
+            task = ScheduledTask((list.maxOfOrNull { it.id } ?: 0) + 1, title.trim(), prompt.trim(), hour, minute, days.takeIf { it and ScheduledTask.ALL != 0 } ?: ScheduledTask.ALL, model, true, project = project)
             write(context, list + task)
         }
         schedule(context, task)
@@ -150,10 +154,10 @@ object Tasks {
         return PendingIntent.getBroadcast(context, 20_000 + id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-    fun schedule(context: Context, task: ScheduledTask) {
+    fun schedule(context: Context, task: ScheduledTask, after: Long = System.currentTimeMillis()) {
         unschedule(context, task.id)
         if (!task.enabled) return
-        val at = nextRun(task) ?: return
+        val at = nextRun(task, after) ?: return
         val alarms = context.getSystemService(AlarmManager::class.java)
         val pi = pending(context, task.id)
         val exact = Build.VERSION.SDK_INT < 31 || alarms.canScheduleExactAlarms()
@@ -182,7 +186,17 @@ object Tasks {
         val app = context.applicationContext
         val task = get(app, id) ?: return
         if (!task.enabled) return
-        schedule(app, task)
+        val now = System.currentTimeMillis()
+        // An alarm can go off a moment before its minute (or be delivered twice): the same task is not run again within a minute and a half.
+        if (now - task.lastRun < 90_000) {
+            schedule(app, task, after = maxOf(now, task.lastRun) + 90_000)
+            return
+        }
+        // Written down at once (the chat is made a little later): a second delivery finds it and stands aside.
+        markRun(app, task.id, task.lastChatId)
+        schedule(app, task, after = now + 90_000)
+        // A reminder to study is a notification with the number of cards that are due, not a chat.
+        if (StudyReminder.isStudyTask(task)) { StudyReminder.fire(app, task.project.orEmpty()); return }
         GenerationService.start(app)
         scope.launch { runOnce(app, task) }
     }
@@ -191,6 +205,7 @@ object Tasks {
     fun runNow(context: Context, id: Int) {
         val app = context.applicationContext
         val task = get(app, id) ?: return
+        if (StudyReminder.isStudyTask(task)) { StudyReminder.fire(app, task.project.orEmpty()); return }
         GenerationService.start(app)
         scope.launch { runOnce(app, task) }
     }
@@ -200,7 +215,7 @@ object Tasks {
         val vm = SharedChat.acquire(app as? Application ?: app.applicationContext as Application, user)
         try {
             withTimeoutOrNull(60_000) { androidx.compose.runtime.snapshotFlow { vm.loaded }.first { it } } ?: return
-            val chatId = vm.startBackgroundChat(task.title, task.prompt, task.model) ?: return
+            val chatId = vm.startBackgroundChat(task.title, task.prompt, task.model, task.project) ?: return
             markRun(app, task.id, chatId)
             // Up to a quarter of an hour; a task that runs longer is stopped.
             val finished = withTimeoutOrNull(15 * 60_000L) {

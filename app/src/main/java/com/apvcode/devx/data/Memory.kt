@@ -14,7 +14,10 @@ import java.io.File
 import java.util.concurrent.Executors
 
 /** One thing the assistant remembers about the person. [id] is short, so that the model can quote it. */
-data class MemoryNote(val id: String, val text: String, val createdAt: Long, val updatedAt: Long)
+data class MemoryNote(val id: String, val text: String, val createdAt: Long, val updatedAt: Long, val expiresAt: Long = 0L) {
+    /** A temporary fact ("the exam is tomorrow") stops being true: after [expiresAt] it is no longer used. 0: it does not expire. */
+    fun expired(now: Long = System.currentTimeMillis()) = expiresAt in 1..now
+}
 
 /**
  * What the assistant remembers about the person, across all conversations: short notes the assistant (or
@@ -41,21 +44,27 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
     /** The person wrote or changed the overview by hand: it is not renewed by itself, only when they ask for "Update". */
     var summaryManual by mutableStateOf(false)
         private set
+    /** The overview as it was before the last rewrite, to show what is new in it. */
+    var summaryPrev by mutableStateOf("")
+        private set
+    /** The person has seen (or closed) the list of what changed. */
+    var changesSeen by mutableStateOf(true)
+        private set
     var summarizing by mutableStateOf(false)
     var summaryError by mutableStateOf<ErrorKind?>(null)
 
     suspend fun load() {
-        val (loaded, text, at, stale, manual) = withContext(Dispatchers.IO) {
+        val (loaded, text, at, stale, manual, prev, seen) = withContext(Dispatchers.IO) {
             val list = runCatching {
                 JSONArray(notesFile.takeIf { it.exists() }?.readText() ?: "[]").let { a ->
                     (0 until a.length()).map { i ->
                         val o = a.getJSONObject(i)
-                        MemoryNote(o.getString("id"), o.getString("text"), o.optLong("createdAt"), o.optLong("updatedAt"))
+                        MemoryNote(o.getString("id"), o.getString("text"), o.optLong("createdAt"), o.optLong("updatedAt"), o.optLong("expiresAt"))
                     }
                 }
-            }.getOrDefault(emptyList())
+            }.getOrDefault(emptyList()).filterNot { it.expired() }
             val s = runCatching { JSONObject(summaryFile.takeIf { it.exists() }?.readText() ?: "{}") }.getOrDefault(JSONObject())
-            Loaded(list, s.optString("text"), s.optLong("at"), s.optBoolean("stale"), s.optBoolean("manual"))
+            Loaded(list, s.optString("text"), s.optLong("at"), s.optBoolean("stale"), s.optBoolean("manual"), s.optString("prev"), s.optBoolean("seen", true))
         }
         notes.clear()
         notes.addAll(loaded)
@@ -63,9 +72,11 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
         summaryAt = at
         summaryStale = stale
         summaryManual = manual
+        summaryPrev = prev
+        changesSeen = seen
     }
 
-    private data class Loaded(val notes: List<MemoryNote>, val text: String, val at: Long, val stale: Boolean, val manual: Boolean)
+    private data class Loaded(val notes: List<MemoryNote>, val text: String, val at: Long, val stale: Boolean, val manual: Boolean, val prev: String, val seen: Boolean)
 
     // ---------- the notes ----------
 
@@ -79,12 +90,12 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
     }
 
     @Synchronized
-    fun add(raw: String, now: Long = System.currentTimeMillis()): Result {
+    fun add(raw: String, now: Long = System.currentTimeMillis(), validDays: Int = 0): Result {
         val text = clean(raw)
         if (text.isEmpty()) return Result.Failed("The note is empty.")
         notes.firstOrNull { same(it.text, text) }?.let { return Result.Duplicate(it) }
         if (notes.size >= MAX_NOTES) return Result.Failed("The memory is full ($MAX_NOTES notes). Remove or merge old notes first.")
-        val note = MemoryNote(freshId(), text, now, now)
+        val note = MemoryNote(freshId(), text, now, now, if (validDays > 0) now + validDays.coerceAtMost(365) * DAY else 0L)
         notes += note
         changed()
         return Result.Saved(note)
@@ -125,7 +136,7 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
     /** The notes that match every word of [query] (all of them when it is blank), newest first. */
     fun search(query: String): List<MemoryNote> {
         val words = ChatSearch.tokens(query)
-        val all = notes.sortedByDescending { it.updatedAt }
+        val all = notes.filterNot { it.expired() }.sortedByDescending { it.updatedAt }
         if (words.isEmpty()) return all
         return all.filter { n -> val t = n.text.lowercase(); words.all { t.contains(ChatSearch.stem(it)) } }
     }
@@ -133,7 +144,12 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
     // ---------- the overview ----------
 
     fun saveSummary(text: String, now: Long = System.currentTimeMillis()) {
-        summary = text.trim()
+        val fresh = text.trim()
+        if (summary.isNotEmpty() && fresh != summary) {
+            summaryPrev = summary
+            changesSeen = false
+        }
+        summary = fresh
         summaryAt = now
         summaryStale = false
         summaryManual = false
@@ -158,6 +174,15 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
         persistSummary()
     }
 
+    /** What is new in the overview since the last rewrite: its lines that were not there before. Empty when there is nothing, or it was seen. */
+    fun changes(): List<String> = if (changesSeen || summaryPrev.isEmpty()) emptyList() else newLines(summaryPrev, summary)
+
+    fun dismissChanges() {
+        if (changesSeen) return
+        changesSeen = true
+        persistSummary()
+    }
+
     /** Anything the overview was built from has changed (a note, or a chat was deleted). */
     fun invalidateSummary() {
         if (summaryStale || summary.isEmpty()) return
@@ -167,20 +192,17 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
 
     // ---------- for the prompt ----------
 
-    /** The notes as lines for the system prompt, with their ids; the oldest are left out when there are too many. */
-    fun forPrompt(limit: Int = PROMPT_CHARS): String {
-        if (notes.isEmpty()) return ""
-        val lines = notes.sortedBy { it.createdAt }.map { "- [${it.id}] ${it.text.replace("\n", " ")}" }
-        var used = 0
-        val kept = ArrayList<String>()
-        for (line in lines.asReversed()) {
-            if (used + line.length > limit && kept.isNotEmpty()) break
-            kept += line
-            used += line.length + 1
-        }
-        val hidden = lines.size - kept.size
-        return kept.asReversed().joinToString("\n") +
-            if (hidden > 0) "\n($hidden older notes are not shown here: memory_list shows all of them.)" else ""
+    /**
+     * The notes as lines for the system prompt, with their ids. Notes that no longer hold are left out. When all do not fit, those
+     * that touch what the person is asking about ([hint]) are kept first, then the newest ones; the rest is said to be hidden.
+     */
+    fun forPrompt(limit: Int = PROMPT_CHARS, hint: String = "", now: Long = System.currentTimeMillis()): String {
+        val live = notes.filterNot { it.expired(now) }
+        if (live.isEmpty()) return ""
+        val kept = pick(live, hint, limit)
+        val hidden = live.size - kept.size
+        return kept.joinToString("\n") { "- [${it.id}] ${it.text.replace("\n", " ")}" } +
+            if (hidden > 0) "\n($hidden other notes are not shown here: memory_list shows all of them.)" else ""
     }
 
     /** The project this belongs to is gone: so are its notes. */
@@ -192,17 +214,21 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
 
     // ---------- storage ----------
 
+    /** Called when the notes change (a note saved, edited or removed): the overview is written again a little later. */
+    var onNotesChanged: (() -> Unit)? = null
+
     private fun changed() {
         summaryStale = summary.isNotEmpty()
+        onNotesChanged?.invoke()
         val json = JSONArray().also { a ->
-            notes.forEach { a.put(JSONObject().put("id", it.id).put("text", it.text).put("createdAt", it.createdAt).put("updatedAt", it.updatedAt)) }
+            notes.forEach { a.put(JSONObject().put("id", it.id).put("text", it.text).put("createdAt", it.createdAt).put("updatedAt", it.updatedAt).also { o -> if (it.expiresAt > 0) o.put("expiresAt", it.expiresAt) }) }
         }.toString()
         writer.execute { writeAtomic(notesFile, json) }
         if (summary.isNotEmpty()) persistSummary()
     }
 
     private fun persistSummary() {
-        val json = JSONObject().put("text", summary).put("at", summaryAt).put("stale", summaryStale).put("manual", summaryManual).toString()
+        val json = JSONObject().put("text", summary).put("at", summaryAt).put("stale", summaryStale).put("manual", summaryManual).put("prev", summaryPrev).put("seen", changesSeen).toString()
         writer.execute { writeAtomic(summaryFile, json) }
     }
 
@@ -225,6 +251,7 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
     }
 
     companion object {
+        const val DAY = 86_400_000L
         const val MAX_NOTES = 200
         const val MAX_NOTE_CHARS = 4000
         const val PROMPT_CHARS = 4000
@@ -236,6 +263,39 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
         fun same(a: String, b: String): Boolean {
             fun norm(s: String) = s.lowercase().replace(Regex("[\\s.!]+"), " ").trim()
             return norm(a) == norm(b)
+        }
+
+        /**
+         * The notes that go to the prompt, oldest first, within [limit] characters. With a [hint] the notes that share words with it
+         * come first (then the newer ones); without one the newest are kept, as before.
+         */
+        fun pick(notes: List<MemoryNote>, hint: String, limit: Int): List<MemoryNote> {
+            val byAge = notes.sortedBy { it.createdAt }
+            val words = ChatSearch.tokens(hint).map { ChatSearch.stem(it) }.distinct()
+            val ranked = if (words.isEmpty()) byAge.asReversed() else {
+                val newest = byAge.withIndex().associate { (i, n) -> n.id to i }
+                byAge.sortedByDescending { n ->
+                    val t = n.text.lowercase()
+                    words.count { t.contains(it) } * 1000 + (newest[n.id] ?: 0)
+                }
+            }
+            val kept = ArrayList<MemoryNote>()
+            var used = 0
+            for (n in ranked) {
+                val len = n.text.length + 12
+                if (used + len > limit && kept.isNotEmpty()) continue
+                kept += n
+                used += len
+            }
+            return kept.sortedBy { it.createdAt }
+        }
+
+        /** The lines of [now] (markup removed) that are not among the lines of [before]. */
+        fun newLines(before: String, now: String): List<String> {
+            fun norm(l: String) = l.trim().trimStart('-', '*', '#', ' ', '•').replace("**", "").lowercase().replace(Regex("[\\s.!]+"), " ").trim()
+            val old = before.lines().map(::norm).filter { it.isNotEmpty() }.toSet()
+            return now.lines().map { it.trim().trimStart('-', '*', '#', ' ', '•').replace("**", "").trim() }
+                .filter { it.length > 3 && norm(it) !in old }.take(8)
         }
     }
 }

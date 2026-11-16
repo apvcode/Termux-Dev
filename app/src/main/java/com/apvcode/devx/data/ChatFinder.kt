@@ -52,3 +52,23 @@ object ChatFinder {
         return Cut(head + mid + tail, head.length, head.length + mid.length)
     }
 }
+
+/**
+ * How well a notebook or a project fits the words of a search: 3 when its name starts with them, 2 when the name has them, 1 when its
+ * description or goal does, 0 when it does not match. Every word must be found (in the name, the description or the goal).
+ */
+fun spaceMatch(name: String, description: String, goal: String, query: String): Int {
+    val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    if (words.isEmpty()) return 0
+    val n = name.lowercase()
+    val rest = (description + " " + goal).lowercase()
+    if (!words.all { n.contains(it) || rest.contains(it) }) return 0
+    return when {
+        n.startsWith(words.first()) -> 3
+        words.all { n.contains(it) } -> 2
+        else -> 1
+    }
+}
+
+/** A file of the library that fits a search, and (when the words are inside it) a line of what it says around them. */
+class FileHit(val entry: LibraryEntry, val snippet: String?)

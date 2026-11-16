@@ -306,6 +306,12 @@ class WebTools(context: Context) {
         )
     }
 
+    /** A page read for a notebook's source: its title and text, or null when it cannot be opened (or is not a public page). */
+    suspend fun readPage(url: String): Page? {
+        if (!isPublic(url)) return null
+        return fetch(url)?.takeIf { it.text.isNotBlank() }
+    }
+
     private suspend fun fetch(url: String): Page? = withContext(Dispatchers.IO) {
         val quick = runCatching { httpFetch(url) }.getOrNull()
         if (quick != null && quick.text.length >= 200) return@withContext quick

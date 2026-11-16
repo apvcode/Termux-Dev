@@ -108,6 +108,8 @@ class MessageActionsHost(
     val onShowSources: (Msg) -> Unit,
     val onOpenFile: (com.apvcode.devx.data.Artifact) -> Unit,
     val onShowSteps: (Msg) -> Unit,
+    /** A notebook or a project that a message pointed at with @ was tapped. */
+    val onOpenProject: (String) -> Unit = {},
     /** A long message of mine is about to fold up: if its beginning is above the screen, the list moves with it. */
     val onFold: (Msg) -> Unit = {},
 )
@@ -173,6 +175,12 @@ private fun UserBubble(msg: Msg, vm: ChatViewModel, animate: Boolean, host: Mess
             ) {
                 if (big) FoldedText(msg.text, open, toggle)
                 else if (looksMarkdown(msg.text)) MarkdownText(msg.text)
+                else if (msg.mentions.isNotEmpty()) {
+                    // What the message pointed at with @ is part of the sentence: its icon, then its name in its colour (a tap opens it).
+                    val looks = msg.mentions.mapNotNull { k -> vm.mentionLook(k)?.let { k to it } }
+                    val (shown, inline) = mentionedText(msg.text, looks, host.onOpenProject)
+                    Text(shown, style = DevxType.Body, color = DevxColors.TextPrimary, inlineContent = inline)
+                }
                 else Text(msg.text, style = DevxType.Body, color = DevxColors.TextPrimary)
             }
             PopupMenu(expanded = menu, onDismiss = { menu = false }, offset = press.menuOffset()) {
@@ -436,6 +444,13 @@ private fun AssistantActions(msg: Msg, vm: ChatViewModel, host: MessageActionsHo
                         MenuRow(DevxIcons.World, stringResource(R.string.menu_sources)) {
                             menu = false
                             host.onShowSources(msg)
+                        }
+                    }
+                    if (msg.text.isNotBlank()) {
+                        val speaker = remember { com.apvcode.devx.assist.VoiceWarm.speaker(context) }
+                        MenuRow(DevxIcons.Speaker, stringResource(if (speaker.speaking) R.string.msg_listen_stop else R.string.msg_listen)) {
+                            menu = false
+                            if (speaker.speaking) speaker.stop() else speaker.read(msg.text)
                         }
                     }
                     MenuRow(DevxIcons.FileText, stringResource(R.string.msg_select)) {

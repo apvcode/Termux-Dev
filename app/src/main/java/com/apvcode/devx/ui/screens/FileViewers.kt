@@ -62,7 +62,7 @@ private const val MAX_READ = 1_000_000
 
 /** The header every viewer has: a round back button and the file's name. */
 @Composable
-private fun ViewerBar(name: String, caption: String?, onClose: () -> Unit) {
+fun ViewerBar(name: String, caption: String?, onClose: () -> Unit, trailing: (@Composable () -> Unit)? = null) {
     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
         CircleIconButton(
             icon = Icons.AutoMirrored.Outlined.ArrowBack,
@@ -70,6 +70,7 @@ private fun ViewerBar(name: String, caption: String?, onClose: () -> Unit) {
             onClick = onClose,
             modifier = Modifier.align(Alignment.CenterStart),
         )
+        if (trailing != null) Box(Modifier.align(Alignment.CenterEnd)) { trailing() }
         Column(Modifier.padding(horizontal = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(name, style = DevxType.Title, color = DevxColors.TextPrimary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             if (caption != null) Text(caption, style = DevxType.Caption, color = DevxColors.TextSecondary)
@@ -79,7 +80,7 @@ private fun ViewerBar(name: String, caption: String?, onClose: () -> Unit) {
 
 /** A text or code file: monospace, with line numbers, scrolling both ways, words selectable. */
 @Composable
-fun TextFileViewer(file: File, name: String, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun TextFileViewer(file: File, name: String, onClose: () -> Unit, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
     val lines by produceState<List<String>?>(null, file) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -88,7 +89,7 @@ fun TextFileViewer(file: File, name: String, onClose: () -> Unit, modifier: Modi
         }
     }
     Column(modifier.fillMaxSize().background(DevxColors.Bg).pointerInput(Unit) { detectTapGestures { } }.statusBarsPadding()) {
-        ViewerBar(name, lines?.let { "${it.size}" }, onClose)
+        ViewerBar(name, lines?.let { "${it.size}" }, onClose, trailing)
         val all = lines
         when {
             all == null -> Unit
@@ -119,13 +120,14 @@ fun TextFileViewer(file: File, name: String, onClose: () -> Unit, modifier: Modi
 
 /** The pages of a PDF, one under another, drawn as they come into view. */
 @Composable
-fun PdfViewer(file: File, name: String, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun PdfViewer(file: File, name: String, onClose: () -> Unit, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null, startPage: Int = 0) {
     val doc = remember(file) { PdfDoc(file) }
     DisposableEffect(doc) { onDispose { doc.close() } }
-    val list = rememberLazyListState()
+    // Opened from a citation, the PDF starts at the page that was named (counted from 1).
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = (startPage - 1).coerceAtLeast(0).coerceAtMost((doc.pages - 1).coerceAtLeast(0)))
     val current by remember { derivedStateOf { list.firstVisibleItemIndex + 1 } }
     Column(modifier.fillMaxSize().background(DevxColors.Bg).pointerInput(Unit) { detectTapGestures { } }.statusBarsPadding()) {
-        ViewerBar(name, if (doc.pages > 0) stringResource(R.string.viewer_pdf_page, current.coerceAtMost(doc.pages), doc.pages) else null, onClose)
+        ViewerBar(name, if (doc.pages > 0) stringResource(R.string.viewer_pdf_page, current.coerceAtMost(doc.pages), doc.pages) else null, onClose, trailing)
         if (doc.pages == 0) {
             Text(stringResource(R.string.viewer_failed), style = DevxType.Body, color = DevxColors.TextSecondary, modifier = Modifier.padding(24.dp))
         } else {
@@ -183,4 +185,10 @@ private class PdfDoc(file: File) {
             }
         }
     }
+}
+
+/** The first page of a PDF as a small picture (for the library's cards); null when it cannot be drawn. */
+suspend fun pdfFirstPage(file: File, width: Int): Bitmap? {
+    val doc = PdfDoc(file)
+    return try { doc.render(0, width) } finally { doc.close() }
 }

@@ -156,6 +156,7 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                             style = DevxType.BodyStrong.copy(fontSize = 14.sp, lineHeight = 19.sp),
                             color = DevxColors.TextPrimary,
                             maxLines = 3,
+                            mark = false,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = if (chat.messages.isEmpty()) 6.dp else 2.dp),
                         )
@@ -195,6 +196,7 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                             enabled = chat.activePath().size >= 8 && !vm.generating && vm.compacting == null,
                         ) { open = false; actions.onShorten() }
                         MenuRow(DevxIcons.FolderPlus, stringResource(R.string.menu_add_to_project), trailing = DevxIcons.ChevronRight) { page = 1 }
+                        MenuRow(DevxIcons.Notebook, stringResource(R.string.menu_add_to_notebook), trailing = DevxIcons.ChevronRight) { page = 3 }
                         MenuRow(DevxIcons.Download, stringResource(R.string.menu_export), trailing = DevxIcons.ChevronRight) { page = 2 }
                         MenuRow(DevxIcons.Paperclip, stringResource(R.string.menu_uploaded)) { open = false; actions.onUploaded() }
                         MenuRow(DevxIcons.Search, stringResource(R.string.menu_find)) { open = false; actions.onFind() }
@@ -211,11 +213,11 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                         MenuRow(DevxIcons.Book, stringResource(R.string.export_markdown)) { open = false; actions.onExportMarkdown() }
                         MenuRow(DevxIcons.Download, stringResource(R.string.export_pdf)) { open = false; actions.onExportPdf() }
                     } else {
-                        MenuRow(DevxIcons.ArrowLeft, stringResource(R.string.menu_add_to_project)) { page = 0 }
+                        MenuRow(DevxIcons.ArrowLeft, stringResource(if (shown == 3) R.string.menu_add_to_notebook else R.string.menu_add_to_project)) { page = 0 }
                         HorizontalDivider(color = DevxColors.Outline, thickness = 0.5.dp)
-                        vm.projects.forEach { name ->
+                        vm.projects.filter { (vm.projectInfo[it]?.isNotebook == true) == (shown == 3) }.forEach { name ->
                             MenuRow(
-                                DevxIcons.Folder,
+                                if (shown == 3) DevxIcons.Notebook else DevxIcons.Folder,
                                 name,
                                 trailing = if (chat.project == name) DevxIcons.Check else null,
                             ) {

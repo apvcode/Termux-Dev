@@ -16,7 +16,7 @@ import java.util.zip.ZipOutputStream
 object Backup {
     private const val APP = "devx-android"
     private val skipFiles = setOf("remote_computers.json")
-    private val prefFiles = setOf("settings.xml", "devx_prefs.xml", "skills.xml")
+    private val prefFiles = setOf("settings.xml", "devx_prefs.xml", "skills.xml", "cards.xml", "rich_state.xml")
 
     private fun skip(relative: String) = relative in skipFiles || relative.startsWith("apk-signing-")
 

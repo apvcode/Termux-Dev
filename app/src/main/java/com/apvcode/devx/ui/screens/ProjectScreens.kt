@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -23,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Icon
@@ -56,6 +60,7 @@ import com.apvcode.devx.ui.components.MenuRow
 import com.apvcode.devx.ui.components.PillButton
 import com.apvcode.devx.ui.components.PopupMenu
 import com.apvcode.devx.ui.components.SectionLabel
+import com.apvcode.devx.ui.components.glass
 import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
@@ -104,189 +109,6 @@ fun ProjectBadge(icon: String, color: Long, size: androidx.compose.ui.unit.Dp = 
     }
 }
 
-/** A project's page: what it is, its instructions, knowledge base and summary, and its chats. */
-@Composable
-fun ProjectScreen(
-    vm: ChatViewModel,
-    name: String,
-    onBack: () -> Unit,
-    onEdit: () -> Unit,
-    onKnowledge: () -> Unit,
-    onSummary: () -> Unit,
-    onOpenChat: (String) -> Unit,
-    onNewChat: () -> Unit,
-) {
-    val info = vm.projectInfo[name]
-    if (info == null) {
-        LaunchedEffect(Unit) { onBack() }
-        return
-    }
-    var menu by remember { mutableStateOf(false) }
-    var instructions by remember { mutableStateOf(false) }
-    var delete by remember { mutableStateOf(false) }
-    val chats = vm.chats.filter { it.project == name }
-    LaunchedEffect(name) {
-        if (vm.memorySummaryStale(name)) vm.refreshMemorySummary(name)
-    }
-    if (instructions) InstructionsDialog(info.instructions, onDismiss = { instructions = false }) { vm.setProjectInstructions(name, it) }
-    if (delete) {
-        DevxDialog(stringResource(R.string.dialog_delete_project), onDismiss = { delete = false }) {
-            Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(name + "\n" + stringResource(R.string.dialog_delete_project_text, chats.size), style = DevxType.Body, color = DevxColors.TextSecondary)
-                PillButton(stringResource(R.string.menu_delete), onClick = {
-                    delete = false
-                    onBack()
-                    vm.deleteProject(name)
-                })
-                PillButton(stringResource(R.string.settings_cancel), filled = false, onClick = { delete = false })
-            }
-        }
-    }
-    Box(Modifier.fillMaxSize().background(DevxColors.Bg)) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                CircleIconButton(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.cd_back), onBack, Modifier.align(Alignment.CenterStart))
-                Box(Modifier.align(Alignment.CenterEnd)) {
-                    CircleIconButton(Icons.Outlined.MoreVert, null, { menu = true })
-                    PopupMenu(expanded = menu, onDismiss = { menu = false }, offset = DpOffset(0.dp, 0.dp)) {
-                        MenuRow(DevxIcons.ChatPlus, stringResource(R.string.project_new_chat)) { menu = false; onNewChat() }
-                        MenuRow(DevxIcons.Pencil, stringResource(R.string.project_edit)) { menu = false; onEdit() }
-                        MenuRow(DevxIcons.Settings, stringResource(R.string.project_instructions)) { menu = false; instructions = true }
-                        MenuRow(DevxIcons.FolderOff, stringResource(R.string.menu_delete), danger = true) { menu = false; delete = true }
-                    }
-                }
-            }
-            LazyColumn(
-                Modifier.weight(1f),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 120.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ProjectBadge(info.icon, info.color, 56.dp)
-                        Text(name, style = DevxType.Title.copy(fontSize = 26.sp, lineHeight = 32.sp), color = DevxColors.TextPrimary)
-                        if (info.description.isNotBlank()) {
-                            Text(info.description, style = DevxType.Body, color = DevxColors.TextSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        InfoCard(
-                            stringResource(R.string.project_knowledge),
-                            if (info.memory.notes.isEmpty()) stringResource(R.string.project_knowledge_empty) else "${info.memory.notes.size}",
-                            onKnowledge,
-                            Modifier.weight(1f),
-                        )
-                        InfoCard(
-                            stringResource(R.string.project_instructions),
-                            stringResource(if (info.instructions.isBlank()) R.string.project_instructions_add else R.string.project_instructions_set),
-                            { instructions = true },
-                            Modifier.weight(1f),
-                        )
-                    }
-                }
-                item { SummaryCard(info, onSummary) }
-                item { SectionLabel(stringResource(R.string.project_chats), Modifier.padding(top = 8.dp)) }
-                if (chats.isEmpty()) {
-                    item {
-                        Text(stringResource(R.string.project_chats_empty), style = DevxType.Body, color = DevxColors.TextDisabled, modifier = Modifier.padding(start = 12.dp))
-                    }
-                } else {
-                    items(chats.size) { i ->
-                        val chat = chats[i]
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .pressable(scaleTo = 0.98f, haptic = false) { onOpenChat(chat.id) }
-                                .clip(RoundedCornerShape(18.dp))
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(chat.title, style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (chat.preview.isNotBlank()) {
-                                    Text(chat.preview, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                            Text(chat.time, style = DevxType.Caption, color = DevxColors.TextDisabled)
-                        }
-                    }
-                }
-            }
-        }
-        Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 20.dp)) {
-            PillButton(stringResource(R.string.project_new_chat), onClick = onNewChat, modifier = Modifier.width(220.dp))
-        }
-    }
-}
-
-@Composable
-private fun InfoCard(label: String, value: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(22.dp)
-    Column(
-        modifier
-            .pressable(scaleTo = 0.97f, haptic = false, onClick = onClick)
-            .clip(shape)
-            .background(DevxColors.Card)
-            .border(BorderStroke(1.dp, DevxColors.Outline), shape)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(label, style = DevxType.Caption, color = DevxColors.TextSecondary)
-        Text(value, style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1)
-    }
-}
-
-@Composable
-private fun SummaryCard(info: ProjectInfo, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(22.dp)
-    val memory = info.memory
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .pressable(scaleTo = 0.98f, haptic = false, onClick = onClick)
-            .clip(shape)
-            .background(DevxColors.Card)
-            .border(BorderStroke(1.dp, DevxColors.Outline), shape)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.project_summary), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.weight(1f))
-            if (memory.summarizing) Text(stringResource(R.string.memory_updating), style = DevxType.Caption, color = DevxColors.TextDisabled)
-            else Icon(DevxIcons.ChevronRight, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
-        }
-        // A few lines of it, plain: the whole overview is one tap away.
-        val preview = memory.summary.lineSequence().filter { it.isNotBlank() && !it.startsWith("#") }.joinToString(" ").replace(Regex("[*_`]"), "")
-        Text(
-            preview.ifBlank { stringResource(R.string.project_summary_empty) },
-            style = DevxType.Body,
-            color = if (preview.isBlank()) DevxColors.TextDisabled else DevxColors.TextPrimary,
-            maxLines = 5,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun InstructionsDialog(current: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var text by remember { mutableStateOf(current) }
-    DevxDialog(stringResource(R.string.project_instructions), onDismiss) {
-        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            DevxTextField(
-                stringResource(R.string.project_instructions_hint),
-                text,
-                { if (it.length <= 4000) text = it },
-                singleLine = false,
-                minLines = 4,
-            )
-            PillButton(stringResource(R.string.memory_save), onClick = { onSave(text); onDismiss() })
-        }
-    }
-}
-
 /** Creating a project, or (when [name] is given) changing it: a name with an icon, and what it is for. */
 @Composable
 fun ProjectEditScreen(vm: ChatViewModel, name: String?, onClose: () -> Unit, onDone: (String) -> Unit) {
@@ -297,12 +119,13 @@ fun ProjectEditScreen(vm: ChatViewModel, name: String?, onClose: () -> Unit, onD
     var color by remember { mutableStateOf(info?.color ?: ProjectLook.colors.first()) }
     var picker by remember { mutableStateOf(false) }
     val trimmed = title.trim()
+    val book = info?.isNotebook == true
     val taken = trimmed.isNotEmpty() && trimmed != name && trimmed in vm.projects
     if (picker) LookPicker(icon, color, onDismiss = { picker = false }) { i, c -> icon = i; color = c }
     Column(Modifier.fillMaxSize().background(DevxColors.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
             CircleIconButton(Icons.Outlined.Close, stringResource(R.string.cd_close), onClose, Modifier.align(Alignment.CenterStart))
-            Text(stringResource(if (name == null) R.string.project_new else R.string.project_edit), style = DevxType.Title, color = DevxColors.TextPrimary)
+            Text(stringResource(if (name == null) R.string.project_new else if (book) R.string.notebook_edit else R.string.project_edit), style = DevxType.Title, color = DevxColors.TextPrimary)
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
@@ -312,20 +135,20 @@ fun ProjectEditScreen(vm: ChatViewModel, name: String?, onClose: () -> Unit, onD
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ProjectBadge(icon, color, 54.dp, Modifier.pressable(scaleTo = 0.94f, onClick = { picker = true }))
                     DevxTextField(
-                        stringResource(R.string.project_name_label),
+                        stringResource(if (book) R.string.notebook_name_label else R.string.project_name_label),
                         title,
                         { if (it.length <= 40) title = it.replace("\n", "") },
                         Modifier.weight(1f),
-                        placeholder = stringResource(R.string.project_name_hint),
+                        placeholder = stringResource(if (book) R.string.notebook_name_hint else R.string.project_name_hint),
                     )
                 }
-                if (taken) Text(stringResource(R.string.project_name_taken), style = DevxType.Caption, color = DevxColors.Danger, modifier = Modifier.padding(start = 6.dp))
+                if (taken) Text(stringResource(if (book) R.string.notebook_name_taken else R.string.project_name_taken), style = DevxType.Caption, color = DevxColors.Danger, modifier = Modifier.padding(start = 6.dp))
             }
             DevxTextField(
-                stringResource(R.string.project_desc_label),
+                stringResource(if (book) R.string.notebook_desc_label else R.string.project_desc_label),
                 description,
                 { if (it.length <= 600) description = it },
-                placeholder = stringResource(R.string.project_desc_hint),
+                placeholder = stringResource(if (book) R.string.notebook_desc_hint else R.string.project_desc_hint),
                 singleLine = false,
                 minLines = 4,
             )

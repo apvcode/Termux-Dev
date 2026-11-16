@@ -20,7 +20,7 @@ import java.io.File
 
 /** What a tool gives back to the model: words, and sometimes pictures. */
 /** What the assistant is about to do with a server (an MCP tool, GitHub): shown to the person to allow or cancel. */
-class ToolApproval(val serverId: String, val serverName: String, val title: String, val detail: String, val changesData: Boolean, val alwaysKey: String = "")
+class ToolApproval(val serverId: String, val serverName: String, val title: String, val detail: String, val changesData: Boolean, val alwaysKey: String = "", val plain: Boolean = false)
 
 enum class ApprovalDecision { Once, ThisChat, Always, Deny }
 
@@ -63,12 +63,13 @@ class Toolbox(
     private val mcp: McpTools,
     private val images: ImageTools,
     private val phone: PhoneTools,
+    private val notebook: NotebookTools,
 ) {
     init {
         runCatching { PDFBoxResourceLoader.init(context.applicationContext) }
     }
 
-    fun definitions(files: List<Attachment>, webOn: Boolean, workOn: Boolean = false, terminalOn: Boolean = false, memoryOn: Boolean = false, inProject: Boolean = false, skillsOn: Boolean = false, phoneOn: Boolean = false): List<WireTool> {
+    fun definitions(files: List<Attachment>, webOn: Boolean, workOn: Boolean = false, terminalOn: Boolean = false, memoryOn: Boolean = false, inProject: Boolean = false, skillsOn: Boolean = false, phoneOn: Boolean = false, libraryOn: Boolean = false, studyOn: Boolean = false, notebookOn: Boolean = false, spaceOn: Boolean = false): List<WireTool> {
         val out = ArrayList<WireTool>()
         if (files.isNotEmpty()) {
             out += tool("list_files", "List the files attached to this conversation, with their type and size (and the number of pages of a PDF).", schema())
@@ -119,6 +120,8 @@ class Toolbox(
         if (memoryOn) out += memory.definitions(inProject)
         if (skillsOn) out += skillTools.definitions(copyToo = workOn || terminalOn)
         if (phoneOn) out += phone.definitions()
+        if (libraryOn || inProject) out += notebook.definitions(studyOn, inProject, notebookOn).filter { libraryOn || it.name !in notebook.libraryNames }
+        if (spaceOn) out += notebook.createDefinition()
         // The servers the person added: always there when they are connected.
         out += mcp.definitions()
         // The long formats of cards, pictures and blocks are read when needed (see SystemPrompt.guide); only offered where there are tools at all.
@@ -140,6 +143,7 @@ class Toolbox(
                 in memory.names -> memory.run(call.name, args, report, chatId, project)
                 in skillTools.names -> skillTools.run(call.name, args, chatId, report)
                 in phone.names -> phone.run(call.name, args, report)
+                in notebook.names -> notebook.run(call.name, args, report, chatId, project)
                 else -> if (mcp.isMcp(call.name)) mcp.run(call.name, args, report) else withContext(Dispatchers.IO) { runFileTool(call.name, args, files, report) }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {

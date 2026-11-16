@@ -1,6 +1,7 @@
 package com.apvcode.devx.ui.chat
 
 import com.apvcode.devx.data.Artifact
+import com.apvcode.devx.ui.chat.MentionKind as MK
 import com.apvcode.devx.data.PhoneTools
 import com.apvcode.devx.data.WorkTools
 import com.apvcode.devx.data.ArtifactStore
@@ -116,14 +117,22 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The MCP servers the person added (GitHub and the like), reached by web address. */
     val mcp = McpStore(context, secrets, viewModelScope)
+    private val webTools = WebTools(context)
+
+    /** What the assistant said about each file (what it took from it); the library reads it. */
+    val libraryMeta = com.apvcode.devx.data.LibraryMeta(context)
     private val toolbox = Toolbox(
-        context, attachmentStore, WebTools(context), WorkTools(context, workspace, artifacts),
+        context, attachmentStore, webTools, WorkTools(context, workspace, artifacts),
         MemoryTools(memory, { projectInfo[it]?.memory }) { chatDigests() },
         SkillTools(skills, workspace),
         McpTools(mcp),
         ImageTools(context, attachmentStore, artifacts),
         PhoneTools(context),
-    )
+        com.apvcode.devx.data.NotebookTools({ projectInfo[it] }, { library }, { chatId, file -> useLibraryFile(chatId, file) }, { saveProjects() }, { name, args -> updateSpace(name, args) }, { name, urls -> withContext(Dispatchers.Main) { addSites(name, urls) } },
+        { chatId, a -> withContext(Dispatchers.Main) { createSpace(chatId, a) } },
+        { kind -> when (kind) { "study" -> context.getString(R.string.space_ask_study) to context.getString(R.string.space_ask_study_label); "ideas" -> context.getString(R.string.space_ask_ideas) to context.getString(R.string.space_ask_ideas_label); else -> context.getString(R.string.space_ask_project) to context.getString(R.string.space_ask_project_label) } },
+        { name, a -> remindStudy(name, a) },
+    ))
 
     /** A file the assistant handed over, by its id (null if it is gone). */
     fun artifact(id: String): Artifact? = artifacts.get(id)
@@ -139,6 +148,38 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Photos and files chosen for the message that is being written. */
     val draftAttachments = mutableStateListOf<Attachment>()
+
+    /** What @ can point at: the person's notebooks and projects (in the order of the drawer), and the files of the library. */
+    fun mentionItems(): List<com.apvcode.devx.ui.chat.MentionItem> {
+        val spaces = projects.mapNotNull { name ->
+            projectInfo[name]?.let { com.apvcode.devx.ui.chat.MentionItem(name, name, it.goal.ifBlank { it.description }.replace("\n", " ").trim(), if (it.isNotebook) MK.Notebook else MK.Project, it) }
+        }
+        val files = library.filter { it.attachment != null }.take(60).map { e ->
+            com.apvcode.devx.ui.chat.MentionItem("file:" + e.id, e.name, e.summary.replace("\n", " ").trim(), MK.File, attachment = e.attachment)
+        }
+        val extra = buildList {
+            com.apvcode.devx.data.Tasks.all(context).forEach { t -> add(com.apvcode.devx.ui.chat.MentionItem("task:" + t.id, t.title, com.apvcode.devx.data.Tasks.daysText(t.days) + " %02d:%02d".format(t.hour, t.minute), MK.Tasks)) }
+        }
+        return spaces + files + extra
+    }
+
+    /** How a kept mention looks (null when what it pointed at is gone). */
+    fun mentionLook(key: String): com.apvcode.devx.ui.chat.MentionLook? {
+        if (key.startsWith("task:")) return com.apvcode.devx.data.Tasks.get(context, key.removePrefix("task:").toIntOrNull() ?: -1)?.let { com.apvcode.devx.ui.chat.MentionLook(it.title, MK.Tasks, null) }
+        return projectInfo[key]?.let { com.apvcode.devx.ui.chat.MentionLook(key, if (it.isNotebook) MK.Notebook else MK.Project, it) }
+    }
+
+    /** The notebooks and projects a text points at with "@Name" (their keys). */
+    fun mentionsIn(text: String): List<String> {
+        if ('@' !in text) return emptyList()
+        val keys = HashMap<String, String>()
+        projects.forEach { keys[it] = it }
+        com.apvcode.devx.data.Tasks.all(context).forEach { keys.putIfAbsent(it.title, "task:" + it.id) }
+        return com.apvcode.devx.ui.chat.mentionSpans(text, keys.keys).mapNotNull { keys[it.name] }.distinct()
+    }
+
+    /** A file of the library goes into the message being written, as if it had just been picked. */
+    fun attachLibraryFile(a: Attachment) { if (draftAttachments.none { it.id == a.id }) draftAttachments += a }
 
     /** How many are still being prepared (a photo is shrunk first). */
     var importing by mutableIntStateOf(0)
@@ -198,6 +239,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             memory.load()
             skills.load()
             projectInfo.values.forEach { it.memory.load() }
+            hookSummaries()
             loaded = true
         }
     }
@@ -374,7 +416,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun removeDraftAttachment(id: String) {
         draftAttachments.firstOrNull { it.id == id }?.let {
             draftAttachments.remove(it)
-            attachmentStore.delete(it)
+            // A file taken again from the library is kept: it is still in the library (and in the chats that used it).
+            if (!usedElsewhere(it, null)) attachmentStore.delete(it)
         }
     }
 
@@ -411,6 +454,48 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Looks for words in every chat (see [ChatFinder]); the work is done off the main thread by the caller. */
     fun search(query: String): List<com.apvcode.devx.data.SearchHit> = com.apvcode.devx.data.ChatFinder.run(chatStates.toList(), query)
+
+    /** The notebooks and projects whose name, description or goal fit the words, the best first. */
+    fun searchSpaces(query: String): List<Pair<String, ProjectInfo>> = projects.mapNotNull { n ->
+        projectInfo[n]?.let { i -> com.apvcode.devx.data.spaceMatch(n, i.description, i.goal, query).takeIf { it > 0 }?.let { score -> Triple(n, i, score) } }
+    }.sortedByDescending { it.third }.take(8).map { it.first to it.second }
+
+    /** The text of files read once for searching (by file id), cut to a size that fits in memory. */
+    private val sourceText = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun plainTextOf(a: Attachment): String = sourceText.getOrPut(a.id) {
+        val file = attachmentStore.fileOf(a)
+        val ext = a.name.substringAfterLast('.', "").lowercase()
+        runCatching {
+            when {
+                a.kind == AttachmentKind.Pdf -> com.tom_roush.pdfbox.pdmodel.PDDocument.load(file).use { doc -> com.tom_roush.pdfbox.text.PDFTextStripper().apply { endPage = doc.numberOfPages.coerceAtMost(60) }.getText(doc) }
+                ext in setOf("docx", "xlsx", "pptx", "odt", "ods", "odp") -> com.apvcode.devx.data.FileText.office(file, ext, 150_000).orEmpty()
+                a.kind == AttachmentKind.Text -> file.readText()
+                else -> ""
+            }
+        }.getOrDefault("").take(150_000)
+    }
+
+    /**
+     * The files that the words fit: by name, by what the assistant said about them, by the chat they were in; then by what they say
+     * inside (the text of documents, PDFs and notes), with a line around the words. Blocking: it reads files the first time.
+     */
+    fun searchFiles(query: String): List<com.apvcode.devx.data.FileHit> {
+        val named = com.apvcode.devx.data.Library.search(library, query).take(8)
+        val out = named.map { com.apvcode.devx.data.FileHit(it, null) }.toMutableList()
+        val q = query.trim()
+        if (q.length >= 3) {
+            val seen = named.map { it.id }.toSet()
+            for (e in library) {
+                if (out.size >= 14) break
+                val a = e.attachment ?: continue
+                if (e.id in seen || a.kind == AttachmentKind.Image || a.kind == AttachmentKind.Video) continue
+                val cut = com.apvcode.devx.data.ChatFinder.snippet(plainTextOf(a), q) ?: continue
+                out += com.apvcode.devx.data.FileHit(e, cut.text)
+            }
+        }
+        return out
+    }
 
     /** A message the chat should scroll to and flash once it is on the screen (chat id, message id), from a search. */
     var reveal by mutableStateOf<Pair<String, String>?>(null)
@@ -456,6 +541,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val trimmed = text.trim()
         val attachments = draftAttachments.toList()
         if ((trimmed.isEmpty() && attachments.isEmpty()) || generating || importing > 0) return
+        // What is sent is read once and described, for the library and for the assistant.
+        attachments.forEach { summarizeFile(it) }
         val chat = current ?: Chat(newId(), (trimmed.ifEmpty { attachments.first().name }).take(40), null, now()).also {
             // A talk with the voice assistant may use a quicker model of its own.
             it.model = (if (voiceMode) Prefs.voiceModel else null) ?: defaultModel
@@ -466,7 +553,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (chat.model == null) chat.model = defaultModel
         draftProject = null
-        val user = Msg(newId(), chat.activePath().lastOrNull()?.id, Role.User, trimmed, now(), attachments = attachments)
+        val user = Msg(newId(), chat.activePath().lastOrNull()?.id, Role.User, trimmed, now(), attachments = attachments, mentions = mentionsIn(trimmed).ifEmpty { if (voiceMode) com.apvcode.devx.ui.chat.spokenNames(trimmed, projects).filter { it in projectInfo } else emptyList() })
         draftAttachments.clear()
         chat.messages += user
         chat.select(user)
@@ -479,9 +566,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * Starts a chat of its own that nobody is looking at (a scheduled task): the question is sent to [ref] (or the model that is
      * chosen now) and the answer is written into it. The chat on the screen does not change. Returns the chat's id.
      */
-    fun startBackgroundChat(title: String, prompt: String, ref: ModelRef?): String? {
+    fun startBackgroundChat(title: String, prompt: String, ref: ModelRef?, project: String? = null): String? {
         if (prompt.isBlank()) return null
-        val chat = Chat(newId(), title.ifBlank { prompt }.take(40), null, now()).also {
+        val chat = Chat(newId(), title.ifBlank { prompt }.take(40), project?.takeIf { it in projectInfo }, now()).also {
             it.model = ref ?: defaultModel
             it.titleFinal = true
         }
@@ -549,7 +636,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val chat = current ?: return
         val trimmed = newText.trim()
         if ((trimmed.isEmpty() && message.attachments.isEmpty()) || generating) return
-        val edited = Msg(newId(), message.parentId, Role.User, trimmed, now(), attachments = message.attachments)
+        val edited = Msg(newId(), message.parentId, Role.User, trimmed, now(), attachments = message.attachments, mentions = mentionsIn(trimmed))
         chat.messages += edited
         chat.select(edited)
         fresh += edited.id
@@ -622,7 +709,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteChat(id: String) {
         jobs[id]?.cancel()
         chatStates.firstOrNull { it.id == id }?.let { chat ->
-            val files = chat.messages.flatMap { it.attachments }.distinctBy { it.id }
+            val files = chat.messages.flatMap { it.attachments }.distinctBy { it.id }.filter { !usedElsewhere(it, id) }
             viewModelScope.launch(Dispatchers.IO) { files.forEach(attachmentStore::delete) }
         }
         chatStates.firstOrNull { it.id == id }?.let { chat ->
@@ -637,12 +724,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) { store.deleteChat(id) }
     }
 
-    fun createProject(name: String, description: String = "", icon: String = ProjectLook.DEFAULT_ICON, color: Long = ProjectLook.colors.first()): Boolean {
+    fun createProject(name: String, description: String = "", icon: String = ProjectLook.DEFAULT_ICON, color: Long = ProjectLook.colors.first(), kind: String = ProjectInfo.KIND_PROJECT): Boolean {
         val trimmed = name.trim()
         if (trimmed.isEmpty() || trimmed in projects) return false
         projects += trimmed
         val id = newId().take(8)
-        projectInfo[trimmed] = ProjectInfo(id, description.trim(), "", icon, color, projectStore.memoryOf(id))
+        projectInfo[trimmed] = ProjectInfo(id, description.trim(), "", icon, color, projectStore.memoryOf(id), kind = kind)
+        hookSummaries()
         saveProjects()
         return true
     }
@@ -671,6 +759,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (index >= 0) projects[index] = name
         projectInfo.remove(old)?.let { projectInfo[name] = it }
         chatStates.filter { it.project == old }.forEach { it.project = name; save(it) }
+        // Messages that pointed at it with @ keep pointing at it.
+        chatStates.forEach { c ->
+            var touched = false
+            c.messages.forEach { m -> if (old in m.mentions) { m.mentions = m.mentions.map { if (it == old) name else it }; touched = true } }
+            if (touched) save(c)
+        }
         saveProjects()
     }
 
@@ -678,8 +772,361 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteProject(name: String) {
         chatStates.filter { it.project == name }.map { it.id }.forEach { deleteChat(it) }
         projects.remove(name)
-        projectInfo.remove(name)?.memory?.destroy()
+        projectInfo.remove(name)?.let { info ->
+            info.memory.destroy()
+            val gone = info.sources.toList().filter { !usedElsewhere(it, null) }
+            viewModelScope.launch(Dispatchers.IO) { gone.forEach(attachmentStore::delete) }
+            info.sources.forEach { libraryMeta.forget(it.id) }
+        }
         saveProjects()
+    }
+
+
+    // ---------- notebooks and the library ----------
+
+    /** Every file the app knows (see [com.apvcode.devx.data.Library]): sent in chats, made by the assistant, added to notebooks. */
+    val library: List<com.apvcode.devx.data.LibraryEntry>
+        get() = com.apvcode.devx.data.Library.build(chatStates.toList(), projectInfo.toMap(), { artifacts.get(it) }, libraryMeta.summaries, libraryMeta::seen)
+
+    /** True when the file is still wanted by something else: a notebook, another chat, or the files taken from the library. */
+    private fun usedElsewhere(a: Attachment, exceptChat: String?): Boolean =
+        projectInfo.values.any { p -> p.sources.any { it.id == a.id } } ||
+            chatStates.any { c -> c.id != exceptChat && (c.messages.any { m -> m.attachments.any { it.id == a.id } } || c.libraryFiles.any { it.id == a.id }) }
+
+    /** The file to show, download or share: the document as it was given (for a Word file, the .docx itself), not the text the model reads. */
+    fun attachmentFile(a: Attachment): java.io.File = attachmentStore.viewFile(a)
+
+    /** The still picture of a video. */
+    fun attachmentThumb(a: Attachment): java.io.File = attachmentStore.thumbOf(a)
+
+    /** The notebook the assistant is told about: its sources with what they are about, its other chats, and the study plan. */
+    private fun notebookPrompt(chat: Chat, name: String, info: ProjectInfo): String {
+        val others = if (!info.useNotes) emptyList() else chatStates.filter { it.project == name && it.id != chat.id && !it.temporary && !it.locked }
+            .sortedByDescending { it.updatedAt }.take(10).map { c ->
+                val said = c.activePath().lastOrNull { it.role == Role.Assistant && it.text.isNotBlank() }?.text.orEmpty().replace(Regex("\\s+"), " ").trim().take(160)
+                com.apvcode.devx.data.NotebookPrompt.ChatLine(c.title, said)
+            }
+        val sources = info.sources.map { a -> com.apvcode.devx.data.NotebookPrompt.SourceLine(a.name, com.apvcode.devx.data.libKindOf(a.name, a.mime, a.kind, a.url), libraryMeta.summaries[a.id].orEmpty(), a.url) }
+        return com.apvcode.devx.data.NotebookPrompt.build(name, info.isStudy, info.goal, sources, others, info.useNotes, if (info.isStudy) info.plan else null)
+    }
+
+    /** The assistant takes a file of the library into a chat: the file tools can read it from now on. False if it was there already. */
+    private fun useLibraryFile(chatId: String, a: Attachment): Boolean {
+        val chat = chatStates.firstOrNull { it.id == chatId } ?: return false
+        if (chat.libraryFiles.any { it.id == a.id } || filesOf(chat, chat.activePath().lastOrNull() ?: return false).any { it.id == a.id }) return false
+        chat.libraryFiles += a
+        save(chat)
+        return true
+    }
+
+    /** The assistant sets (or clears) the reminder to study: a scheduled task that opens a chat in this notebook at the time, with the cards that are due. */
+    private fun remindStudy(name: String, a: org.json.JSONObject): String {
+        val marker = "study:$name"
+        val existing = com.apvcode.devx.data.Tasks.all(context).firstOrNull { it.project == name && it.prompt.startsWith("[$marker]") }
+        if (a.optBoolean("off", false)) {
+            if (existing == null) return "There was no reminder."
+            com.apvcode.devx.data.Tasks.remove(context, existing.id)
+            return "The reminder is removed."
+        }
+        val parts = a.optString("time").trim().split(':', '.')
+        val h = parts.getOrNull(0)?.trim()?.toIntOrNull()
+        val min = parts.getOrNull(1)?.trim()?.toIntOrNull()
+        if (h == null || min == null || h !in 0..23 || min !in 0..59) return "Write the time as HH:mm (24-hour)."
+        val list = a.optJSONArray("days")
+        val days = list?.let { arr -> com.apvcode.devx.data.Tasks.daysFrom((0 until arr.length()).map { arr.optString(it) }) }?.takeIf { it != 0 } ?: com.apvcode.devx.data.ScheduledTask.ALL
+        val prompt = "[$marker] " + context.getString(R.string.study_prompt_reminder)
+        val task = if (existing != null) {
+            existing.hour = h; existing.minute = min; existing.days = days; existing.enabled = true; existing.prompt = prompt
+            com.apvcode.devx.data.Tasks.update(context, existing); existing
+        } else com.apvcode.devx.data.Tasks.add(context, name, prompt, h, min, days, null, project = name)
+        return "The reminder is set: %02d:%02d %s. At that time a notification says how many cards are due; a tap opens them.".format(task.hour, task.minute, com.apvcode.devx.data.Tasks.daysText(task.days))
+    }
+
+    /** An audio overview was asked for: the answer is read aloud when it is ready. */
+    var autoListen by mutableStateOf(false)
+
+    /** A notebook or a project as a Markdown text (for the file the person saves). */
+    fun exportNotebook(name: String): String {
+        val info = projectInfo[name] ?: return ""
+        val l = { id: Int -> context.getString(id) }
+        val labels = com.apvcode.devx.data.NotebookExport.Labels(l(R.string.notebook_goal), l(R.string.project_instructions), l(R.string.nb_progress), l(R.string.export_cards), l(R.string.project_knowledge), l(R.string.memory_summary), l(R.string.notebook_sources), l(R.string.export_streak))
+        return com.apvcode.devx.data.NotebookExport.markdown(
+            name, info.description, info.goal, info.instructions,
+            info.plan.lessons.map { Triple(it.title, it.status, it.note) },
+            info.plan.cards.map { it.front to it.back },
+            info.memory.notes.map { it.text },
+            info.memory.summary,
+            info.sources.map { a -> com.apvcode.devx.data.NotebookExport.Source(a.name, libraryMeta.summaries[a.id].orEmpty(), a.url) },
+            labels, java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date()), info.plan.log.streak(),
+        )
+    }
+
+    /** An answer to a card on the cards screen: the card is moved to its next day, the day is counted for the streak, and it is saved. */
+    fun reviewCard(name: String, cardId: String, result: String) {
+        val plan = projectInfo[name]?.plan ?: return
+        val card = plan.cards.firstOrNull { it.id == cardId } ?: return
+        if (card.review(result)) { plan.log.record(); saveProjects() }
+    }
+
+    /** What is said to the assistant to make the first cards of a notebook. */
+    fun cardsMakePrompt(): String = context.getString(R.string.cards_make_prompt)
+
+    /**
+     * The source an answer cited by name: among the files of the open chat (what was attached, the sources of its notebook and of the ones
+     * pointed at with @), then every notebook, then the library. The name matches whole first, then as a part.
+     */
+    fun findSource(name: String): Attachment? {
+        val want = name.trim().lowercase()
+        val chat = current
+        val here = chat?.activePath()?.lastOrNull()?.let { filesOf(chat, it) }.orEmpty()
+        val all = here + projectInfo.values.flatMap { it.sources } + library.mapNotNull { it.attachment }
+        return all.firstOrNull { it.name.lowercase() == want } ?: all.firstOrNull { want.length >= 3 && it.name.lowercase().contains(want) }
+    }
+
+    /** The first message of a review of the cards that are due (the widget, the notebook's page). */
+    fun cardsPrompt(): String = context.getString(R.string.study_prompt_cards)
+
+    /** The first message of a study notebook once the goal is set: the assistant finds out the level, then writes the plan. */
+    fun goalPrompt(goal: String): String = context.getString(R.string.study_prompt_first, goal)
+
+    /** What the assistant changes in a project or notebook with project_update; gives what it did, in words for the model. */
+    private suspend fun updateSpace(name: String, a: org.json.JSONObject): String = runCatching {
+        withContext(Dispatchers.Main) {
+            val info = projectInfo[name] ?: return@withContext "There is no such project."
+            val done = ArrayList<String>()
+            a.optString("icon").trim().takeIf { it.isNotEmpty() }?.let { icon ->
+                if (icon !in ProjectLook.icons) return@withContext "Unknown icon \"$icon\". The icons are: " + ProjectLook.icons.joinToString(", ")
+                info.icon = icon; done += "icon $icon"
+            }
+            a.optString("color").trim().lowercase().takeIf { it.isNotEmpty() }?.let { c ->
+                val i = com.apvcode.devx.data.NotebookTools.PALETTE.indexOf(c)
+                if (i < 0) return@withContext "Unknown colour \"$c\". The colours are: " + com.apvcode.devx.data.NotebookTools.PALETTE.joinToString(", ")
+                info.color = ProjectLook.colors[i]; done += "colour $c"
+            }
+            a.optString("description").trim().takeIf { it.isNotEmpty() }?.let { info.description = it.take(600); done += "description" }
+            a.optString("instructions").trim().takeIf { it.isNotEmpty() }?.let { info.instructions = it.take(4000); done += "instructions" }
+            a.optString("goal").trim().takeIf { it.isNotEmpty() }?.let { if (info.isNotebook) { info.goal = it.take(300); done += "goal" } }
+            var finalName = name
+            a.optString("title").trim().takeIf { it.isNotEmpty() && it != name }?.let { t ->
+                if (t in projects) return@withContext "The name \"$t\" is taken by another project or notebook."
+                renameProject(name, t.take(60)); finalName = t.take(60); done += "name \"$finalName\""
+            }
+            saveProjects()
+            if (done.isEmpty()) "Nothing was changed: give at least one field." else "Changed: " + done.joinToString(", ") + ". The page shows it now."
+        }
+    }.getOrDefault("Could not change it.")
+
+    /** A notebook or a project made by the assistant, after the person confirmed: the chat it was talked over in moves into it. */
+    private fun createSpace(chatId: String, a: org.json.JSONObject): String {
+        val kind = a.optString("kind").trim().lowercase().let { if (it in setOf("study", "ideas", "project")) it else "project" }
+        var name = a.optString("title").trim().take(60)
+        if (name.isEmpty()) return "Give the name."
+        if (name in projects) { var n = 2; while ("$name $n" in projects) n++; name = "$name $n" }
+        val icon = a.optString("icon").trim().takeIf { it in ProjectLook.icons } ?: when (kind) { "study" -> "school"; "ideas" -> "bulb"; else -> "folder" }
+        val ci = com.apvcode.devx.data.NotebookTools.PALETTE.indexOf(a.optString("color").trim().lowercase())
+        val color = if (ci >= 0) ProjectLook.colors[ci] else when (kind) { "study" -> 0xFF6C9BE8L; "ideas" -> 0xFFE8A05CL; else -> ProjectLook.colors.first() }
+        val k = when (kind) { "study" -> ProjectInfo.KIND_STUDY; "ideas" -> ProjectInfo.KIND_IDEAS; else -> ProjectInfo.KIND_PROJECT }
+        if (!createProject(name, a.optString("description"), icon, color, k)) return "Could not make it."
+        projectInfo[name]?.let { info ->
+            if (kind == "study") info.goal = a.optString("goal").trim().take(300)
+            a.optString("instructions").trim().takeIf { it.isNotEmpty() }?.let { info.instructions = it.take(4000) }
+        }
+        moveToProject(chatId, name)
+        saveProjects()
+        Toast.makeText(context, context.getString(R.string.space_created, name), Toast.LENGTH_SHORT).show()
+        return "Made " + (if (kind == "project") "the project" else "the notebook") + " \"$name\" and moved this chat into it. Tell the person briefly, say where it is (the side panel, under " + (if (kind == "project") "Projects" else "Notebooks") + ") and what to do next" + (if (kind == "study") " (set up the plan and start the first lesson there)." else ".")
+    }
+
+    fun setNotebookGoal(name: String, goal: String) { projectInfo[name]?.goal = goal.trim(); saveProjects() }
+
+    fun setNotebookUseNotes(name: String, on: Boolean) { projectInfo[name]?.useNotes = on; saveProjects() }
+
+    fun setStudyLesson(name: String, lesson: String, status: String) {
+        val plan = projectInfo[name]?.plan
+        if (plan?.mark(lesson, status, null)?.status == com.apvcode.devx.data.Lesson.DONE) plan.log.record()
+        saveProjects()
+    }
+
+    /** Photos, files and videos added to a notebook: copied into the app, then read and described (see [summarizeFile]). */
+    fun addSources(name: String, uris: List<Uri>) {
+        val info = projectInfo[name] ?: return
+        if (uris.isEmpty()) return
+        importing += uris.size
+        viewModelScope.launch {
+            for (uri in uris) {
+                try {
+                    val type = context.contentResolver.getType(uri).orEmpty()
+                    val made = when {
+                        type.startsWith("image/") && !type.contains("svg") -> attachmentStore.importImage(uri, 1600, 86, 4096)
+                        type.startsWith("video/") -> attachmentStore.importVideo(uri)
+                        else -> attachmentStore.importFile(uri)
+                    }
+                    if (made == null) Toast.makeText(context, context.getString(R.string.attach_unsupported), Toast.LENGTH_SHORT).show()
+                    else {
+                        val named = made.copy(name = uniqueSourceName(info, made.name))
+                        info.sources += named
+                        libraryMeta.seen(named.id, System.currentTimeMillis())
+                        saveProjects()
+                        summarizeFile(named)
+                    }
+                } finally {
+                    importing -= 1
+                }
+            }
+        }
+    }
+
+    private fun uniqueSourceName(info: ProjectInfo, name: String): String {
+        val taken = info.sources.map { it.name.lowercase() }.toSet()
+        if (name.lowercase() !in taken) return name
+        val base = name.substringBeforeLast('.', name)
+        val ext = name.substringAfterLast('.', "").let { if (it.isEmpty() || it == name) "" else ".$it" }
+        var n = 2
+        while ("$base ($n)$ext".lowercase() in taken) n++
+        return "$base ($n)$ext"
+    }
+
+    /**
+     * Something shared from another app goes into a notebook as sources: the links are read and kept, a text of its own is kept as a
+     * note, files are added as they are. Gives how many things were taken (the page tells that it is done).
+     */
+    fun addShared(name: String, text: String, uris: List<Uri>) {
+        val info = projectInfo[name] ?: return
+        val (urls, rest) = com.apvcode.devx.data.splitShare(text)
+        addSources(name, uris)
+        if (rest.isNotEmpty()) viewModelScope.launch {
+            val title = rest.lineSequence().first().take(40).trim().trimEnd('.', ',', ':').ifBlank { context.getString(R.string.share_note_name) }
+            val saved = withContext(Dispatchers.IO) { attachmentStore.saveText(uniqueSourceName(info, "$title.txt"), rest) }
+            info.sources += saved
+            libraryMeta.seen(saved.id, System.currentTimeMillis())
+            saveProjects()
+            summarizeFile(saved)
+        }
+        if (urls.isNotEmpty()) viewModelScope.launch {
+            val failed = addSites(name, urls)
+            if (failed > 0) Toast.makeText(context, context.getString(R.string.share_link_failed, failed), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Web pages added to a notebook by their addresses: the text that can be seen on each page is kept as a source. Gives how many could not be read. */
+    suspend fun addSites(name: String, urls: List<String>): Int {
+        val info = projectInfo[name] ?: return urls.size
+        var failed = 0
+        for (raw in urls.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(10)) {
+            val url = if (raw.startsWith("http")) raw else "https://$raw"
+            if (info.sources.any { it.url == url }) continue
+            val page = runCatching { webTools.readPage(url) }.getOrNull()
+            if (page == null) { failed++; continue }
+            val title = page.title.ifBlank { runCatching { java.net.URI(url).host.orEmpty().removePrefix("www.") }.getOrDefault(url) }.take(80)
+            val saved = withContext(Dispatchers.IO) { attachmentStore.saveText("$title.txt", "$title\n$url\n\n${page.text.take(200_000)}") }
+            val att = saved.copy(url = url)
+            info.sources += att
+            libraryMeta.seen(att.id, System.currentTimeMillis())
+            saveProjects()
+            summarizeFile(att)
+        }
+        return failed
+    }
+
+    fun removeSource(name: String, id: String) {
+        val info = projectInfo[name] ?: return
+        val a = info.sources.firstOrNull { it.id == id } ?: return
+        info.sources.remove(a)
+        saveProjects()
+        if (!usedElsewhere(a, null)) {
+            viewModelScope.launch(Dispatchers.IO) { attachmentStore.delete(a) }
+            libraryMeta.forget(a.id)
+        }
+    }
+
+    /**
+     * Reads a file once and writes down, in a sentence or two, what it is about: that is what the notebook and the library show next to it,
+     * and what the assistant is told about each source. The model chosen for summaries does it (or the one of the chats).
+     */
+    fun summarizeFile(a: Attachment, force: Boolean = false) {
+        if (a.isQuote) return
+        if (!force && libraryMeta.summaries.containsKey(a.id)) return
+        if (libraryMeta.states[a.id] == "pending") return
+        val ref = Prefs.summaryModel?.takeIf { r -> providers.any { it.id == r.providerId } } ?: model ?: return
+        val provider = providers.firstOrNull { it.id == ref.providerId } ?: return
+        libraryMeta.states[a.id] = "pending"
+        viewModelScope.launch {
+            try {
+                val (text, images) = withContext(Dispatchers.IO) { contentForSummary(a) }
+                val prompt = "Describe this file for the index of a notebook, in one or two short sentences (at most 220 characters): what it is and what it is about. " +
+                    "Write in the language of the file's text (in ${java.util.Locale.getDefault().displayLanguage} if it has none). Answer with the description only: no preamble, no quotes.\n\n" +
+                    "File: ${a.name}\n\n" + text
+                val key = secrets.get(provider.id).orEmpty()
+                val wire = provider.copy(kind = formatOf(provider, ref.model))
+                val answer = kotlinx.coroutines.withTimeoutOrNull(90_000) {
+                    api.complete(wire, key, ref.model, "", listOf(WireMessage("user", prompt, images)))
+                }
+                val line = answer?.trim()?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()?.trim('"', '«', '»')?.take(260)
+                if (line.isNullOrBlank()) libraryMeta.states[a.id] = "failed" else libraryMeta.setSummary(a.id, line)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                libraryMeta.states.remove(a.id)
+                throw e
+            } catch (e: Exception) {
+                libraryMeta.states[a.id] = "failed"
+            }
+        }
+    }
+
+    /** What the model is shown of a file to describe it: its text (cut), or the picture itself. */
+    private fun contentForSummary(a: Attachment): Pair<String, List<WireImage>> {
+        val file = attachmentStore.fileOf(a)
+        val ext = a.name.substringAfterLast('.', "").lowercase()
+        return when {
+            a.kind == AttachmentKind.Image -> "(the picture is attached)" to listOf(WireImage(a.mime, attachmentStore.readBase64(a)))
+            a.kind == AttachmentKind.Video -> "(a video, three frames are attached)" to attachmentStore.videoFrames(a, 3).map { WireImage("image/jpeg", it) }
+            a.kind == AttachmentKind.Pdf -> {
+                val text = runCatching {
+                    com.tom_roush.pdfbox.pdmodel.PDDocument.load(file).use { doc ->
+                        com.tom_roush.pdfbox.text.PDFTextStripper().apply { endPage = doc.numberOfPages.coerceAtMost(6) }.getText(doc)
+                    }
+                }.getOrNull().orEmpty().trim()
+                (if (text.length > 40) text.take(7_000) else "(a PDF of ${attachmentStore.pdfPages(a) ?: "?"} pages with almost no text: a scan or a drawing)") to emptyList()
+            }
+            ext in setOf("docx", "xlsx", "pptx", "odt", "ods", "odp") -> (com.apvcode.devx.data.FileText.office(file, ext, 7_000) ?: "(a document whose text could not be read)") to emptyList()
+            a.kind == AttachmentKind.Text -> runCatching { file.readText().take(7_000) }.getOrDefault("") to emptyList()
+            else -> "(a file of ${a.size / 1024} KB that the app cannot read)" to emptyList()
+        }
+    }
+
+    /** Takes a file out of the library everywhere: from the chats' messages, from the notebooks, and from the phone. */
+    fun deleteLibraryEntry(entry: com.apvcode.devx.data.LibraryEntry) {
+        val a = entry.attachment
+        if (a != null) {
+            chatStates.forEach { c ->
+                if (c.messages.any { m -> m.attachments.any { it.id == a.id } }) {
+                    c.messages.forEach { m -> if (m.attachments.any { it.id == a.id }) m.attachments = m.attachments.filter { it.id != a.id } }
+                    save(c)
+                }
+                if (c.libraryFiles.removeAll { it.id == a.id }) save(c)
+            }
+            var any = false
+            projectInfo.values.forEach { p -> if (p.sources.removeAll { it.id == a.id }) any = true }
+            if (any) saveProjects()
+            viewModelScope.launch(Dispatchers.IO) { attachmentStore.delete(a) }
+        }
+        entry.artifact?.let { art ->
+            val block = Regex("```devx-file\\n" + Regex.escape(art.id) + "\\n```\\s*")
+            chatStates.forEach { c ->
+                var touched = false
+                c.messages.forEach { m -> if (block.containsMatchIn(m.text)) { m.text = m.text.replace(block, ""); touched = true } }
+                if (touched) save(c)
+            }
+            artifacts.delete(art.id)
+        }
+        libraryMeta.forget(entry.id)
+    }
+
+    /** Puts a file of the library on the next message (the same file, not a copy: it stays one file in the library). */
+    fun attachFromLibrary(entry: com.apvcode.devx.data.LibraryEntry): Boolean {
+        val a = entry.attachment ?: return false
+        if (draftAttachments.any { it.id == a.id }) return true
+        draftAttachments += a
+        return true
     }
 
     // ---------- providers and models ----------
@@ -820,23 +1267,26 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // the person; without files, the workshop, the terminal and the guides.
                 val byVoice = voiceMode
                 val skillsOn = !byVoice && skills.enabled().isNotEmpty()
-                var tools = toolbox.definitions(if (byVoice) emptyList() else files, Prefs.webSearch, !byVoice && Prefs.workTools, !byVoice && Prefs.terminal, memoryOn, project != null && !byVoice, skillsOn, Prefs.phoneTools)
+                var tools = toolbox.definitions(if (byVoice) emptyList() else files, Prefs.webSearch, !byVoice && Prefs.workTools, !byVoice && Prefs.terminal, memoryOn, project != null && !byVoice, skillsOn, Prefs.phoneTools, !byVoice && library.isNotEmpty(), !byVoice && project?.isStudy == true, !byVoice && project?.isNotebook == true, !byVoice && project == null && !chat.temporary)
                 fun systemNow() = if (byVoice) SystemPrompt.forVoice(
                     Prefs.nickname,
-                    if (memoryOn) memory.forPrompt() else null,
+                    if (memoryOn) memory.forPrompt(hint = user.text) else null,
                     ref.model,
                     if (memoryOn) memory.summary else null,
                     if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
+                    mentions = mentionSection(chat, user, memoryOn),
                 ) else SystemPrompt.forUser(
                     Prefs.nickname,
-                    if (memoryOn) memory.forPrompt() else null,
-                    project?.let { SystemPrompt.ProjectContext(projectName!!, it.description, it.instructions, if (memoryOn) it.memory.forPrompt() else null, if (memoryOn) it.memory.summary else null) },
+                    if (memoryOn) memory.forPrompt(hint = user.text) else null,
+                    project?.let { SystemPrompt.ProjectContext(projectName!!, it.description, it.instructions, if (memoryOn) it.memory.forPrompt(hint = user.text) else null, if (memoryOn) it.memory.summary else null, if (it.isNotebook) notebookPrompt(chat, projectName!!, it) else null) },
                     if (skillsOn) skills.forPrompt() else null,
                     ref.model,
                     if (memoryOn) memory.summary else null,
                     phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
                     voice = if (voiceMode) SystemPrompt.VOICE else null,
                     guidesAsTool = tools.isNotEmpty(),
+                    spaces = !byVoice && project == null && !chat.temporary,
+                    mentions = mentionSection(chat, user, memoryOn),
                 )
                 if (Prefs.workTools || Prefs.terminal) withContext(Dispatchers.IO) { workspace.syncUploads(chat.id, files, attachmentStore) }
                 var messages = withContext(Dispatchers.IO) { historyFor(chat, user, withTools = tools.isNotEmpty()) }.toMutableList()
@@ -1124,10 +1574,48 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * a note), so a long chat does not carry every picture again and again.
      */
     /** The files the model may look at: everything attached in this chat up to the message it answers. */
+    /** The notebooks and projects pointed at with @ in the messages of this conversation up to [upTo] (that still exist; not the place the chat is in). */
+    private fun mentionedIn(chat: Chat, upTo: Msg): List<String> {
+        val path = chat.activePath()
+        val end = path.indexOfFirst { it.id == upTo.id }.let { if (it < 0) path.size - 1 else it }
+        return path.take(end + 1).filter { it.role == Role.User }.flatMap { it.mentions }.distinct()
+            .filter { it.startsWith("task:") || (it in projectInfo && it != chat.project) }
+    }
+
+    /** What the assistant is told about what was pointed at with @: a notebook or project (what it is, its sources, plan, notes and chats). */
+    private fun mentionSection(chat: Chat, upTo: Msg, memoryOn: Boolean): String? {
+        val hint = upTo.text
+        val keys = mentionedIn(chat, upTo)
+        val list = keys.filter { !it.startsWith("task:") }.mapNotNull { name ->
+            val info = projectInfo[name] ?: return@mapNotNull null
+            val chats = chatStates.filter { it.project == name && it.id != chat.id && !it.temporary && !it.locked }.sortedByDescending { it.updatedAt }.take(8).map { c ->
+                val said = c.activePath().lastOrNull { it.role == Role.Assistant && it.text.isNotBlank() }?.text.orEmpty().replace(Regex("\\s+"), " ").trim().take(140)
+                com.apvcode.devx.data.NotebookPrompt.ChatLine(c.title, said)
+            }
+            com.apvcode.devx.data.NotebookPrompt.Mentioned(
+                name, info.isNotebook, info.isStudy, info.description, info.instructions, info.goal,
+                info.sources.map { a -> com.apvcode.devx.data.NotebookPrompt.SourceLine(a.name, com.apvcode.devx.data.libKindOf(a.name, a.mime, a.kind, a.url), libraryMeta.summaries[a.id].orEmpty(), a.url) },
+                chats, if (info.isStudy) info.plan else null,
+                if (memoryOn) info.memory.forPrompt(limit = 1800, hint = hint) else "", if (memoryOn) info.memory.summary else "",
+            )
+        }
+        val extras = ArrayList<Pair<String, String>>()
+        keys.filter { it.startsWith("task:") }.forEach { key ->
+            val t = com.apvcode.devx.data.Tasks.get(context, key.removePrefix("task:").toIntOrNull() ?: -1) ?: return@forEach
+            val last = t.lastChatId?.let { id -> chatStates.firstOrNull { it.id == id } }?.activePath()?.lastOrNull { it.role == Role.Assistant && it.text.isNotBlank() }?.text.orEmpty().trim().take(1200)
+            extras += t.title to ("A scheduled task: " + com.apvcode.devx.data.Tasks.daysText(t.days) + " at %02d:%02d, ".format(t.hour, t.minute) + (if (t.enabled) "on" else "off") + ".\nIts prompt: " + t.prompt.take(600) + (if (last.isNotEmpty()) "\nThe last answer it gave:\n$last" else ""))
+        }
+        return com.apvcode.devx.data.NotebookPrompt.mentions(list, extras)
+    }
+
     private fun filesOf(chat: Chat, upTo: Msg): List<Attachment> {
         val path = chat.activePath()
         val end = path.indexOfFirst { it.id == upTo.id }.let { if (it < 0) path.size - 1 else it }
-        return path.take(end + 1).filter { it.role == Role.User }.flatMap { it.attachments }.filter { !it.isQuote }.distinctBy { it.id }
+        // What was attached in the chat, what the notebook it is in was given, and what was taken from the library for it.
+        val sources = chat.project?.let { projectInfo[it]?.sources }.orEmpty()
+        // And the sources of the notebooks and projects pointed at with @ in this conversation.
+        val pointed = mentionedIn(chat, upTo).flatMap { projectInfo[it]?.sources.orEmpty() }
+        return (path.take(end + 1).filter { it.role == Role.User }.flatMap { it.attachments }.filter { !it.isQuote } + sources + pointed + chat.libraryFiles).distinctBy { it.id }
     }
 
     /**
@@ -1142,16 +1630,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val projectName = chat.project?.takeIf { !chat.temporary && it in projectInfo }
         val project = projectName?.let { projectInfo[it] }
         val skillsOn = skills.enabled().isNotEmpty()
-        val tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn, Prefs.phoneTools)
+        val tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn, Prefs.phoneTools, library.isNotEmpty(), project?.isStudy == true, project?.isNotebook == true, project == null && !chat.temporary)
         val system = SystemPrompt.forUser(
             Prefs.nickname,
-            if (memoryOn) memory.forPrompt() else null,
-            project?.let { SystemPrompt.ProjectContext(projectName!!, it.description, it.instructions, if (memoryOn) it.memory.forPrompt() else null, if (memoryOn) it.memory.summary else null) },
+            if (memoryOn) memory.forPrompt(hint = upTo.text) else null,
+            project?.let { SystemPrompt.ProjectContext(projectName!!, it.description, it.instructions, if (memoryOn) it.memory.forPrompt(hint = upTo.text) else null, if (memoryOn) it.memory.summary else null, if (it.isNotebook) notebookPrompt(chat, projectName!!, it) else null) },
             if (skillsOn) skills.forPrompt() else null,
             null,
             if (memoryOn) memory.summary else null,
             phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
             guidesAsTool = tools.isNotEmpty(),
+            spaces = project == null && !chat.temporary,
+            mentions = mentionSection(chat, upTo, memoryOn),
         )
         val messages = historyFor(chat, upTo, withTools = tools.isNotEmpty())
         val letters = system.length +
@@ -1447,10 +1937,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val notes = store.notes.sortedBy { it.createdAt }.joinToString("\n") { "- " + it.text }
         val chats = StringBuilder()
         for (c in chatStates.filter { !it.temporary && !it.locked && (project == null || it.project == project) }.sortedByDescending { it.updatedAt }.take(40)) {
-            val said = c.activePath().filter { it.role == Role.User && it.text.isNotBlank() }.take(4)
-            if (said.isEmpty()) continue
-            val block = "### ${c.title}\n" + said.joinToString("\n") { "- " + it.text.replace(Regex("\\s+"), " ").take(240) } + "\n\n"
-            if (chats.length + block.length > 14_000) break
+            val path = c.activePath()
+            val mine = path.filter { it.role == Role.User && it.text.isNotBlank() }
+            if (mine.isEmpty()) continue
+            // How it began and where it is now: the first two of the person's messages and the last three, so that the overview is not
+            // blind to what happened later in a long chat; and the first words of the last answer, where a decision is often stated.
+            val said = (mine.take(2) + mine.takeLast(3)).distinctBy { it.id }
+            val lastAnswer = path.lastOrNull { it.role == Role.Assistant && it.text.isNotBlank() }?.text.orEmpty().replace(Regex("\\s+"), " ").trim().take(200)
+            val block = "### ${c.title}\n" + said.joinToString("\n") { "- " + it.text.replace(Regex("\\s+"), " ").take(240) } +
+                (if (lastAnswer.isNotEmpty()) "\n(the assistant's last answer began: $lastAnswer)" else "") + "\n\n"
+            if (chats.length + block.length > 18_000) break
             chats.append(block)
         }
         val about = if (info == null) "" else buildString {
@@ -1470,7 +1966,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
         val key = secrets.get(provider.id).orEmpty()
         val wire = provider.copy(kind = formatOf(provider, ref.model))
-        val prompt = (if (project == null) SUMMARY_PROMPT else PROJECT_SUMMARY_PROMPT) +
+        val prompt = (if (project == null) SUMMARY_PROMPT else PROJECT_SUMMARY_PROMPT) + "\n- " + TIME_RULE.format(java.text.SimpleDateFormat("EEEE d MMMM yyyy", java.util.Locale.ENGLISH).format(java.util.Date())) +
             (if (project != null) "\n\n## The project: $project\n" + about.ifBlank { "(no description)" } else "") +
             (if (store.summary.isNotBlank() && !store.summaryManual) "\n\n## The overview written last time (it may be out of date: keep what the notes and messages below still support, and change or drop what they contradict or no longer mention)\n" + store.summary else "") +
             "\n\n## Notes the assistant saved\n" + notes.ifBlank { "(none)" } +
@@ -1541,6 +2037,39 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------- the overviews renew themselves ----------
+
+    private val summaryJobs = HashMap<String?, kotlinx.coroutines.Job>()
+    private val hooked = HashSet<String>()
+
+    /** Notes saved, changed or removed (by the assistant or the person) wake the overview of their own memory a little later. */
+    private fun hookSummaries() {
+        if (hooked.add("")) memory.onNotesChanged = { scheduleSummary(null) }
+        projectInfo.forEach { (name, info) ->
+            if (hooked.add(info.id)) info.memory.onNotesChanged = { scheduleSummary(projectInfo.entries.firstOrNull { it.value === info }?.key ?: name) }
+        }
+    }
+
+    /** After a quiet minute and a quarter (a run of notes makes one request, not ten) the overview is written again if it is out of date. */
+    private fun scheduleSummary(project: String?) {
+        viewModelScope.launch {
+            summaryJobs[project]?.cancel()
+            summaryJobs[project] = launch {
+                delay(75_000)
+                if (memorySummaryStale(project)) refreshMemorySummary(project)
+            }
+        }
+    }
+
+    /** Whether any overview is being written now. */
+    val summarizingAny: Boolean get() = memory.summarizing || projectInfo.values.any { it.memory.summarizing }
+
+    /** Renews every overview that is out of date (at the start of the app, and by the alarm that comes twice a day). */
+    fun refreshStaleSummaries() {
+        if (providers.isEmpty()) return
+        (listOf<String?>(null) + projectInfo.keys).forEach { p -> if (memorySummaryStale(p)) refreshMemorySummary(p) }
+    }
+
     /** While any answer is being written the app runs as a foreground service, so it keeps going in the background. */
     private fun syncService() {
         // While the app is in front it needs no keep-alive (and no notification). The activity starts the
@@ -1580,6 +2109,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun saveProjects() {
+        com.apvcode.devx.Widgets.refreshSoon(context)
         val copy = projects.toList()
         viewModelScope.launch(Dispatchers.IO) { store.saveProjects(copy) }
         projectStore.save(projectInfo.toMap())
@@ -1627,6 +2157,8 @@ Below is what a chat assistant knows about one of the person's projects: what it
 - Write in the language the person mostly writes in.
 - Answer with the overview only.
 """.trim()
+
+    private val TIME_RULE = "Today is %s. Facts about something that has already passed (an exam that was taken, a trip that ended, a deadline gone) are not kept as current: leave them out or say they are over. What was said later matters more than what was said earlier."
 
     private val REVISE_PROMPT = """
 Below is the overview of what a chat assistant knows about the person (shown on their "Memory" or project screen), the notes it saved, and a correction or request from the person. Change the overview as the person asks: fix what is wrong, add what they say, remove what they want gone, or rewrite it the way they ask.

@@ -54,10 +54,19 @@ import kotlinx.coroutines.delay
  * Full-screen list of all chats with a search field at the bottom (thumb reach), opened from the
  * menu. It slides up over everything; the keyboard opens a moment later so the motion stays smooth.
  */
+// Results come and go while typing: they slide into their places and fade, instead of jumping.
+private val rowMove = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 0.85f, stiffness = 380f)
+private val rowIn = androidx.compose.animation.core.tween<Float>(220, delayMillis = 40)
+private val rowOut = androidx.compose.animation.core.tween<Float>(120)
+
 @Composable
 fun SearchScreen(
     chats: List<ChatSummary>,
     search: (String) -> List<com.apvcode.devx.data.SearchHit>,
+    searchSpaces: (String) -> List<Pair<String, com.apvcode.devx.data.ProjectInfo>>,
+    searchFiles: (String) -> List<com.apvcode.devx.data.FileHit>,
+    onOpenSpace: (String) -> Unit,
+    onOpenFile: (com.apvcode.devx.data.LibraryEntry) -> Unit,
     onClose: () -> Unit,
     onOpenChat: (id: String, messageId: String?) -> Unit,
     modifier: Modifier = Modifier,
@@ -71,6 +80,19 @@ fun SearchScreen(
         if (q.isEmpty()) { value = emptyList(); return@produceState }
         delay(140)
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { search(q) }
+    }
+    // Notebooks, projects and files are looked for in the same moment, and shown above the chats.
+    val spaces by androidx.compose.runtime.produceState(emptyList<Pair<String, com.apvcode.devx.data.ProjectInfo>>(), query) {
+        val q = query.trim()
+        if (q.isEmpty()) { value = emptyList(); return@produceState }
+        delay(140)
+        value = searchSpaces(q)
+    }
+    val files by androidx.compose.runtime.produceState(emptyList<com.apvcode.devx.data.FileHit>(), query) {
+        val q = query.trim()
+        if (q.isEmpty()) { value = emptyList(); return@produceState }
+        delay(140)
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { searchFiles(q) }
     }
     val byId = remember(chats.toList()) { chats.associateBy { it.id } }
     val searching = query.isNotBlank()
@@ -106,14 +128,23 @@ fun SearchScreen(
                     }
                 }
                 if (!searching) {
-                    items(chats, key = { it.id }) { chat -> ChatRow(chat) { onOpenChat(chat.id, null) } }
+                    items(chats, key = { it.id }) { chat -> Box(Modifier.animateItem(placementSpec = rowMove, fadeInSpec = rowIn, fadeOutSpec = rowOut)) { ChatRow(chat) { onOpenChat(chat.id, null) } } }
                 } else {
+                    if (spaces.isNotEmpty()) {
+                        item(key = "h-spaces") { SectionLabel(R.string.search_spaces) }
+                        items(spaces, key = { "s-" + it.first }) { (name, info) -> Box(Modifier.animateItem(placementSpec = rowMove, fadeInSpec = rowIn, fadeOutSpec = rowOut)) { SpaceRow(name, info) { onOpenSpace(name) } } }
+                    }
+                    if (files.isNotEmpty()) {
+                        item(key = "h-files") { SectionLabel(R.string.search_files) }
+                        items(files, key = { "f-" + it.entry.id }) { h -> Box(Modifier.animateItem(placementSpec = rowMove, fadeInSpec = rowIn, fadeOutSpec = rowOut)) { FileRow(h) { onOpenFile(h.entry) } } }
+                    }
+                    if (hits.isNotEmpty() && (spaces.isNotEmpty() || files.isNotEmpty())) item(key = "h-chats") { SectionLabel(R.string.search_chats) }
                     items(hits, key = { it.chatId }) { hit ->
-                        byId[hit.chatId]?.let { chat -> HitRow(chat, hit) { onOpenChat(chat.id, hit.messageId) } }
+                        byId[hit.chatId]?.let { chat -> Box(Modifier.animateItem(placementSpec = rowMove, fadeInSpec = rowIn, fadeOutSpec = rowOut)) { HitRow(chat, hit) { onOpenChat(chat.id, hit.messageId) } } }
                     }
                 }
             }
-            if (if (searching) hits.isEmpty() else chats.isEmpty()) {
+            if (if (searching) hits.isEmpty() && spaces.isEmpty() && files.isEmpty() else chats.isEmpty()) {
                 Text(
                     stringResource(R.string.search_empty),
                     style = DevxType.Body,
@@ -168,6 +199,42 @@ fun SearchScreen(
             ) {
                 Icon(Icons.Outlined.Close, stringResource(R.string.cd_close), tint = DevxColors.TextPrimary, modifier = Modifier.size(24.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(res: Int) {
+    Text(stringResource(res), style = DevxType.Section, color = DevxColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 6.dp))
+}
+
+@Composable
+private fun SpaceRow(name: String, info: com.apvcode.devx.data.ProjectInfo, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false, onClick = onClick).clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp)).padding(horizontal = 8.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        ProjectBadge(info.icon, info.color, 44.dp)
+        Column(Modifier.weight(1f)) {
+            Text(name, style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val sub = info.goal.ifBlank { info.description }.replace("\n", " ").trim()
+            Text(if (sub.isNotEmpty()) sub else stringResource(if (info.isNotebook) R.string.mention_notebook else R.string.mention_project), style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun FileRow(hit: com.apvcode.devx.data.FileHit, onClick: () -> Unit) {
+    val e = hit.entry
+    Row(
+        Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false, onClick = onClick).clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp)).padding(horizontal = 8.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(com.apvcode.devx.ui.components.fileIcon(e.name), null, tint = DevxColors.TextPrimary, modifier = Modifier.size(26.dp))
+        Column(Modifier.weight(1f)) {
+            Text(e.name, style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val sub = hit.snippet ?: e.summary.replace("\n", " ").trim().ifEmpty { e.notebooks.joinToString(", ") }
+            if (sub.isNotEmpty()) Text(sub, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

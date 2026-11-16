@@ -280,13 +280,18 @@ fun ToolApprovalCard(pending: com.apvcode.devx.data.PendingApproval, modifier: M
                 Modifier.size(40.dp).graphicsLayer { scaleX = badge.value; scaleY = badge.value; alpha = badge.value.coerceIn(0f, 1f) }.clip(CircleShape).background(tint.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center,
             ) { Icon(DevxIcons.ShieldLock, null, tint = tint, modifier = Modifier.size(22.dp)) }
-            Text(stringResource(R.string.mcp_ask_title, r.serverName), style = DevxType.BodyStrong, color = DevxColors.TextPrimary, modifier = Modifier.weight(1f))
+            Text(if (r.plain) r.serverName else stringResource(R.string.mcp_ask_title, r.serverName), style = DevxType.BodyStrong, color = DevxColors.TextPrimary, modifier = Modifier.weight(1f))
         }
         AskRise(90) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(DevxColors.CardInner).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(r.title, style = DevxType.Mono, color = DevxColors.TextPrimary, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                    if (r.detail.isNotBlank()) Text(r.detail, style = DevxType.Mono.copy(fontSize = 12.sp), color = DevxColors.TextSecondary, maxLines = 5, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    if (r.plain) {
+                        Text(r.title, style = DevxType.BodyStrong, color = DevxColors.TextPrimary, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        if (r.detail.isNotBlank()) Text(r.detail, style = DevxType.Body.copy(fontSize = 14.sp), color = DevxColors.TextSecondary, maxLines = 8, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    } else {
+                        Text(r.title, style = DevxType.Mono, color = DevxColors.TextPrimary, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        if (r.detail.isNotBlank()) Text(r.detail, style = DevxType.Mono.copy(fontSize = 12.sp), color = DevxColors.TextSecondary, maxLines = 5, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
                 }
                 if (r.changesData) Text(stringResource(R.string.mcp_ask_changes), style = DevxType.Caption, color = DevxColors.Warning)
             }
@@ -297,13 +302,13 @@ fun ToolApprovalCard(pending: com.apvcode.devx.data.PendingApproval, modifier: M
                 PillButton(stringResource(R.string.mcp_ask_allow), onClick = { pending.answer(com.apvcode.devx.data.ApprovalDecision.Once) }, modifier = Modifier.weight(1f))
             }
         }
-        if (r.alwaysKey.isNotEmpty()) AskRise(250) {
+        if (!r.plain && r.alwaysKey.isNotEmpty()) AskRise(250) {
             Text(
                 stringResource(R.string.mcp_ask_always_tool, r.alwaysKey), style = DevxType.Caption, color = DevxColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).pressable(scaleTo = 0.97f) { pending.answer(com.apvcode.devx.data.ApprovalDecision.Always) }.padding(vertical = 11.dp, horizontal = 12.dp),
             )
         }
-        AskRise(310) {
+        if (!r.plain) AskRise(310) {
             Text(
                 stringResource(R.string.mcp_ask_always, r.serverName), style = DevxType.Caption, color = DevxColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).pressable(scaleTo = 0.97f) { pending.answer(com.apvcode.devx.data.ApprovalDecision.ThisChat) }.padding(vertical = 11.dp, horizontal = 12.dp),

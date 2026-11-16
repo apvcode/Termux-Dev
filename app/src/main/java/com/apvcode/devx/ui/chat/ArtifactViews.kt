@@ -143,6 +143,11 @@ fun ArtifactCard(id: String, vm: ChatViewModel, onOpen: (Artifact) -> Unit, modi
 fun ArtifactViewer(artifact: Artifact, vm: ChatViewModel, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val file = remember(artifact.id) { vm.artifactFile(artifact) }
+    // A PDF, a Word, PowerPoint or Excel file the assistant made is read here, as a document (see DocumentViewer).
+    if (com.apvcode.devx.data.libKindOf(artifact.name, artifact.mime, null) in setOf(com.apvcode.devx.data.LibKind.Pdf, com.apvcode.devx.data.LibKind.Word, com.apvcode.devx.data.LibKind.Sheet, com.apvcode.devx.data.LibKind.Slides)) {
+        com.apvcode.devx.ui.screens.DocumentViewer(file, artifact.name, artifact.mime, onClose, modifier)
+        return
+    }
     val text = remember(artifact.id) { readText(file, artifact) }
     var menu by remember { mutableStateOf(false) }
     val page = Color(0xFF161616)

@@ -33,6 +33,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         com.apvcode.devx.data.AppLock.init(applicationContext)
         com.apvcode.devx.data.Earcon.recover(applicationContext)
+        com.apvcode.devx.data.MemoryRefresh.schedule(applicationContext)
+        // After a restore from a backup the tasks are back but their alarms are not: every enabled task gets its next one.
+        Thread { runCatching { com.apvcode.devx.data.Tasks.restoreAll(applicationContext) }; runCatching { com.apvcode.devx.data.AutoBackup.runIfDue(applicationContext) } }.start()
         takeChatFrom(intent)
         com.apvcode.devx.remote.RemoteHub.init(applicationContext)
         com.apvcode.devx.remote.RemoteHub.memory = viewModel.memory
@@ -72,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private fun takeChatFrom(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE) takeShare(intent)
         if (intent?.action == ACTION_ASK) com.apvcode.devx.data.PendingAsk.request = true
+        if (intent?.action == ACTION_STUDY) com.apvcode.devx.data.PendingStudy.project = intent.getStringExtra("project").orEmpty().ifEmpty { "\u0000" }
         if (intent?.action == ACTION_TEMP) com.apvcode.devx.data.PendingAsk.temporary = true
         if (intent?.action == ACTION_COMPUTERS) com.apvcode.devx.data.PendingAsk.computers = true
         if (intent?.action == ACTION_OPEN_CHAT) requestedChat.value = intent.getStringExtra(EXTRA_CHAT_ID)
@@ -147,6 +151,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_ASK = "com.apvcode.devx.ASK"
+        const val ACTION_STUDY = "com.apvcode.devx.STUDY"
         const val ACTION_TEMP = "com.apvcode.devx.TEMP"
         const val ACTION_COMPUTERS = "com.apvcode.devx.COMPUTERS"
         const val ACTION_OPEN_CHAT = "com.apvcode.devx.OPEN_CHAT"

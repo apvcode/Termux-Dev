@@ -4,6 +4,7 @@ import com.apvcode.devx.data.ChatDigest
 import com.apvcode.devx.data.ChatSearch
 import com.apvcode.devx.data.DigestMessage
 import com.apvcode.devx.data.Level
+import com.apvcode.devx.data.MemoryNote
 import com.apvcode.devx.data.MemoryStore
 import com.apvcode.devx.data.SystemPrompt
 import com.apvcode.devx.model.Role
@@ -200,5 +201,40 @@ class NotificationTextTest {
         val n = com.apvcode.devx.data.NotificationText
         assertEquals("one two", n.short("one two", 20))
         assertEquals("one two three…", n.short("one two three four five six", 15))
+    }
+
+    private fun note(id: String, text: String, at: Long, until: Long = 0) = MemoryNote(id, text, at, at, until)
+
+    @Test
+    fun anExpiredNoteIsNoLongerTrue() {
+        assertTrue(note("a", "Exam on Friday", 1, until = 100).expired(now = 200))
+        assertFalse(note("a", "Exam on Friday", 1, until = 100).expired(now = 50))
+        assertFalse(note("a", "Likes tea", 1).expired(now = 1_000_000))
+    }
+
+    @Test
+    fun withoutAHintTheNewestNotesAreKept() {
+        val all = (1..10).map { note("n$it", "fact number $it ".repeat(3), it.toLong()) }
+        val kept = MemoryStore.pick(all, "", limit = 120)
+        assertTrue(kept.isNotEmpty() && kept.size < 10)
+        assertEquals("n10", kept.last().id)
+        assertFalse(kept.any { it.id == "n1" })
+        assertEquals(kept.map { it.createdAt }, kept.map { it.createdAt }.sorted())
+    }
+
+    @Test
+    fun aHintBringsTheRelevantOldNoteBack() {
+        val all = listOf(note("old", "Пишет Android-приложение на Kotlin", 1)) +
+            (2..10).map { note("n$it", "Любит чай номер $it и долгие прогулки", it.toLong()) }
+        val kept = MemoryStore.pick(all, "помоги с Kotlin приложением", limit = 120)
+        assertTrue(kept.any { it.id == "old" })
+    }
+
+    @Test
+    fun newLinesShowWhatChanged() {
+        val before = "## About\n- Writes Kotlin\n- Lives in Berlin"
+        val now = "## About\n- Writes Kotlin\n- **Lives in Madrid**\n- Studies Spanish"
+        assertEquals(listOf("Lives in Madrid", "Studies Spanish"), MemoryStore.newLines(before, now))
+        assertTrue(MemoryStore.newLines(now, now).isEmpty())
     }
 }

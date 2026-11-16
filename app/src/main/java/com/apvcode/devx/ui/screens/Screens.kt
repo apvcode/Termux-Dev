@@ -90,6 +90,19 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
         }
     }
     val pickBackup = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri -> restoreFrom = uri }
+    // The weekly copy by itself: a folder is chosen once, the first copy is made at once.
+    var autoOn by remember { mutableStateOf(com.apvcode.devx.data.AutoBackup.enabled(appContext)) }
+    var autoTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val pickFolder = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            com.apvcode.devx.data.AutoBackup.setFolder(appContext, uri)
+            autoOn = true
+            backupScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val ok = com.apvcode.devx.data.AutoBackup.backupNow(appContext)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { autoTick++; say(if (ok) R.string.backup_done else R.string.backup_failed) }
+            }
+        }
+    }
     val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
     val languageNames = mapOf(
         AppLanguage.System to stringResource(R.string.lang_system),
@@ -288,6 +301,17 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                     value = stringResource(if (com.apvcode.devx.data.AppLock.enabled) R.string.settings_pin_on else R.string.settings_pin_value),
                     showChevron = true,
                     onClick = onAppLock,
+                )
+                SettingsDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.autobackup_title),
+                    subtitle = if (autoOn) {
+                        val folder = com.apvcode.devx.data.AutoBackup.folder(appContext)?.let { com.apvcode.devx.data.AutoBackup.label(it) }.orEmpty()
+                        val at = remember(autoTick, autoOn) { com.apvcode.devx.data.AutoBackup.lastAt(appContext) }
+                        stringResource(R.string.autobackup_on, folder, if (at == 0L) stringResource(R.string.autobackup_never) else java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(at)))
+                    } else stringResource(R.string.autobackup_off),
+                    checked = autoOn,
+                    onCheckedChange = { on -> if (on) pickFolder.launch(null) else { com.apvcode.devx.data.AutoBackup.disable(appContext); autoOn = false } },
                 )
                 SettingsDivider()
                 SettingsRow(

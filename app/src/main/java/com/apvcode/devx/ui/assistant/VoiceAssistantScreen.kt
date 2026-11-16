@@ -194,31 +194,18 @@ fun VoiceAssistantScreen(
             }
         }
     }
-    // Once, the first time: the pill lifts and settles back by itself, with a line that says what it is for.
+    // Every time the assistant opens: the climbing chevrons and a line above the pill say that a hold and a swipe up open the app. They
+    // stay three seconds and then go back smoothly (the first question hides them sooner). The pill itself does not move for it.
     var hintOn by remember { mutableStateOf(false) }
-    var hintJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     LaunchedEffect(Unit) {
-        if (com.apvcode.devx.data.Prefs.assistantSwipeHintSeen) return@LaunchedEffect
-        hintJob = launch {
-            try {
-                kotlinx.coroutines.delay(1300)
-                if (session.asked.isNotEmpty()) return@launch
-                hintOn = true
-                val peek = with(density) { 64.dp.toPx() }
-                repeat(2) {
-                    drag.animateTo(-peek, tween(620, easing = FastOutSlowInEasing))
-                    kotlinx.coroutines.delay(260)
-                    drag.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = 260f))
-                    kotlinx.coroutines.delay(420)
-                }
-                kotlinx.coroutines.delay(500)
-            } finally {
-                hintOn = false
-                com.apvcode.devx.data.Prefs.markAssistantSwipeHintSeen()
-            }
-        }
+        kotlinx.coroutines.delay(700)
+        if (session.asked.isNotEmpty()) return@LaunchedEffect
+        hintOn = true
+        kotlinx.coroutines.delay(3000)
+        hintOn = false
     }
-    val stopHint = { hintJob?.cancel(); hintJob = null }
+    LaunchedEffect(session.asked.isNotEmpty()) { if (session.asked.isNotEmpty()) hintOn = false }
+    val stopHint = {}
 
     Box(Modifier.fillMaxSize()) {
         // A tap on the free part of the screen closes the assistant.
@@ -250,7 +237,8 @@ fun VoiceAssistantScreen(
                     scaleX = grow; scaleY = grow
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
                 },
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            // No gap between the blocks is set here: each block carries its own 10 dp below it, so that the gap comes and goes with the
+            // block (a gap kept by the column vanished all at once when a block had left, which was a jump).
         ) {
             val showCard = session.asked.isNotEmpty() || session.micDenied || session.noRecognizer
             AnimatedVisibility(
@@ -258,16 +246,17 @@ fun VoiceAssistantScreen(
                 enter = fadeIn(tween(260)) + expandVertically(spring(dampingRatio = 0.85f, stiffness = 380f), expandFrom = Alignment.Bottom),
                 exit = fadeOut(tween(160)) + shrinkVertically(),
             ) {
-                AnswerCard(session, onOpenChat = { session.keepChat(); onOpenChat() }, onClose = onClose, onOpenSettings = onOpenSettings)
+                Box(Modifier.padding(bottom = 10.dp)) { AnswerCard(session, onOpenChat = { session.keepChat(); onOpenChat() }, onClose = onClose, onOpenSettings = onOpenSettings) }
             }
             AnimatedVisibility(visible = !showCard, enter = fadeIn(tween(400, delayMillis = 200)), exit = fadeOut(tween(120))) {
-                Greeting(session)
+                Box(Modifier.padding(bottom = 10.dp)) { Greeting(session) }
             }
             AnimatedVisibility(
                 visible = hintOn,
-                enter = fadeIn(tween(360)) + expandVertically(spring(dampingRatio = 0.85f, stiffness = 380f)),
-                exit = fadeOut(tween(260)) + shrinkVertically(tween(260)),
-            ) { SwipeHint() }
+                enter = fadeIn(tween(420)) + expandVertically(spring(dampingRatio = 0.9f, stiffness = 300f)),
+                // It first fades, and only then does the space it took close, slowly, so that the pill and the greeting settle without a jump.
+                exit = fadeOut(tween(380, easing = FastOutSlowInEasing)) + shrinkVertically(tween(560, delayMillis = 140, easing = FastOutSlowInEasing)),
+            ) { Box(Modifier.padding(bottom = 10.dp)) { SwipeHint() } }
             Pill(
                 session, energy = { energy.floatValue }, clock = { clock.floatValue }, enter = { enter.value },
                 drag = drag, threshold = threshold, maxPull = flyTo, onOpen = openApp, onTouch = stopHint,

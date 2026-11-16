@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -225,6 +226,25 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
             if (memory.summaryManual && memory.summary.isNotEmpty()) {
                 Text(stringResource(R.string.memory_edited_hint), style = DevxType.Caption, color = DevxColors.TextSecondary)
             }
+            val fresh = memory.changes()
+            androidx.compose.animation.AnimatedVisibility(
+                visible = fresh.isNotEmpty() && memory.summary.isNotEmpty(),
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                        .background(DevxColors.Accent.copy(alpha = 0.12f)).padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(stringResource(R.string.memory_changes_title), style = DevxType.BodyStrong, color = DevxColors.Accent)
+                    fresh.forEach { line -> Text("•  $line", style = DevxType.Caption.copy(lineHeight = 19.sp), color = DevxColors.TextPrimary) }
+                    Text(
+                        stringResource(R.string.memory_changes_close), style = DevxType.Caption, color = DevxColors.Accent,
+                        modifier = Modifier.align(Alignment.End).pressable(scaleTo = 0.94f) { memory.dismissChanges() }.padding(horizontal = 6.dp, vertical = 4.dp),
+                    )
+                }
+            }
             if (memory.summary.isNotEmpty()) {
                 MarkdownText(memory.summary)
             } else if (!memory.summarizing && memory.summaryError == null) {
@@ -356,35 +376,15 @@ fun MemoryNotesScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? = 
 
 @Composable
 private fun NoteDialog(note: MemoryNote?, onDismiss: () -> Unit, onSave: (String) -> Unit, onDelete: (() -> Unit)?) {
-    var text by remember { mutableStateOf(note?.text.orEmpty()) }
-    DevxDialog(stringResource(if (note == null) R.string.memory_add else R.string.memory_note), onDismiss) {
-        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            DevxTextField(
-                stringResource(R.string.memory_note_hint),
-                text,
-                { if (it.length <= MemoryStore.MAX_NOTE_CHARS) text = it },
-                singleLine = false,
-            )
-            PillButton(
-                stringResource(R.string.memory_save),
-                enabled = text.isNotBlank(),
-                onClick = {
-                    onSave(text)
-                    onDismiss()
-                },
-            )
-            if (onDelete != null) {
-                PillButton(
-                    stringResource(R.string.menu_delete),
-                    filled = false,
-                    onClick = {
-                        onDelete()
-                        onDismiss()
-                    },
-                )
-            }
-        }
-    }
+    com.apvcode.devx.ui.components.TextEditorSheet(
+        title = stringResource(if (note == null) R.string.memory_add else R.string.memory_note),
+        hint = stringResource(R.string.memory_note_hint),
+        initial = note?.text.orEmpty(),
+        maxChars = MemoryStore.MAX_NOTE_CHARS,
+        onDismiss = onDismiss,
+        onSave = onSave,
+        onDelete = onDelete,
+    )
 }
 
 @Composable

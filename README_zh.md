@@ -1,0 +1,148 @@
+<div align="center">
+
+# devx for Android
+
+**口袋里的 AI 助手，也是电脑上 devx 的遥控器。**  
+无需账号，没有我们的服务器。你的密钥和聊天都留在手机上。
+
+<br/>
+
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
+[![Download APK](https://img.shields.io/badge/download-APK-00c2d1.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
+[![Languages](https://img.shields.io/badge/languages-9-4f8cff.svg?style=flat-square&labelColor=0a0c11)](#)
+[![devx: MIT](https://img.shields.io/badge/devx-MIT-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/blob/main/LICENSE)
+
+<br/>
+
+[English](README.md) &nbsp;•&nbsp; [Русский](README_ru.md) &nbsp;•&nbsp; [Українська](README_uk.md) &nbsp;•&nbsp; [Deutsch](README_de.md) &nbsp;•&nbsp; [Español](README_es.md) &nbsp;•&nbsp; [Français](README_fr.md) &nbsp;•&nbsp; [Português](README_pt.md) &nbsp;•&nbsp; **中文** &nbsp;•&nbsp; [日本語](README_ja.md)
+
+</div>
+
+---
+
+## 一览
+
+<table>
+<tr>
+<td valign="top" width="25%"><b>口袋助手</b><br/>你选择的任何模型、语音、照片和文件、记忆、技能、MCP、网页搜索。</td>
+<td valign="top" width="25%"><b>笔记本</b><br/>学习或收集想法：资料、学习计划、卡片、音频概览、带引用的回答。</td>
+<td valign="top" width="25%"><b>语音与手机</b><br/>闹钟、通话、短信、地点和天气、定时任务、小组件。</td>
+<td valign="top" width="25%"><b>devx 遥控器</b><br/>与终端里相同的会话：回复、审批、计划、文件。</td>
+</tr>
+</table>
+
+## 下载
+
+应用在 Termux-Dev 上有自己的页面，与 devx 的发布分开（应用和 devx 的版本各自独立）。每个版本都是页面上的一个文件，附带校验和；新版本添加在旧版本旁边，文件绝不会被替换：
+
+**[Releases → devx for Android](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)** → 最新的文件，`devx-android-X.Y.Z.apk`
+
+在手机上打开它，并允许从该来源安装。需要 Android 8.0（API 26）或更新版本。更新会直接覆盖旧版本安装：每个发布都用同一把密钥签名，且已发布的版本绝不会被替换。
+
+## 开始
+
+1. 打开应用，告诉它你的名字。
+2. **设置 → 提供商 → 添加提供商。** 选择预设，或输入地址和 API 密钥（OpenAI 兼容或 Anthropic 格式，会自动识别格式）。加载模型并选一个。
+3. 输入文字，或点按麦克风。
+
+API 密钥加密保存在手机上（Android Keystore），只会发送给你添加的提供商。
+
+## 功能
+
+### 聊天
+
+- 多个提供商和模型，每个模型可设推理强度，编辑消息时产生分支，临时聊天，用屏幕锁或密码锁住的聊天，项目（有自己的说明和知识库的持续工作）和笔记本（见下）。
+- 消息中可带照片、视频、文件和相机；PDF 和文本查看器；导出为 Markdown 或 PDF。
+- 记忆：助手保存有用的笔记和关于你的摘要，只在手机上。你可以阅读、编辑和删除。摘要会在后台自动更新并显示其中的新内容；很快不再成立的笔记（比如周五的考试）可以设为过期；笔记很多时，优先发送与你的问题相关的。
+- 技能（任务匹配时助手会阅读的书面指南）：内置、导入（`.skill` 或 `SKILL.md`）或自己编写。
+- 通过 https 的 MCP 服务器（GitHub、文档等），带审批和只读开关。
+- 网页搜索（自己读取搜索页面；在设置中填入免费的 Tavily 或 Brave 密钥会明显更准确），文件和压缩包，应用内的终端和 Python，位于它自己的文件夹中。每项都可关闭。
+- 助手为你画出的表单：带标签和提示的问题、选择（单选或多选）、滑块和开关；你填写的内容会保留，已发送的表单保持已发送状态。
+- 聊天名称在回答生成时就写好，并带有小动画；你所在的聊天在列表中有标记。
+- 丰富的回答：卡片、表格、图表、地图、天气、计时器、清单、Mermaid 图表，以及来自 Google Play 和 F-Droid 的应用卡片。主屏幕上轮换的问候语。
+- 带 Markdown 预览的全屏编辑器，适合长消息。可选中多个聊天进行删除或归档。
+- 在输入框中键入 `@`：弹出可指向对象的菜单（笔记本、项目、资料库文件、定时任务）。笔记本或项目以其颜色成为句子的一部分，助手会收到其中的内容。语音时直接说出名字即可。
+- 一次搜索覆盖聊天、笔记本、项目、文件和资料，也能搜到文档、PDF 和笔记里写的内容。
+- 可直接把图片和文件粘贴到消息输入框（来自剪贴板或键盘）。对选中文字使用“问 devx”不会动你的剪贴板。
+- 把聊天、笔记本、记忆、技能和设置备份到一个文件并可恢复；还有每周自动复制到你选择文件夹的备份（保留最近四份）。
+- 置顶和归档聊天，锁定单个聊天，把聊天添加到主屏幕。对选中的文字使用“问 devx”会把该段作为卡片引用到你的下一条消息里。
+- 助手在自己的文件夹里处理文件：创建和读取文件，制作和解压压缩包，逐页读取 PDF 并查看其中的图片，编辑图片，以及解包、修改、重新打包并签名 APK。审批可以直接在通知里完成（允许 / 拒绝）。
+- 四个小组件（提问栏、快捷按钮、最近的聊天、到期的卡片）和两个快速设置磁贴（提问、语音）。
+
+### 笔记本和资料库
+
+- 笔记本是围绕一个主题学习或收集想法的地方。*想法*笔记本保存某个主题的资料和聊天；*学习*笔记本再加上目标、课程计划和你的进度。项目是分开的：它们用于持续的工作。
+- 资料：文件、照片（也可用相机拍）和网页。助手会为每份资料写一段简短说明；让它去网上找资料，它会添加最好的页面。
+- 关于笔记本的回答会用小标签引用资料来源（`notes.pdf · 12`）；点按即可打开资料，PDF 会跳到那一页。
+- 学习笔记本一步一步地教，用表单检查，自己写计划，并维护卡片：问题到时间会回来复习（越熟的卡片回来得越晚）。卡片有独立界面：显示问题，点按翻转卡片，四个按钮（重来、困难、良好、简单）显示它何时回来，结束时有总结；不需要模型，也不花钱。每日提醒是一条通知，写明到期的卡片数。
+- 助手可以修改笔记本或项目（名称、图标、颜色、描述、说明、目标），谈妥之后也能提议新建笔记本或项目：你在卡片上确认。
+- 从任何应用分享链接、文字、PDF 或图片：devx 会提供新聊天或你的某个笔记本，在笔记本里它会成为资料（链接会被读取并保存）。
+- 页面上的学习统计：连续天数、最近七天的柱状图；主屏幕小组件显示到期卡片数并开始复习。卡片和笔记本的概览可以收听（*音频概览*是为收听而写的，然后朗读出来），笔记本可导出为一个 Markdown 文件。
+- 资料库保存你附加过或助手生成的每个文件：搜索、筛选、使用位置、附加到新聊天、彻底删除。PDF、Word、幻灯片、表格、文本、图片和网站都在内置查看器中打开；Office 原件会保留。
+
+### 外观、性格与安全
+
+- 外观：跟随系统、黑色、深灰或浅色。
+- 性格：选择风格（平静、不啰嗦、详细、友好、专业、直率、导师），微调语气，给助手起名字并写下你自己的说明。点一下即可全部重置。
+- 应用锁：使用屏幕锁、密码或生物识别；也可以锁定单个聊天，开启锁定时最近任务列表会隐藏画面。
+- 每条消息的照片数量、回答和审批的通知，以及是否允许电脑以“全部”模式运行，都在设置里。
+
+### 语音助手
+
+- 把 Devx 选为手机的助手：电源键或从屏幕角落滑动，即可在任何应用上方打开透明的语音窗口。
+- 闹钟、计时器、提醒；打开应用和系统设置；联系人、通话、短信和日历（最后一个按钮由你按）；手电筒、音乐、音量；亮度和勿扰模式。
+- 来自 OpenStreetMap 和 Open-Meteo 的地点、路线和天气，无需密钥。可用你自己的密钥添加 2GIS 和 Google 地图。
+- 查看你的相册、读取屏幕上的通知、在你选的一个文件夹中工作，但只在你要求时，并且只在你允许的情况下。
+- 定时任务：“每天早上给我发 AI 新闻”。它们自动运行，以聊天和通知的形式送达。
+- 语速、声音和单独用于对话的快速模型在**设置 → 语音助手**中。
+- 点按胶囊可改为打字；按住并向上滑动可带着同一个聊天打开应用（胶囊上方的提示始终会显示方法）。麦克风有自己的柔和提示音，而不是语音服务的哔声。
+- “回答后继续聆听”（免提），以及你所说的语言，可与应用语言分开选择。
+- 定时任务有独立界面：时间、星期、每个任务使用的模型、“立即运行”。
+
+### Devx Remote
+
+- 控制电脑上运行的 devx：每个聊天、实时回复和推理、审批卡片、提问、计划（含 *Go and compact context*）、plan/agent/YOLO 模式、模型和提供商、上下文和费用、`/compact` 等命令。文件和照片双向传输。
+- 终端关闭也能工作。手机可直接连到电脑（同一 Wi-Fi、Tailscale 之类的 VPN、转发的端口），或通过免费的公共中继。一切都是端到端加密的。
+- 在电脑上你选择的文件夹中开始新会话；除了二维码，也可以通过地址（VPN、转发端口）添加电脑。
+
+在电脑上：
+
+```
+devx remote start     # 主机，无需终端持续运行
+devx remote pair      # 二维码：在应用中扫描，在电脑上确认六位数字
+```
+
+用 devx 中的 `/phones` 或 `devx remote revoke <name>` 移除手机。更多内容见 [devx README](https://github.com/apvcode/Termux-Dev#readme)。
+
+## 语言
+
+English、Русский、Deutsch、Español、Français、日本語、Português、Українська、中文：与 devx 相同的九种。**设置 → 语言**。语言同时决定麦克风听什么。
+
+## 隐私
+
+- 聊天、记忆、技能和密钥都在手机上。不会发送给我们；我们没有服务器。
+- 你的消息发送给你选择的提供商，只有工具需要时才会发给 MCP 服务器或地图服务。
+- 相册、通知、位置、联系人和文件夹只在你要求时读取，且每一项都可以关闭。
+- 通话、短信和日历事件在你最后一次点按之前绝不会发送。
+
+## 构建
+
+```
+./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk
+```
+
+需要 JDK 17 和 Android SDK。签名：把 `signing.properties`（storeFile、storePassword、keyAlias、keyPassword）放在 `~/.config/devx-android/`，或用 `DEVX_SIGNING_PROPERTIES` 指向它，或使用项目文件夹中的 `keystore.properties`。若都没有，构建会用调试密钥签名，无法更新已安装的正式版。请妥善保管密钥：正是它让更新能覆盖旧版本安装。
+
+应用有自己的版本。一条命令即可构建、检查签名密钥，并把 `devx-android-X.Y.Z.apk` 添加到 Termux-Dev 的 `android-app` 页面（会先询问；已存在的文件绝不会被替换；`--dry-run` 显示将要做的事）：
+
+```
+node scripts/release-android.mjs      # 在 devx 文件夹中运行
+```
+
+## 技术栈
+
+Kotlin、Jetpack Compose、OkHttp、Android Keystore。图标来自 [Tabler Icons](https://tabler.io/icons)（MIT）；内置 Mermaid 用于图表（MIT）。声明见 [NOTICE](NOTICE)。
+
+## 许可证
+
+应用本身还没有单独的许可证文件；devx 本身是 MIT。第三方声明（Tabler Icons、Mermaid）见 [NOTICE](NOTICE)，字体许可证见 [licenses/](licenses)。

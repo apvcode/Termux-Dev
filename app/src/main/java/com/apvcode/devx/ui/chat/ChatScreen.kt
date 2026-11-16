@@ -155,6 +155,7 @@ fun ChatScreen(
     onOpenFile: (com.apvcode.devx.data.Artifact) -> Unit,
     onShowSteps: (Msg) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenProject: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     // The first time in the app the bars arrive after the iris has begun to open, one after the other.
@@ -263,6 +264,17 @@ fun ChatScreen(
         findQuery = ""
         findIndex = 0
     }
+    // An audio overview was asked for: when the answer is complete it is read aloud.
+    LaunchedEffect(Unit) {
+        var was = vm.generating
+        androidx.compose.runtime.snapshotFlow { vm.generating }.collect { now ->
+            if (was && !now && vm.autoListen) {
+                vm.autoListen = false
+                vm.path.lastOrNull { it.role == com.apvcode.devx.model.Role.Assistant && it.text.isNotBlank() }?.let { com.apvcode.devx.assist.VoiceWarm.speaker(context).read(it.text) }
+            }
+            was = now
+        }
+    }
     // The chat written to a file the person picks the place for (Downloads, a cloud folder...).
     val exportMarkdown = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         val chat = vm.current
@@ -320,7 +332,7 @@ fun ChatScreen(
     // With no models at all there is nothing to pick from: go straight to where they come from.
     val openPicker = { if (vm.modelCount == 0) onOpenProviders() else pickerOpen = true }
 
-    val host = remember(vm, onOpenProviders, onSelectText, onEdit, onOpenPhoto, onShowThinking, onShowSources, onOpenFile, onShowSteps) {
+    val host = remember(vm, onOpenProviders, onSelectText, onEdit, onOpenPhoto, onShowThinking, onShowSources, onOpenFile, onShowSteps, onOpenProject) {
         MessageActionsHost(
             onSend = { vm.send(it) },
             onSelectText = onSelectText,
@@ -332,6 +344,7 @@ fun ChatScreen(
             onShowSources = onShowSources,
             onOpenFile = onOpenFile,
             onShowSteps = onShowSteps,
+            onOpenProject = onOpenProject,
             onFold = { m ->
                 // A long message folds up while the reader is in the middle of it: the list glides to its beginning instead of jumping.
                 val index = vm.path.indexOfFirst { it.id == m.id }
@@ -535,7 +548,7 @@ fun ChatScreen(
     // While the words are coming the screen is held at 60 Hz, so that frames come at an even pace (see SteadyFrames).
     LaunchedEffect(lightGlass) { com.apvcode.devx.data.SteadyFrames.hold(context, lightGlass) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { com.apvcode.devx.data.SteadyFrames.hold(context, false) } }
-    androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides (if (lightGlass) null else haze), LocalSendOrigin provides sendOrigin) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides haze, LocalSendOrigin provides sendOrigin) {
         Box(
             modifier
                 .fillMaxSize()
@@ -554,7 +567,7 @@ fun ChatScreen(
                 com.apvcode.devx.ui.components.ProvideAskToolbar(onAsk = vm::attachSnippet) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().nestedScroll(pullConnection).then(if (lightGlass) Modifier else Modifier.hazeSource(haze)),
+                    modifier = Modifier.fillMaxSize().nestedScroll(pullConnection).hazeSource(haze),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset + 72.dp, bottom = composerHeight + 12.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
@@ -707,9 +720,9 @@ fun ChatScreen(
             }
 
             Composer(
+                onHeight = { composerHeight = it },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .onSizeChanged { composerHeight = with(density) { it.height.toDp() } }
                     .graphicsLayer {
                         alpha = intro.value.coerceIn(0f, 1f)
                         translationY = (1f - intro.value) * 96.dp.toPx()
@@ -717,6 +730,8 @@ fun ChatScreen(
                 value = draft,
                 generating = vm.generating,
                 attachments = vm.draftAttachments,
+                mentionItems = vm.mentionItems(),
+                onAttachFile = vm::attachLibraryFile,
                 importing = vm.importing,
                 fileOf = vm::previewOf,
                 onValueChange = { draft = it },
@@ -945,9 +960,12 @@ private fun BarIcon(icon: ImageVector, description: String, onClick: () -> Unit)
 @Composable
 private fun Composer(
     modifier: Modifier,
+    onHeight: (androidx.compose.ui.unit.Dp) -> Unit,
     value: String,
     generating: Boolean,
     attachments: List<Attachment>,
+    mentionItems: List<MentionItem>,
+    onAttachFile: (Attachment) -> Unit,
     importing: Int,
     fileOf: (Attachment) -> File,
     onValueChange: (String) -> Unit,
@@ -1002,8 +1020,65 @@ private fun Composer(
         fieldKeyboard?.show()
     }
     val canSend = (value.isNotBlank() || attachments.isNotEmpty()) && importing == 0
+    // The field is the kind that tells the keyboard what it takes (pictures, files), so that pasting those works.
+    val fieldState = androidx.compose.foundation.text.input.rememberTextFieldState(value)
+    // "@" at the cursor opens the list of notebooks and projects; what is chosen becomes a capsule with its icon above the text.
+    val token = mentionToken(fieldState.text, fieldState.selection.end)
+    var kindPick by remember { mutableStateOf<MentionKind?>(null) }
+    LaunchedEffect(token == null) { if (token == null) kindPick = null }
+    val pickable = remember(mentionItems, attachments.map { it.id }) {
+        mentionItems.filter { it.attachment == null || attachments.none { a -> a.id == it.attachment.id } }
+    }
+    // What is written as "@Name" and names something real is drawn in its colour right in the field.
+    val mentionTints = remember(mentionItems) {
+        mentionItems.filter { it.attachment == null }.associate { it.title to (it.info?.let { i -> Color(i.color) } ?: it.kind.tint) }
+    }
+    val mentionStyle = remember(mentionTints) {
+        androidx.compose.foundation.text.input.OutputTransformation {
+            val text = asCharSequence().toString()
+            mentionSpans(text, mentionTints.keys).forEach { sp ->
+                addStyle(androidx.compose.ui.text.SpanStyle(color = mentionTints.getValue(sp.name), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), sp.start, sp.end)
+            }
+        }
+    }
+    var fieldHeight by remember { mutableStateOf(0.dp) }
+    val composerDensity = androidx.compose.ui.platform.LocalDensity.current
+    // The card with the notebooks sits in this box above the field; the chat is told only the height of the field itself, so that it does not move.
+    Box(modifier) {
+    MentionPicker(
+        token = token,
+        kind = kindPick,
+        items = pickable,
+        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = (fieldHeight - 10.dp).coerceAtLeast(0.dp)),
+        onKind = { k ->
+            kindPick = k
+            // The letters typed after the @ were only for finding the kind: they are cleared, the @ stays for the next search.
+            token?.let { t -> fieldState.edit { replace(t.start, t.end, "@"); selection = androidx.compose.ui.text.TextRange(t.start + 1) } }
+        },
+        onPick = { item ->
+            token?.let { t ->
+                fieldState.edit {
+                    if (item.attachment != null) {
+                        // A file joins the message as an attachment: the "@" that asked for it goes.
+                        var end = t.end
+                        if (end < length && asCharSequence()[end] == ' ' && (t.start == 0 || asCharSequence()[t.start - 1] == ' ')) end++
+                        replace(t.start, end, "")
+                    } else {
+                        // A notebook or a project becomes part of the sentence: "@Name ", and the cursor goes after it.
+                        val spaceAfter = t.end < length && asCharSequence()[t.end] == ' '
+                        replace(t.start, t.end, "@" + item.title + if (spaceAfter) "" else " ")
+                        selection = androidx.compose.ui.text.TextRange(t.start + 1 + item.title.length + 1)
+                    }
+                }
+            }
+            if (item.attachment != null) onAttachFile(item.attachment)
+            kindPick = null
+        },
+    )
     Column(
-        modifier
+        Modifier
+            .align(Alignment.BottomCenter)
+            .onSizeChanged { fieldHeight = with(composerDensity) { it.height.toDp() }; onHeight(fieldHeight) }
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1092,8 +1167,6 @@ private fun Composer(
                             .onGloballyPositioned { origin.field = it.boundsInWindow() },
                         contentAlignment = Alignment.CenterStart,
                     ) {
-                        // The field is the kind that tells the keyboard what it takes (pictures, files), so that pasting those works.
-                        val fieldState = androidx.compose.foundation.text.input.rememberTextFieldState(value)
                         val latestValue = androidx.compose.runtime.rememberUpdatedState(value)
                         val latestChange = androidx.compose.runtime.rememberUpdatedState(onValueChange)
                         // What the rest of the screen sets (sent, a shared text, dictation) goes into the field...
@@ -1110,6 +1183,7 @@ private fun Composer(
                         }
                         BasicTextField(
                             state = fieldState,
+                            outputTransformation = mentionStyle,
                             textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
                             cursorBrush = SolidColor(DevxColors.Accent),
                             lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.MultiLine(minHeightInLines = 1, maxHeightInLines = 6),
@@ -1183,6 +1257,7 @@ private fun Composer(
                 onClose = { editorOpen = false },
             )
         }
+    }
     }
 }
 

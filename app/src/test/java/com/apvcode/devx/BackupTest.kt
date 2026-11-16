@@ -60,4 +60,28 @@ class BackupTest {
         assertEquals(0, n)
         assertFalse(java.io.File(files.parentFile, "outside.txt").exists())
     }
+
+    @Test
+    fun notebooksTheirCardsTasksAndTheStateOfFormsTravelToo() {
+        val files = tmp.newFolder("nb-files")
+        val prefs = tmp.newFolder("nb-prefs")
+        java.io.File(files, "projects.json").writeText("{\"Physics\":{\"plan\":{\"cards\":[{\"q\":\"F\",\"a\":\"ma\"}]}}}")
+        java.io.File(files, "library_meta.json").writeText("{}")
+        java.io.File(files, "tasks.json").writeText("[]")
+        java.io.File(files, "project_ab12cd34.json").writeText("[]")
+        java.io.File(files, "attachments").mkdirs()
+        java.io.File(files, "attachments/notes.pdf").writeText("pdf")
+        java.io.File(prefs, "cards.xml").writeText("<map/>")
+        java.io.File(prefs, "rich_state.xml").writeText("<map/>")
+        java.io.File(prefs, "earcon.xml").writeText("<map/>")
+        val zip = ByteArrayOutputStream()
+        assertEquals(7, Backup.export(files, prefs, zip, "2.3.0")) // 5 files + the two preference files; the sound state of this phone stays
+        val files2 = tmp.newFolder("nb-files2")
+        val prefs2 = tmp.newFolder("nb-prefs2")
+        Backup.restore(files2, prefs2, ByteArrayInputStream(zip.toByteArray()))
+        assertTrue(java.io.File(files2, "projects.json").readText().contains("\"ma\""))
+        assertTrue(java.io.File(files2, "attachments/notes.pdf").exists())
+        assertTrue(java.io.File(prefs2, "cards.xml").exists())
+        assertFalse(java.io.File(prefs2, "earcon.xml").exists())
+    }
 }

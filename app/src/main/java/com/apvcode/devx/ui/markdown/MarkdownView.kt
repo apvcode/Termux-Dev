@@ -62,8 +62,19 @@ import com.apvcode.devx.ui.theme.DevxType
 
 /** How fast new text appears, and how many characters at the edge are still fading in. */
 private const val CHARS_PER_SECOND = 80f
-private const val MAX_CHARS_PER_SECOND = 650f
-private const val FADE_CHARS = 14
+
+/** While the answer is still coming, the writing never goes faster than this (the edge stays a soft wave, not a jump). */
+private const val STREAMING_MAX_CPS = 420f
+
+/** When no more text is coming, what is left is written out in about this long. */
+private const val CATCH_UP_SECONDS = 0.8f
+
+/** The fading edge is wider the faster the writing goes, so that it never turns into a jump: between these widths, in characters. */
+private const val FADE_MIN = 14f
+private const val FADE_CHARS = 64
+
+/** How wide the fading edge is right now (set by the pace of the writing, read by the drawing of every paragraph). */
+private val LocalRevealFade = androidx.compose.runtime.compositionLocalOf { androidx.compose.runtime.mutableFloatStateOf(FADE_MIN) }
 
 /**
  * Markdown the way a chat needs it: headings, lists (nested, numbered), quotes, tables, code,
@@ -77,7 +88,9 @@ private const val FADE_CHARS = 14
 private class Placed(val block: Md, val math: List<MathSpan>)
 
 @Composable
-fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boolean = false) {
+fun MarkdownText(rawMarkdown: String, modifier: Modifier = Modifier, animate: Boolean = false) {
+    // A citation the assistant wrote, [[file, p. 3]], becomes a link that opens the source.
+    val markdown = remember(rawMarkdown) { Citations.rewrite(rawMarkdown) }
     val smooth = remember { animate }
     // The text is read in pieces; the pieces that are finished are read once and kept, so that only the end of an answer that
     // is still being written is read again with every update.
@@ -96,19 +109,25 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boole
     val total = remember(placed) { placed.sumOf { it.block.revealLength() } + FADE_CHARS }
     val reveal = remember { Animatable(if (smooth) 0f else total.toFloat()) }
     val goal = androidx.compose.runtime.rememberUpdatedState(total)
+    val fade = remember { androidx.compose.runtime.mutableFloatStateOf(FADE_MIN) }
     LaunchedEffect(smooth) {
         if (!smooth) return@LaunchedEffect
-        // One steady pace, frame by frame, that never restarts when more text arrives: the text is written out at a calm speed that
-        // grows only gently with how far behind it is, up to a ceiling. A fast model is followed with a little lag instead of the
-        // words all appearing at once.
+        // One steady pace, frame by frame, that never restarts when more text arrives. While text is still coming the writing speeds
+        // up with how far behind it is, but only to a ceiling, so that it is always seen being written. When the text stops coming,
+        // what is left is written out faster, in under a second, still as a moving edge. The faster it goes, the wider the edge.
+        var lastGrowth = android.os.SystemClock.uptimeMillis()
         androidx.compose.runtime.snapshotFlow { goal.value }.collectLatest { target ->
+            lastGrowth = android.os.SystemClock.uptimeMillis()
             var last = androidx.compose.runtime.withFrameNanos { it }
             while (reveal.value < target) {
                 val now = androidx.compose.runtime.withFrameNanos { it }
                 val dt = ((now - last) / 1_000_000_000f).coerceIn(0f, 0.05f)
                 last = now
                 val behind = target - reveal.value
-                val speed = (CHARS_PER_SECOND + behind * 0.8f).coerceAtMost(MAX_CHARS_PER_SECOND)
+                val growing = android.os.SystemClock.uptimeMillis() - lastGrowth < 400
+                val speed = if (growing) (CHARS_PER_SECOND + behind * 0.6f).coerceAtMost(STREAMING_MAX_CPS)
+                else maxOf(CHARS_PER_SECOND * 2, behind / CATCH_UP_SECONDS).coerceAtMost(1800f)
+                fade.floatValue += ((speed * 0.16f).coerceIn(FADE_MIN, FADE_CHARS.toFloat()) - fade.floatValue) * 0.15f
                 reveal.snapTo(minOf(target.toFloat(), reveal.value + speed * dt))
             }
         }
@@ -118,6 +137,7 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boole
     // character. The edge inside a block moves in the drawing (see [revealing]), so it costs no new layout.
     val begun by remember(placed) { derivedStateOf { val v = reveal.value.toInt(); offsets.count { it < v } } }
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalRevealFade provides fade) {
     Column(modifier.fillMaxWidth()) {
         var previous: Md? = null
         placed.forEachIndexed { i, item ->
@@ -140,6 +160,7 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier, animate: Boole
             }
             previous = block
         }
+    }
     }
 }
 
@@ -195,10 +216,11 @@ private fun RichText(rich: Rich, math: List<MathSpan>, style: TextStyle, local: 
     val holder = remember { LayoutHolder() }
     val length = rich.text.length
     val fadePx = with(density) { (if (style.fontSize.isSp) style.fontSize.toPx() else 16.sp.toPx()) * 5f }
+    val fade = LocalRevealFade.current
     Text(
         rich.text, style = style, color = DevxColors.TextPrimary, inlineContent = inline,
         onTextLayout = { holder.layout = it },
-        modifier = modifier.revealing(length, fadePx, local, holder),
+        modifier = modifier.revealing(length, { fade.floatValue }, local, holder),
     )
 }
 
@@ -210,13 +232,14 @@ private class LayoutHolder { var layout: TextLayoutResult? = null }
  * edge are drawn whole, the line of the edge is drawn through a mask that fades to nothing at the edge, the rest is not
  * drawn. Only the drawing changes from frame to frame; the text is not rebuilt and not laid out again.
  */
-private fun Modifier.revealing(length: Int, fadePx: Float, shown: () -> Float, holder: LayoutHolder): Modifier =
-    if (shown === ALL) this else revealingDraw(length, fadePx, shown, holder)
+private fun Modifier.revealing(length: Int, fade: () -> Float, shown: () -> Float, holder: LayoutHolder): Modifier =
+    if (shown === ALL) this else revealingDraw(length, fade, shown, holder)
 
-private fun Modifier.revealingDraw(length: Int, fadePx: Float, shown: () -> Float, holder: LayoutHolder): Modifier = drawWithContent {
+private fun Modifier.revealingDraw(length: Int, fadeWidth: () -> Float, shown: () -> Float, holder: LayoutHolder): Modifier = drawWithContent {
     val s = shown()
+    val fadeChars = fadeWidth()
     val layout = holder.layout
-    if (s >= length + FADE_CHARS || length == 0 || (layout != null && layout.layoutInput.layoutDirection == LayoutDirection.Rtl)) {
+    if (s >= length + fadeChars || length == 0 || (layout != null && layout.layoutInput.layoutDirection == LayoutDirection.Rtl)) {
         drawContent()
         return@drawWithContent
     }
@@ -235,7 +258,7 @@ private fun Modifier.revealingDraw(length: Int, fadePx: Float, shown: () -> Floa
     }
 
     val edge = s.coerceIn(0f, length.toFloat())
-    val oldEdge = (s - FADE_CHARS).coerceIn(0f, length.toFloat())
+    val oldEdge = (s - fadeChars).coerceIn(0f, length.toFloat())
     val line = lineOf(edge)
     val top = layout.getLineTop(line)
     val bottom = layout.getLineBottom(line)

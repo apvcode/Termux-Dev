@@ -122,6 +122,12 @@ class Speaker(private val context: Context) {
         runCatching { tts?.setSpeechRate(Prefs.voiceRate) }
     }
 
+    /** Reads a whole text aloud (a message, an audio overview) from the beginning, stopping what was being said. */
+    fun read(text: String) {
+        stop()
+        SpeechText.chunks(text).forEach { speak(it) }
+    }
+
     /** Cuts the voice off at once and forgets what was waiting. */
     fun stop() {
         waiting.clear()
@@ -186,6 +192,22 @@ class Speaker(private val context: Context) {
  * symbols, no code blocks, no links. [next] cuts the text into sentences as it grows.
  */
 object SpeechText {
+    /** A longer text as pieces to be spoken one after another: by paragraph, then by sentence, none longer than [max] letters. */
+    fun chunks(raw: String, max: Int = 380): List<String> {
+        val out = ArrayList<String>()
+        for (para in display(raw).split(Regex("\\n+")).map { it.trim() }.filter { it.isNotEmpty() }) {
+            var cur = StringBuilder()
+            for (sentence in para.split(Regex("(?<=[.!?…])\\s+"))) {
+                if (cur.isNotEmpty() && cur.length + sentence.length + 1 > max) { out += cur.toString(); cur = StringBuilder() }
+                if (sentence.length > max) { sentence.chunked(max).forEach { out += it }; continue }
+                if (cur.isNotEmpty()) cur.append(' ')
+                cur.append(sentence)
+            }
+            if (cur.isNotEmpty()) out += cur.toString()
+        }
+        return out
+    }
+
     private val link = Regex("""!?\[([^\]]*)]\([^)]*\)""")
     private val url = Regex("""https?://\S+""")
     private val heading = Regex("""^\s{0,3}#{1,6}\s*""")

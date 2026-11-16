@@ -38,8 +38,12 @@ class AttachmentStore(private val context: Context) {
     /** The still picture shown for a video. */
     fun thumbOf(a: Attachment): File = File(dir, a.file.substringBeforeLast('.') + ".thumb.jpg")
 
+    /** The file as the person gave it (a Word document stays a Word document): what is shown, downloaded and shared. The text the model reads is [fileOf]. */
+    fun viewFile(a: Attachment): File = a.original.takeIf { it.isNotEmpty() }?.let { File(dir, it) }?.takeIf { it.exists() } ?: fileOf(a)
+
     fun delete(a: Attachment) {
         fileOf(a).delete()
+        if (a.original.isNotEmpty()) File(dir, a.original).delete()
         if (a.kind == AttachmentKind.Video) thumbOf(a).delete()
         if (a.kind == AttachmentKind.Image) File(dir, a.file.substringBeforeLast('.') + ".orig.jpg").delete()
     }
@@ -258,7 +262,10 @@ class AttachmentStore(private val context: Context) {
                         if (text != null) {
                             val out = File(dir, "$id.txt")
                             out.writeText(text)
-                            return@withContext Attachment(id, AttachmentKind.Text, name, "text/plain", out.name, out.length())
+                            // The document itself is kept too, so that it can be opened, downloaded and shared as it was.
+                            val kept = File(dir, "$id.orig.$extension")
+                            val original = if (temp.length() > 0 && runCatching { temp.copyTo(kept, overwrite = true) }.isSuccess) kept.name else ""
+                            return@withContext Attachment(id, AttachmentKind.Text, name, "text/plain", out.name, out.length(), original = original)
                         }
                     }
                 } finally {
@@ -281,6 +288,7 @@ class AttachmentStore(private val context: Context) {
             if (!copyLimited(uri, out, MAX_FILE)) return@withContext null
             Attachment(id, AttachmentKind.File, name, mime.ifBlank { "application/octet-stream" }, out.name, out.length())
         } catch (e: Exception) {
+            android.util.Log.w("DevxImport", "could not import $uri", e)
             null
         }
     }

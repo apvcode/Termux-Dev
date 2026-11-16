@@ -46,9 +46,20 @@ data class Attachment(
     val size: Long,
     /** Length of a video, in milliseconds (0 for everything else). */
     val durationMs: Long = 0,
+    /** The web address a page was taken from (a site added as a source); empty for everything else. */
+    val url: String = "",
+    /** For a Word, Excel or PowerPoint file: the name of the untouched file kept beside the text the model reads (empty for everything else). */
+    val original: String = "",
 ) {
     val isQuote: Boolean get() = mime == QUOTE_MIME
 }
+
+fun Attachment.toJson(): JSONObject = JSONObject()
+    .put("id", id).put("kind", kind.name).put("name", name).put("mime", mime).put("file", file).put("size", size).put("duration", durationMs).put("url", url).put("original", original)
+
+fun attachmentFromJson(o: JSONObject): Attachment? = runCatching {
+    Attachment(o.getString("id"), AttachmentKind.valueOf(o.getString("kind")), o.getString("name"), o.getString("mime"), o.getString("file"), o.optLong("size"), o.optLong("duration"), o.optString("url"), o.optString("original"))
+}.getOrNull()
 
 /** A page the assistant found while searching, or opened and read. */
 data class Source(val url: String, val title: String, val opened: Boolean = false) {
@@ -79,11 +90,18 @@ class Msg(
     val createdAt: Long,
     error: ErrorKind? = null,
     errorDetail: String? = null,
-    val attachments: List<Attachment> = emptyList(),
+    attachments: List<Attachment> = emptyList(),
     reasoning: String = "",
     thoughtSeconds: Int = 0,
+    mentions: List<String> = emptyList(),
 ) {
     var text by mutableStateOf(text)
+
+    /** Notebooks and projects the person pointed at with @ in this message (their names): the assistant is given what they hold. */
+    var mentions by mutableStateOf(mentions)
+
+    /** What was attached to the message; a file deleted from the library goes from here too. */
+    var attachments by mutableStateOf(attachments)
 
     /** True while the answer is being written; saved with the chat, so a killed app can tell it was cut off. */
     var inflight = false
@@ -150,6 +168,9 @@ class Chat(val id: String, title: String, project: String?, val createdAt: Long)
     var locked by mutableStateOf(false)
     val selected = mutableStateMapOf<String, String>()
 
+    /** Files the assistant took from the library for this chat (the tools can read them like attached ones). */
+    val libraryFiles = mutableStateListOf<Attachment>()
+
     /**
      * The earlier part of a long conversation, told short by the model: the messages up to [summaryUpTo] (an id on the shown
      * branch) are no longer sent, this is sent in their place. Empty when the chat was never shortened.
@@ -211,6 +232,7 @@ fun Chat.toJson(): JSONObject = JSONObject()
     .put("id", id).put("title", title).put("project", project).put("createdAt", createdAt)
     .put("pinned", pinned).put("archived", archived).put("updatedAt", updatedAt).put("titleFinal", titleFinal).put("locked", locked).put("summary", summary).put("summaryUpTo", summaryUpTo).put("summaryBefore", summaryBefore).put("summaryAfter", summaryAfter).put("summaryCount", summaryCount).put("summarySeconds", summarySeconds)
     .put("model", model?.let { JSONObject().put("providerId", it.providerId).put("model", it.model) })
+    .put("libraryFiles", JSONArray().also { a -> libraryFiles.forEach { a.put(it.toJson()) } })
     .put("selected", JSONObject().also { o -> selected.forEach { (k, v) -> o.put(k, v) } })
     .put(
         "messages",
@@ -225,17 +247,8 @@ fun Chat.toJson(): JSONObject = JSONObject()
                         .put("stopped", m.stopped).put("tokensIn", m.tokensIn).put("tokensOut", m.tokensOut).put("contextTokens", m.contextTokens)
                         .put("steps", JSONArray().also { a -> m.steps.forEach { st -> a.put(JSONObject().put("kind", st.kind.name).put("detail", st.detail).put("note", st.note).put("at", st.at)) } })
                         .put("sources", JSONArray().also { a -> m.sources.forEach { sr -> a.put(JSONObject().put("url", sr.url).put("title", sr.title).put("opened", sr.opened)) } })
-                        .put(
-                            "attachments",
-                            JSONArray().also { a ->
-                                m.attachments.forEach { at ->
-                                    a.put(
-                                        JSONObject().put("id", at.id).put("kind", at.kind.name).put("name", at.name)
-                                            .put("mime", at.mime).put("file", at.file).put("size", at.size).put("duration", at.durationMs),
-                                    )
-                                }
-                            },
-                        ),
+                        .put("attachments", JSONArray().also { a -> m.attachments.forEach { at -> a.put(at.toJson()) } })
+                        .also { o -> if (m.mentions.isNotEmpty()) o.put("mentions", JSONArray(m.mentions)) },
                 )
             }
         },
@@ -255,6 +268,7 @@ fun chatFromJson(o: JSONObject): Chat {
     chat.summarySeconds = o.optInt("summarySeconds")
     chat.summaryUpTo = o.optString("summaryUpTo").takeIf { it.isNotEmpty() && it != "null" }
     chat.model = o.optJSONObject("model")?.let { runCatching { ModelRef(it.getString("providerId"), it.getString("model")) }.getOrNull() }
+    o.optJSONArray("libraryFiles")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let(::attachmentFromJson)?.let { chat.libraryFiles += it } }
     o.optJSONObject("selected")?.let { s -> s.keys().forEach { k -> chat.selected[k] = s.getString(k) } }
     val arr = o.optJSONArray("messages") ?: JSONArray()
     for (i in 0 until arr.length()) {
@@ -267,16 +281,10 @@ fun chatFromJson(o: JSONObject): Chat {
             createdAt = m.optLong("createdAt"),
             error = m.optString("error").takeIf { it.isNotEmpty() && it != "null" }?.let { runCatching { ErrorKind.valueOf(it) }.getOrNull() },
             errorDetail = m.optString("errorDetail").takeIf { it.isNotEmpty() && it != "null" },
-            attachments = m.optJSONArray("attachments")?.let { a ->
-                (0 until a.length()).mapNotNull { i ->
-                    runCatching {
-                        val o = a.getJSONObject(i)
-                        Attachment(o.getString("id"), AttachmentKind.valueOf(o.getString("kind")), o.getString("name"), o.getString("mime"), o.getString("file"), o.optLong("size"), o.optLong("duration"))
-                    }.getOrNull()
-                }
-            } ?: emptyList(),
+            attachments = m.optJSONArray("attachments")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let(::attachmentFromJson) } } ?: emptyList(),
             reasoning = m.optString("reasoning"),
             thoughtSeconds = m.optInt("thoughtSeconds"),
+            mentions = m.optJSONArray("mentions")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() } } ?: emptyList(),
         ).also { msg ->
             msg.stopped = m.optBoolean("stopped")
             msg.tokensIn = m.optInt("tokensIn")

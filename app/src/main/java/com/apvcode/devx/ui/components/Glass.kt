@@ -51,7 +51,9 @@ fun Modifier.glass(shape: Shape): Modifier {
     val state = LocalGlass.current
     val style = rememberGlassStyle()
     val edge = Color.White.copy(alpha = 0.14f)
-    val base = this.clip(shape)
+    // Under the blur there is always a quiet ground of its own: when the blur is not drawn for a moment (the page behind it was
+    // not drawn yet, the window just came back) the panel stays a visible capsule instead of turning fully transparent.
+    val base = this.clip(shape).background(DevxColors.Card.copy(alpha = if (state != null) 0.6f else 0f))
     return (if (state != null) base.hazeEffect(state, style) {
         // Blur a shrunken copy of what is behind: it looks the same (it is blurred anyway) and costs a fraction.
         inputScale = HazeInputScale.Fixed(0.12f)

@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -68,6 +69,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -103,7 +106,7 @@ private sealed interface Ask {
     data class DeleteChat(val chat: ChatSummary) : Ask
     data class DeleteChats(val ids: List<String>) : Ask
     data class RenameProject(val name: String) : Ask
-    data class DeleteProject(val name: String, val chats: Int) : Ask
+    data class DeleteProject(val name: String, val chats: Int, val notebook: Boolean = false) : Ask
     data object NewProject : Ask
 }
 
@@ -118,6 +121,8 @@ fun DrawerContent(
     onNewChat: () -> Unit,
     onOpenProject: (String) -> Unit,
     onNewProject: () -> Unit,
+    onNewNotebook: () -> Unit,
+    onOpenLibrary: () -> Unit,
     onOpenChat: (String) -> Unit,
     onSearch: () -> Unit,
     onNavigate: (Screen) -> Unit,
@@ -133,19 +138,30 @@ fun DrawerContent(
     fun stopSelecting() { selecting = false; picked.clear() }
     androidx.activity.compose.BackHandler(enabled = selecting) { stopSelecting() }
     var projectsOpen by remember { mutableStateOf(true) }
+    var notebooksOpen by remember { mutableStateOf(true) }
     var chatsOpen by remember { mutableStateOf(true) }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
     // Every project, even an empty one, with its chats (pinned first).
     val projectChats by remember {
         derivedStateOf {
             val all = vm.chats
-            vm.projects.associateWith { name -> all.filter { it.project == name }.sortedByDescending { it.pinned } }
+            vm.projects.filter { vm.projectInfo[it]?.isNotebook != true }.associateWith { name -> all.filter { it.project == name }.sortedByDescending { it.pinned } }
+        }
+    }
+    // The notebooks are a section of their own: they are made to learn and to work from sources.
+    val notebookChats by remember {
+        derivedStateOf {
+            val all = vm.chats
+            vm.projects.filter { vm.projectInfo[it]?.isNotebook == true }.associateWith { name -> all.filter { it.project == name }.sortedByDescending { it.pinned } }
         }
     }
     val plainChats by remember {
         derivedStateOf { vm.chats.filter { it.project == null }.sortedByDescending { it.pinned } }
     }
     val projectNames = vm.projects.toList()
+    val chatRow: @Composable (ChatSummary, Modifier) -> Unit = { chat, m ->
+        ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, selecting, chat.id in picked, { toggle(chat.id) }, { selecting = true; if (chat.id !in picked) picked.add(chat.id) }, m)
+    }
 
     // The search and the computers on top and the buttons at the bottom float over the list: the chats scroll under them
     // and fade into the panel's colour, so that the buttons stand in the air and never move.
@@ -178,6 +194,31 @@ fun DrawerContent(
                     )
                 }
             }
+            item(key = "notebooks") {
+                SectionHeader(
+                    icon = DevxIcons.Notebook,
+                    title = stringResource(R.string.drawer_notebooks),
+                    count = notebookChats.size,
+                    expanded = notebooksOpen,
+                    onClick = { notebooksOpen = !notebooksOpen },
+                    actionIcon = DevxIcons.FilePlus,
+                    actionDescription = stringResource(R.string.cd_new_notebook),
+                    onAction = onNewNotebook,
+                )
+            }
+            item(key = "notebooks-body") {
+                FoldList(notebooksOpen, notebookChats.entries.toList()) { (book, chats), rowMod ->
+                    Column(rowMod) {
+                        val open = collapsed[book] == false
+                        ProjectHeader(
+                            title = book, count = chats.size, expanded = open, onToggle = { collapsed[book] = !open },
+                            info = vm.projectInfo[book], onOpen = { onOpenProject(book) },
+                            onNewChat = { vm.newChat(book); onNavigate(Screen.Chat) }, onAsk = { ask = it },
+                        )
+                        FoldList(open, chats) { chat, m -> chatRow(chat, m) }
+                    }
+                }
+            }
             item(key = "projects") {
                 SectionHeader(
                     icon = DevxIcons.Folder,
@@ -190,29 +231,16 @@ fun DrawerContent(
                     onAction = onNewProject,
                 )
             }
-            if (projectsOpen) {
-                projectChats.forEach { (project, chats) ->
-                    val open = collapsed[project] != true
-                    item(key = "p-$project") {
+            item(key = "projects-body") {
+                FoldList(projectsOpen, projectChats.entries.toList()) { (project, chats), rowMod ->
+                    Column(rowMod) {
+                        val open = collapsed[project] != true
                         ProjectHeader(
-                            title = project,
-                            count = chats.size,
-                            expanded = open,
-                            onToggle = { collapsed[project] = open },
-                            info = vm.projectInfo[project],
-                            onOpen = { onOpenProject(project) },
-                            onNewChat = {
-                                vm.newChat(project)
-                                onNavigate(Screen.Chat)
-                            },
-                            onAsk = { ask = it },
-                            modifier = Modifier.animateItem(),
+                            title = project, count = chats.size, expanded = open, onToggle = { collapsed[project] = open },
+                            info = vm.projectInfo[project], onOpen = { onOpenProject(project) },
+                            onNewChat = { vm.newChat(project); onNavigate(Screen.Chat) }, onAsk = { ask = it },
                         )
-                    }
-                    if (open) {
-                        items(chats, key = { it.id }) { chat ->
-                            ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, selecting, chat.id in picked, { toggle(chat.id) }, { selecting = true; if (chat.id !in picked) picked.add(chat.id) }, Modifier.animateItem())
-                        }
+                        FoldList(open, chats) { chat, m -> chatRow(chat, m) }
                     }
                 }
             }
@@ -228,10 +256,11 @@ fun DrawerContent(
                     )
                 }
             }
-            if (chatsOpen) {
-                items(plainChats, key = { it.id }) { chat ->
-                    ChatItem(chat, projectNames, vm, { onOpenChat(chat.id) }, { ask = it }, selecting, chat.id in picked, { toggle(chat.id) }, { selecting = true; if (chat.id !in picked) picked.add(chat.id) }, Modifier.animateItem())
-                }
+            if (plainChats.size <= 40) {
+                item(key = "chats-body") { FoldList(chatsOpen, plainChats) { chat, m -> chatRow(chat, m) } }
+            } else if (chatsOpen) {
+                // A very long list stays lazy (only what is on the screen is built); it folds with the lazy list's own animation.
+                items(plainChats, key = { it.id }) { chat -> chatRow(chat, Modifier.animateItem(fadeInSpec = DrawerFadeIn, placementSpec = DrawerPlacement, fadeOutSpec = DrawerFadeOut)) }
             }
         }
 
@@ -243,6 +272,7 @@ fun DrawerContent(
         ) {
             SearchButton(onClick = onSearch)
             RemoteButton(onClick = { onNavigate(Screen.Computers) }, modifier = Modifier.padding(top = 8.dp))
+            LibraryButton(vm.library.size, onClick = onOpenLibrary, modifier = Modifier.padding(top = 8.dp))
         }
 
         Box(
@@ -261,7 +291,7 @@ fun DrawerContent(
                 label = "drawer-bottom",
             ) { picking ->
                 if (picking) {
-                    val everyId = (plainChats + projectChats.values.flatten()).map { it.id }
+                    val everyId = (plainChats + projectChats.values.flatten() + notebookChats.values.flatten()).map { it.id }
                     SelectionBar(
                         count = picked.size,
                         total = everyId.size,
@@ -276,27 +306,35 @@ fun DrawerContent(
                         onDelete = { ask = Ask.DeleteChats(picked.toList()) },
                     )
                 } else {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
+                    // The buttons shrink to the room there is: on a narrow screen (or a large display scale) the round ones get smaller,
+                    // and when even that is not enough the new-chat button keeps only its icon. The word never breaks into letters.
+                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val tight = maxWidth < 300.dp
+                        val tiny = maxWidth < 236.dp
+                        val round = if (tiny) 40.dp else if (tight) 44.dp else 50.dp
                         Row(
-                            Modifier
-                                .weight(1f)
-                                .pressable(scaleTo = 0.95f) { onNewChat() }
-                                .clip(CircleShape)
-                                .background(DevxColors.Accent)
-                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                            Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(if (tight) 6.dp else 8.dp),
                         ) {
-                            Icon(DevxIcons.ChatPlus, null, tint = DevxColors.OnAccent, modifier = Modifier.size(22.dp))
-                            Text(stringResource(R.string.menu_new_chat), style = DevxType.Body, color = DevxColors.OnAccent)
+                            Row(
+                                Modifier
+                                    .weight(1f)
+                                    .heightIn(min = round)
+                                    .pressable(scaleTo = 0.95f) { onNewChat() }
+                                    .clip(CircleShape)
+                                    .background(DevxColors.Accent)
+                                    .padding(horizontal = if (tight) 12.dp else 18.dp, vertical = if (tight) 10.dp else 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                            ) {
+                                Icon(DevxIcons.ChatPlus, stringResource(R.string.menu_new_chat), tint = DevxColors.OnAccent, modifier = Modifier.size(22.dp))
+                                if (!tiny) Text(stringResource(R.string.menu_new_chat), style = DevxType.Body, color = DevxColors.OnAccent, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
+                            }
+                            RoundAction(DevxIcons.Clock, stringResource(R.string.menu_tasks), size = round) { onNavigate(Screen.Tasks) }
+                            RoundAction(DevxIcons.Mcp, stringResource(R.string.menu_mcp), size = round) { onNavigate(Screen.Mcp) }
+                            RoundAction(DevxIcons.Settings, stringResource(R.string.menu_settings), size = round) { onNavigate(Screen.Settings) }
                         }
-                        RoundAction(DevxIcons.Clock, stringResource(R.string.menu_tasks)) { onNavigate(Screen.Tasks) }
-                        RoundAction(DevxIcons.Mcp, stringResource(R.string.menu_mcp)) { onNavigate(Screen.Mcp) }
-                        RoundAction(DevxIcons.Settings, stringResource(R.string.menu_settings)) { onNavigate(Screen.Settings) }
                     }
                 }
             }
@@ -308,6 +346,19 @@ fun DrawerContent(
 }
 
 // ---------- Rows ----------
+
+/** The way to the library: every file ever attached, and the files the assistant made. */
+@Composable
+private fun LibraryButton(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().pressable(scaleTo = 0.97f, onClick = onClick).glass(CircleShape).padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(DevxIcons.Paperclip, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp))
+        Text(stringResource(R.string.library_title), style = DevxType.Body, color = DevxColors.TextSecondary, modifier = Modifier.weight(1f))
+        if (count > 0) Text("$count", style = DevxType.Caption, color = DevxColors.TextDisabled)
+    }
+}
 
 /** The way to the computers: the devx on a PC that this phone controls. A dot says if one is reachable right now. */
 @Composable
@@ -349,10 +400,10 @@ private fun SearchButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RoundAction(icon: ImageVector, description: String, badge: Int = 0, onClick: () -> Unit) {
+private fun RoundAction(icon: ImageVector, description: String, badge: Int = 0, size: androidx.compose.ui.unit.Dp = 50.dp, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(50.dp)
+            .size(size)
             .pressable(onClick = onClick)
             .glass(CircleShape),
         contentAlignment = Alignment.Center,
@@ -375,7 +426,7 @@ private fun RoundAction(icon: ImageVector, description: String, badge: Int = 0, 
 
 @Composable
 private fun Chevron(expanded: Boolean) {
-    val angle by animateFloatAsState(if (expanded) 0f else -90f, label = "chevron")
+    val angle by animateFloatAsState(if (expanded) 0f else -90f, androidx.compose.animation.core.spring(dampingRatio = 0.62f, stiffness = 380f), label = "chevron")
     Icon(
         Icons.Outlined.ExpandMore,
         null,
@@ -383,6 +434,38 @@ private fun Chevron(expanded: Boolean) {
         modifier = Modifier.size(22.dp).rotate(angle),
     )
 }
+
+/**
+ * A folding part of the list. Opening lets it grow from the top on a soft spring while its rows come down one after another, each
+ * rising out of the line above it and fading in; closing is the same backwards: the last row goes first, then the space closes
+ * smoothly. Nothing jumps: the rows below glide with the height.
+ */
+@Composable
+private fun <T> FoldList(open: Boolean, items: List<T>, row: @Composable (T, Modifier) -> Unit) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = open,
+        enter = androidx.compose.animation.expandVertically(spring(dampingRatio = 0.92f, stiffness = 240f), expandFrom = Alignment.Top) + fadeIn(tween(200)),
+        exit = androidx.compose.animation.shrinkVertically(tween(380, delayMillis = 70, easing = androidx.compose.animation.core.FastOutSlowInEasing), shrinkTowards = Alignment.Top) + fadeOut(tween(220, delayMillis = 60)),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items.forEachIndexed { i, item ->
+                val a by transition.animateFloat(
+                    transitionSpec = {
+                        val appearing = targetState == androidx.compose.animation.EnterExitState.Visible
+                        tween(320, delayMillis = if (appearing) (i * 38).coerceAtMost(300) else ((items.size - 1 - i) * 22).coerceAtMost(180), easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                    },
+                    label = "fold-row",
+                ) { if (it == androidx.compose.animation.EnterExitState.Visible) 1f else 0f }
+                row(item, Modifier.graphicsLayer { alpha = a; translationY = (1f - a) * -16.dp.toPx(); val sc = 0.96f + 0.04f * a; scaleX = sc; scaleY = sc })
+            }
+        }
+    }
+}
+
+/** How the rows of the list come and go when a section is folded or opened: they fade, and the rest glides to its new place. */
+private val DrawerFadeIn = androidx.compose.animation.core.tween<Float>(320, delayMillis = 60, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+private val DrawerFadeOut = androidx.compose.animation.core.tween<Float>(180, easing = androidx.compose.animation.core.FastOutLinearInEasing)
+private val DrawerPlacement = androidx.compose.animation.core.spring(dampingRatio = 0.88f, stiffness = 300f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1))
 
 /** Top-level section of the list ("Projects", "Chats"): can be folded away. */
 @Composable
@@ -474,7 +557,7 @@ private fun ProjectHeader(
             }
             MenuRow(DevxIcons.FolderOff, stringResource(R.string.menu_delete), danger = true) {
                 menu = false
-                onAsk(Ask.DeleteProject(title, count))
+                onAsk(Ask.DeleteProject(title, count, info?.isNotebook == true))
             }
         }
     }
@@ -542,6 +625,9 @@ private fun ChatItem(
                 MenuRow(DevxIcons.FolderPlus, stringResource(R.string.menu_add_to_project), trailing = DevxIcons.ChevronRight) {
                     page = 1
                 }
+                MenuRow(DevxIcons.Notebook, stringResource(R.string.menu_add_to_notebook), trailing = DevxIcons.ChevronRight) {
+                    page = 3
+                }
                 MenuRow(DevxIcons.Archive, stringResource(R.string.menu_archive)) {
                     vm.archiveChat(chat.id)
                     menu = false
@@ -551,11 +637,11 @@ private fun ChatItem(
                     onAsk(Ask.DeleteChat(chat))
                 }
             } else {
-                MenuRow(DevxIcons.ArrowLeft, stringResource(R.string.menu_add_to_project)) { page = 0 }
+                MenuRow(DevxIcons.ArrowLeft, stringResource(if (shown == 3) R.string.menu_add_to_notebook else R.string.menu_add_to_project)) { page = 0 }
                 HorizontalDivider(color = DevxColors.Outline, thickness = 0.5.dp)
-                projects.forEach { name ->
+                projects.filter { (vm.projectInfo[it]?.isNotebook == true) == (shown == 3) }.forEach { name ->
                     MenuRow(
-                        DevxIcons.Folder,
+                        if (shown == 3) DevxIcons.Notebook else DevxIcons.Folder,
                         name,
                         trailing = if (chat.project == name) DevxIcons.Check else null,
                     ) {
@@ -625,21 +711,21 @@ private fun ChatCard(chat: ChatSummary, current: Boolean, selecting: Boolean, se
         Box(Modifier.padding(end = if (barHeight > 0.dp) 10.dp else 0.dp).size(width = if (barHeight > 0.dp) 4.dp else 0.dp, height = barHeight).clip(CircleShape).background(DevxColors.Accent))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                when (chat.status) {
-                    ChatStatus.Working -> Box(Modifier.size(8.dp).background(DevxColors.Success, CircleShape))
-                    ChatStatus.Replied -> Icon(DevxIcons.ChatAlert, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(18.dp))
-                    ChatStatus.Waiting -> Icon(DevxIcons.ChatQuestion, null, tint = DevxColors.Warning, modifier = Modifier.size(18.dp))
-                    ChatStatus.Idle -> Unit
-                }
+                // The name has its own place at the start of the line and never moves for anything: the marks of the chat stand after it.
                 com.apvcode.devx.ui.components.AnimatedChatTitle(
                     title = chat.title,
                     naming = chat.naming,
                     style = DevxType.BodyStrong,
                     color = DevxColors.TextPrimary,
-                    marquee = current && !selecting,
+                    mark = false,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                when (chat.status) {
+                    ChatStatus.Replied -> Icon(DevxIcons.ChatAlert, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(18.dp))
+                    ChatStatus.Waiting -> Icon(DevxIcons.ChatQuestion, null, tint = DevxColors.Warning, modifier = Modifier.size(18.dp))
+                    else -> Unit
+                }
                 if (chat.locked) {
                     Icon(DevxIcons.Lock, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(15.dp))
                 }
@@ -647,6 +733,13 @@ private fun ChatCard(chat: ChatSummary, current: Boolean, selecting: Boolean, se
                     Icon(DevxIcons.Pin, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(15.dp))
                 }
                 Text(chat.time, style = DevxType.Caption, color = DevxColors.TextDisabled)
+                // An answer is being written: a small green light that breathes, at the end of the line.
+                if (chat.status == ChatStatus.Working) {
+                    val glow by androidx.compose.animation.core.rememberInfiniteTransition(label = "working").animateFloat(
+                        0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "glow",
+                    )
+                    Box(Modifier.size(7.dp).graphicsLayer { alpha = glow }.background(DevxColors.Success, CircleShape))
+                }
             }
             Text(chat.preview, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1)
         }
@@ -680,8 +773,8 @@ private fun AskHost(ask: Ask?, onDismiss: () -> Unit, vm: ChatViewModel, onDelet
         ) { ask.ids.forEach(vm::deleteChat); onDeleted() }
         is Ask.DeleteProject -> ConfirmDelete(
             icon = DevxIcons.FolderOff,
-            title = stringResource(R.string.dialog_delete_project),
-            text = ask.name + "\n" + stringResource(R.string.dialog_delete_project_text, ask.chats),
+            title = stringResource(if (ask.notebook) R.string.dialog_delete_notebook else R.string.dialog_delete_project),
+            text = ask.name + "\n" + stringResource(if (ask.notebook) R.string.dialog_delete_notebook_text else R.string.dialog_delete_project_text, ask.chats),
             onDismiss = onDismiss,
         ) { vm.deleteProject(ask.name) }
     }

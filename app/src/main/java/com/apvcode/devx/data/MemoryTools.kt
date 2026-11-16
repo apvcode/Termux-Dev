@@ -83,7 +83,7 @@ class MemoryTools(
         tool(
             "memory_save",
             "Remember one lasting fact (a short note, in the third person, in the person's language)." + (if (inProject) " By default it is saved to the knowledge base of the project; scope \"person\" saves it about the person." else "") + " Gives the note's id. Does nothing if the same note exists.",
-            schema(*withScope(inProject, "text" to str("The fact: one sentence, or a few when it needs them (a rule or a preference may take a short paragraph; up to 4000 characters).")), required = listOf("text")),
+            schema(*withScope(inProject, "text" to str("The fact: one sentence, or a few when it needs them (a rule or a preference may take a short paragraph; up to 4000 characters)."), "valid_days" to int("Only for a fact that stops being true soon (an exam on Friday, a trip next week): after how many days to forget it. Leave out for lasting facts.")), required = listOf("text")),
         ),
         tool(
             "memory_update",
@@ -138,7 +138,7 @@ class MemoryTools(
         "memory_save" -> {
             val text = args.optString("text")
             report.activity(ToolActivity(ToolKind.Memory, MemoryStore.clean(text)))
-            when (val r = storeFor(args, project).add(text)) {
+            when (val r = storeFor(args, project).add(text, validDays = args.optInt("valid_days", 0))) {
                 is MemoryStore.Result.Saved -> ToolOutcome("Saved (id ${r.note.id}).")
                 is MemoryStore.Result.Duplicate -> ToolOutcome("This is already remembered (id ${r.note.id}).")
                 is MemoryStore.Result.Failed -> ToolOutcome(r.why)

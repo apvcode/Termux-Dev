@@ -1,19 +1,43 @@
+<div align="center">
+
 # devx for Android
 
-The Android app of [devx](https://github.com/apvcode/Termux-Dev). Two things in one:
+**A pocket AI assistant, and a remote for devx on your computer.**  
+No account, no server of ours. Your keys and chats stay on the phone.
 
-- **A pocket assistant.** Chat with any model you choose, talk to it by voice, let it set alarms, find places, look at your photos. No account, no server of ours.
-- **A remote for devx on your computer.** See and drive the same sessions you have in the terminal: live replies, approvals, questions, plans, files.
+<br/>
 
-Black, calm interface. Your keys and chats stay on the phone.
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
+[![Download APK](https://img.shields.io/badge/download-APK-00c2d1.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)
+[![Languages](https://img.shields.io/badge/languages-9-4f8cff.svg?style=flat-square&labelColor=0a0c11)](#)
+[![devx: MIT](https://img.shields.io/badge/devx-MIT-4f8cff.svg?style=flat-square&labelColor=0a0c11)](https://github.com/apvcode/Termux-Dev/blob/main/LICENSE)
+
+<br/>
+
+**English** &nbsp;•&nbsp; [Русский](README_ru.md) &nbsp;•&nbsp; [Українська](README_uk.md) &nbsp;•&nbsp; [Deutsch](README_de.md) &nbsp;•&nbsp; [Español](README_es.md) &nbsp;•&nbsp; [Français](README_fr.md) &nbsp;•&nbsp; [Português](README_pt.md) &nbsp;•&nbsp; [中文](README_zh.md) &nbsp;•&nbsp; [日本語](README_ja.md)
+
+</div>
+
+---
+
+## At a glance
+
+<table>
+<tr>
+<td valign="top" width="25%"><b>Pocket assistant</b><br/>Any model you choose, voice, photos and files, memory, skills, MCP, web search.</td>
+<td valign="top" width="25%"><b>Notebooks</b><br/>Learn or collect ideas: sources, a study plan, flashcards, an audio overview, answers that cite.</td>
+<td valign="top" width="25%"><b>Voice and the phone</b><br/>Alarms, calls, messages, places and weather, scheduled tasks, widgets.</td>
+<td valign="top" width="25%"><b>Remote for devx</b><br/>The same sessions as in the terminal: replies, approvals, plans, files.</td>
+</tr>
+</table>
 
 ## Download
 
-The APK is attached to every release of Termux-Dev, next to devx itself:
+The app has its own page on Termux-Dev, apart from devx's releases (the app and devx have separate versions). Every version is a file there with its checksum; new versions are added next to the old ones, and a file is never replaced:
 
-**[github.com/apvcode/Termux-Dev/releases/latest](https://github.com/apvcode/Termux-Dev/releases/latest)** → `devx-android-x.y.z.apk`
+**[Releases → devx for Android](https://github.com/apvcode/Termux-Dev/releases/tag/android-app)** → the newest file, `devx-android-X.Y.Z.apk`
 
-Open it on the phone and allow installing from this source. Android 8.0 (API 26) or newer. Updates install over the old version: every release is signed with the same key.
+Open it on the phone and allow installing from this source. Android 8.0 (API 26) or newer. Updates install over the old version: every release is signed with the same key, and a published version is never replaced.
 
 ## Start
 
@@ -25,10 +49,11 @@ The API key is kept encrypted on the phone (Android Keystore) and goes only to t
 
 ## What it does
 
-**Chat**
-- Several providers and models, reasoning effort per model, branches when you edit a message, temporary chats, chats locked with the screen lock or a code, projects with their own instructions and knowledge.
+### Chat
+
+- Several providers and models, reasoning effort per model, branches when you edit a message, temporary chats, chats locked with the screen lock or a code, projects (ongoing work with their own instructions and knowledge) and notebooks (below).
 - Photos, video, files and camera in a message; PDF and text viewer; export to Markdown or PDF.
-- Memory: the assistant keeps useful notes and a summary about you, on the phone only. You can read, edit and delete them.
+- Memory: the assistant keeps useful notes and a summary about you, on the phone only. You can read, edit and delete them. The summary renews itself in the background and shows what is new in it; a note that stops being true soon (an exam on Friday) can expire; when there are many notes, those that touch your question are sent first.
 - Skills (written guides the assistant reads when a task matches): built in, imported (`.skill` or `SKILL.md`) or written by you.
 - MCP servers over https (GitHub, documentation and others) with approvals and a read-only switch.
 - Web search (it reads search pages itself; a free Tavily or Brave key in Settings makes it noticeably more accurate), files and archives, a terminal and Python inside the app, in a folder of its own. Each can be switched off.
@@ -36,22 +61,49 @@ The API key is kept encrypted on the phone (Android Keystore) and goes only to t
 - Chat names are written while the answer is, with a small animation; the chat you are in is marked in the list.
 - Rich answers: cards, tables, charts, maps, weather, timers, checklists, Mermaid diagrams, app cards from Google Play and F-Droid. Rotating greetings on the home screen.
 - A full-screen editor with Markdown preview for long messages. Select several chats to delete or archive.
+- Type `@` in the field: a menu of what you can point at (a notebook, a project, a file of the library, a scheduled task). A notebook or a project becomes part of the sentence, in its colour, and the assistant is given what it holds. By voice just say its name.
+- One search for chats, notebooks, projects, files and sources, also by what is written inside documents, PDFs and notes.
 - Paste pictures and files straight into the message field (from the clipboard or the keyboard). "Ask devx" on selected text does not touch your clipboard.
-- Backup and restore of chats, projects, memory, skills and settings in one file.
-- Widgets and a quick-settings tile.
+- Backup and restore of chats, notebooks, memory, skills and settings in one file; an automatic weekly copy into a folder you choose (the last four are kept).
+- Pin and archive chats, lock a single chat, add a chat to the home screen. "Ask devx" on selected text quotes the passage as a card in your next message.
+- The assistant works with files in a folder of its own: it creates and reads files, makes and unpacks archives, reads a PDF page by page and looks at its pictures, edits pictures, and unpacks, changes, repacks and signs APKs. Approvals can be given from the notification itself (Allow / Deny).
+- Four widgets (an ask bar, quick buttons, the latest chats, the cards that are due) and two quick-settings tiles (ask, voice).
 
-**Voice assistant**
+### Notebooks and the library
+
+- A notebook is a place to learn or collect ideas on one topic. *Ideas* notebooks keep sources and chats on a topic; *study* notebooks add a goal, a plan of lessons and your progress. Projects are separate: they are for ongoing work.
+- Sources: files, photos (also from the camera) and web pages. Each gets a short description from the assistant; ask it to find sources on the web and it adds the best pages.
+- Answers about a notebook cite their sources as small chips (`notes.pdf · 12`); a tap opens the source, a PDF at that page.
+- A study notebook teaches step by step, checks with forms, writes the plan itself and keeps cards: questions come back for review when it is time (the better you know one, the later it returns). The cards have a screen of their own: the question, a tap turns the card, four buttons (again, hard, good, easy) that show when it will come back, and a summary at the end; it works without the model and costs nothing. A daily reminder is a notification with the number of cards that are due.
+- The assistant can change a notebook or a project (name, icon, colour, description, instructions, goal), and after talking things through it can propose a new notebook or project: you confirm on a card.
+- Share a link, a text, a PDF or a picture from any app: devx offers a new chat or one of your notebooks, where it becomes a source (a link is read and kept).
+- Study stats on the page: days in a row, the last seven days as bars; a home-screen widget shows how many cards are due and starts the review. Cards and the notebook's overview can be heard (an *audio overview* is written to be listened to, then read aloud), and a notebook exports as one Markdown file.
+- The library holds every file you ever attached or the assistant made: search, filters, where it was used, attach to a new chat, delete everywhere. PDF, Word, slides, spreadsheets, text, images and sites open in the built-in viewer; Office originals are kept.
+
+### Look, character and security
+
+- Appearance: follow the system, black, dark gray or light.
+- Character: pick a manner (calm, no fluff, detailed, friendly, professional, blunt, mentor), fine-tune the tone, give the assistant a name and write your own instructions. One tap resets it.
+- App lock with the screen lock, a code or biometrics; single chats can be locked too, and the list of recent apps hides the picture while a lock is on.
+- Photos per message, notifications about answers and approvals, and whether a computer may run in the "everything" mode are in the settings.
+
+### Voice assistant
+
 - Choose Devx as the phone's assistant: the power button or a swipe from a corner opens a see-through voice window over any app.
 - Alarms, timers, reminders; opening apps and system settings; contacts, calls, messages and calendar (you press the last button); flashlight, music, volume; brightness and Do Not Disturb.
 - Places, routes and weather from OpenStreetMap and Open-Meteo, no keys. 2GIS and Google Maps can be added with your own key.
 - Looks at your gallery, reads on-screen notifications, works in one folder you pick, but only when you ask and only if you allowed it.
 - Scheduled tasks: "every morning send me the news about AI". They run by themselves and arrive as a chat and a notification.
 - Speech speed, voice and a separate fast model for talking are in **Settings → Voice assistant**.
-- Tap the pill to write instead of speaking; hold it and swipe up to open the app with the same chat. The microphone has its own soft sounds instead of the speech service's beep.
+- Tap the pill to write instead of speaking; hold it and swipe up to open the app with the same chat (a hint above the pill always shows how). The microphone has its own soft sounds instead of the speech service's beep.
+- "Keep listening after an answer" (hands free) and the language you speak, chosen apart from the app's.
+- Scheduled tasks have a screen of their own: a time, the days, the model for each one, "run now".
 
-**Devx Remote**
+### Devx Remote
+
 - Control devx running on your computer: every chat, live replies and reasoning, approval cards, questions, the plan (with *Go and compact context*), plan/agent/YOLO modes, model and provider, context and cost, `/compact` and other commands. Files and photos go both ways.
 - Works with the terminal closed. The phone reaches the computer directly (same Wi-Fi, a VPN such as Tailscale, a forwarded port) or through a free public relay. Everything is end-to-end encrypted.
+- Start a new session on the computer in a folder you pick; add a computer by an address (a VPN, a forwarded port) as well as by QR code.
 
 On the computer:
 
@@ -81,10 +133,10 @@ English, Русский, Deutsch, Español, Français, 日本語, Português, У
 
 JDK 17 and the Android SDK. Signing: put `signing.properties` (storeFile, storePassword, keyAlias, keyPassword) in `~/.config/devx-android/`, or point `DEVX_SIGNING_PROPERTIES` at it, or use `keystore.properties` in the project folder. Without any of them the build is signed with the debug key and cannot update an installed release. Keep the key safe: it is what lets updates install over the old version.
 
-To attach the built APK to a release of Termux-Dev (the release must exist; it asks first):
+The app has its own versions. One command builds it, checks the signing key and adds `devx-android-X.Y.Z.apk` to the page `android-app` of Termux-Dev (it asks first; a file that is already there is never replaced; `--dry-run` shows what it would do):
 
 ```
-node scripts/attach-android.mjs v2.0.0      # run in the devx folder
+node scripts/release-android.mjs      # run in the devx folder
 ```
 
 ## Stack

@@ -88,6 +88,20 @@ class QuickWidget : AppWidgetProvider() {
     }
 }
 
+/** The cards that are due in the study notebooks: how many, and where; a tap starts the review in the notebook that has most. */
+class StudyWidget : AppWidgetProvider() {
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        val views = RemoteViews(context.packageName, R.layout.widget_study)
+        val due = com.apvcode.devx.data.StudyDue.read(context)
+        val total = due.values.sum()
+        val best = due.maxByOrNull { it.value }?.key
+        views.setTextViewText(R.id.study_title, if (total > 0) context.resources.getQuantityString(R.plurals.nb_cards_due, total, total) else context.getString(R.string.widget_study_title))
+        views.setTextViewText(R.id.study_sub, if (best != null) best + (if (due.size > 1) " +" + (due.size - 1) else "") else context.getString(R.string.widget_study_none))
+        views.setOnClickPendingIntent(R.id.widget_root, Widgets.open(context, MainActivity.ACTION_STUDY, 20, if (best != null) "project" to best else null))
+        ids.forEach { manager.updateAppWidget(it, views) }
+    }
+}
+
 /** The latest chats: a tap opens one. Titles stay hidden while the app lock covers them. */
 class RecentWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -121,6 +135,7 @@ internal object Widgets {
         val widget: AppWidgetProvider = when (provider) {
             RecentWidget::class.java -> RecentWidget()
             QuickWidget::class.java -> QuickWidget()
+            StudyWidget::class.java -> StudyWidget()
             else -> AskWidget()
         }
         widget.onUpdate(context, manager, ids)
@@ -129,14 +144,14 @@ internal object Widgets {
     /** Every widget that shows something of the app: after a change of the chats, the lock or the language. */
     fun refreshAll(context: Context) {
         val app = context.applicationContext
-        listOf(AskWidget::class.java, QuickWidget::class.java, RecentWidget::class.java).forEach { refresh(app, it) }
+        listOf(AskWidget::class.java, QuickWidget::class.java, RecentWidget::class.java, StudyWidget::class.java).forEach { refresh(app, it) }
     }
 
     /** Chats are written often while an answer streams: one refresh a little after the last write is enough. */
     fun refreshSoon(context: Context) {
         val app = context.applicationContext
         pending?.let { handler.removeCallbacks(it) }
-        pending = Runnable { runCatching { refresh(app, RecentWidget::class.java) } }.also { handler.postDelayed(it, 1500) }
+        pending = Runnable { runCatching { refresh(app, RecentWidget::class.java); refresh(app, StudyWidget::class.java) } }.also { handler.postDelayed(it, 1500) }
     }
 
     private class Row(val id: String, val title: String, val at: Long, val pinned: Boolean, val locked: Boolean)
