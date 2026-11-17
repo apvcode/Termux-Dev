@@ -88,6 +88,8 @@ The terminal interface is built around a framed prompt that carries the status i
   English (default), Русский, Українська, Deutsch, Español, Français, Português, 中文 and 日本語. Pick one in `/settings` → `Language`; it applies at once and is remembered. Messages, hints and the settings screen are translated; code, tool names and the model's own answers are not.
 - **Universal AI Provider Support:**  
   **OpenRouter**, **Google Gemini**, **DeepSeek**, **Groq**, **Mistral**, **OpenAI**, **Anthropic**, **Alibaba**, and local models (**Ollama**, **LM Studio**).
+- **Local Ollama:**  
+  Ollama's default context window (4096 tokens) is smaller than devx's own prompt, so Ollama silently drops the earlier messages and the model "forgets" the conversation. Start it with `OLLAMA_CONTEXT_LENGTH=16384 ollama serve` (8192 if memory is tight). `/doctor` checks the window and warns you.
 - **Your own providers:**  
   `/provider` → **Add a provider**: give it a name, an address (any OpenAI- or Anthropic-compatible API) and a key. It is saved in `~/.devxrc.json` and shows up in the list next to the known ones; choose it again to use it, change its name, address or key, or delete it. A server on your own machine (LM Studio, a local gateway) can be added without a key.
 

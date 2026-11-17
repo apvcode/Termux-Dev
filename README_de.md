@@ -88,6 +88,8 @@ Die Terminaloberfläche besteht aus einem umrahmten Prompt, der den Status in se
   English (Standard), Русский, Українська, Deutsch, Español, Français, Português, 中文 und 日本語. Wähle in `/settings` → `Language`; die Auswahl gilt sofort und wird gespeichert. Meldungen, Hinweise und die Einstellungen sind übersetzt; Code, Werkzeugnamen und die Antworten des Modells nicht.
 - **Universelle Unterstützung für KI-Anbieter:**  
   **OpenRouter**, **Google Gemini**, **DeepSeek**, **Groq**, **Mistral**, **OpenAI**, **Anthropic**, **Alibaba** und lokale Modelle (**Ollama**, **LM Studio**).
+- **Lokales Ollama:**  
+  Das Standard-Kontextfenster von Ollama (4096 Token) ist kleiner als der eigene Prompt von devx, daher verwirft Ollama frühere Nachrichten stillschweigend und das Modell „vergisst“ das Gespräch. Starte es mit `OLLAMA_CONTEXT_LENGTH=16384 ollama serve` (8192, falls der Speicher knapp ist). `/doctor` prüft das Fenster und warnt.
 - **Eigene Anbieter:**  
   `/provider` → **Anbieter hinzufügen**: Gib ihm einen Namen, eine Adresse (jede OpenAI- oder Anthropic-kompatible API) und einen Schlüssel. Er wird in `~/.devxrc.json` gespeichert und steht in der Liste neben den bekannten; wähle ihn erneut, um ihn zu verwenden, Namen, Adresse oder Schlüssel zu ändern oder ihn zu löschen. Ein Server auf dem eigenen Rechner (LM Studio, lokales Gateway) lässt sich ohne Schlüssel hinzufügen.
 

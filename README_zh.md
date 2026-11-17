@@ -88,6 +88,8 @@ devx
   English（默认）、Русский、Українська、Deutsch、Español、Français、Português、中文和日本語。在 `/settings` → `Language` 中选择，立即生效并会被记住。消息、提示和设置界面会被翻译；代码、工具名称和模型自身的回答不会。
 - **通用的 AI 提供商支持：**  
   **OpenRouter**、**Google Gemini**、**DeepSeek**、**Groq**、**Mistral**、**OpenAI**、**Anthropic**、**Alibaba**，以及本地模型（**Ollama**、**LM Studio**）。
+- **本地 Ollama：**  
+  Ollama 默认的上下文窗口（4096 个 token）比 devx 自身的提示词还小，因此 Ollama 会悄悄丢掉之前的消息，模型就会“忘记”对话。请用 `OLLAMA_CONTEXT_LENGTH=16384 ollama serve` 启动（内存紧张时用 8192）。`/doctor` 会检查窗口并给出警告。
 - **自定义提供商：**  
   `/provider` → **添加提供商**：为它起个名字，填写地址（任何兼容 OpenAI 或 Anthropic 的 API）和密钥。它会保存在 `~/.devxrc.json` 中，并与已知提供商一起出现在列表里；再次选择它即可使用、修改名称、地址或密钥，或将其删除。你自己机器上的服务器（LM Studio、本地网关）可以不填密钥。
 

@@ -1,6 +1,6 @@
 import type { CostParts, CostSource } from './cost.js';
 
-export const DEVX_VERSION = '2.0.0';
+export const DEVX_VERSION = '2.0.1';
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 

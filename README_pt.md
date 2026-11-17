@@ -88,6 +88,8 @@ A interface do terminal gira em torno de um prompt com moldura que carrega o sta
   English (padrão), Русский, Українська, Deutsch, Español, Français, Português, 中文 e 日本語. Escolha em `/settings` → `Language`; vale na hora e fica salvo. Mensagens, dicas e a tela de configurações são traduzidas; código, nomes de ferramentas e as respostas do próprio modelo não.
 - **Suporte universal a provedores de IA:**  
   **OpenRouter**, **Google Gemini**, **DeepSeek**, **Groq**, **Mistral**, **OpenAI**, **Anthropic**, **Alibaba** e modelos locais (**Ollama**, **LM Studio**).
+- **Ollama local:**  
+  A janela de contexto padrão do Ollama (4096 tokens) é menor que o próprio prompt do devx, então o Ollama descarta em silêncio as mensagens anteriores e o modelo «esquece» a conversa. Inicie-o com `OLLAMA_CONTEXT_LENGTH=16384 ollama serve` (8192 se faltar memória). O `/doctor` verifica a janela e avisa.
 - **Seus próprios provedores:**  
   `/provider` → **Adicionar provedor**: dê um nome, um endereço (qualquer API compatível com OpenAI ou Anthropic) e uma chave. Ele é salvo em `~/.devxrc.json` e aparece na lista ao lado dos conhecidos; escolha-o de novo para usar, mudar nome, endereço ou chave, ou excluir. Um servidor da sua própria máquina (LM Studio, um gateway local) pode ser adicionado sem chave.
 

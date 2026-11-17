@@ -88,6 +88,8 @@ Android では、まず Termux で `pkg install nodejs-lts` を実行してく�
   English（既定）、Русский、Українська、Deutsch、Español、Français、Português、中文、日本語。`/settings` → `Language` で選ぶと即座に反映され、記憶されます。メッセージ、ヒント、設定画面が翻訳され、コード、ツール名、モデル自身の回答は翻訳されません。
 - **あらゆる AI プロバイダーに対応：**  
   **OpenRouter**、**Google Gemini**、**DeepSeek**、**Groq**、**Mistral**、**OpenAI**、**Anthropic**、**Alibaba**、そしてローカルモデル（**Ollama**、**LM Studio**）。
+- **ローカルの Ollama：**  
+  Ollama の既定のコンテキストウィンドウ（4096 トークン）は devx 自身のプロンプトより小さいため、Ollama は以前のメッセージを黙って切り捨て、モデルが会話を「忘れ」ます。`OLLAMA_CONTEXT_LENGTH=16384 ollama serve` で起動してください（メモリが厳しい場合は 8192）。`/doctor` がウィンドウを確認して警告します。
 - **自分のプロバイダ：**  
   `/provider` → **プロバイダを追加**：名前、アドレス（OpenAI または Anthropic 互換の任意の API）、キーを入力します。`~/.devxrc.json` に保存され、既知のプロバイダと並んで一覧に表示されます。もう一度選ぶと、使用、名前・アドレス・キーの変更、削除ができます。自分のマシン上のサーバー（LM Studio、ローカルゲートウェイ）はキーなしで追加できます。
 
