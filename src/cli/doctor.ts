@@ -42,6 +42,72 @@ async function pingUrl(url: string): Promise<boolean> {
   });
 }
 
+/** Smallest context window (tokens) that holds devx's system prompt, tool list and a real conversation. */
+export const MIN_OLLAMA_CONTEXT = 16384;
+
+const OLLAMA_FIX = `Restart it with: OLLAMA_CONTEXT_LENGTH=${MIN_OLLAMA_CONTEXT} ollama serve`;
+
+/**
+ * Local Ollama silently cuts a prompt that does not fit its context window (4096 tokens by
+ * default on many builds): the middle goes first, so the model sees the system prompt and the
+ * last message but none of the earlier conversation and "forgets" what was said before.
+ * Returns null when the active provider is not a local Ollama.
+ */
+export async function checkOllamaContext(
+  config: Pick<AgentConfig, 'provider' | 'baseUrl' | 'model'>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<CheckItem | null> {
+  const base = (config.baseUrl || (config.provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : '')).replace(/\/+$/, '');
+  if (!base) return null;
+  let origin: string;
+  try {
+    const u = new URL(base);
+    const local = ['localhost', '127.0.0.1', '[::1]', '::1', '0.0.0.0'].includes(u.hostname);
+    if (!(config.provider === 'ollama' || (local && u.port === '11434'))) return null;
+    origin = u.origin;
+  } catch {
+    return null;
+  }
+
+  const getJson = async (url: string): Promise<any | null> => {
+    try {
+      const res = await fetchImpl(url, { signal: AbortSignal.timeout(3000) });
+      return res.ok ? await res.json() : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const name = 'Ollama Context Window';
+  if (!(await getJson(`${origin}/api/version`))) {
+    return { name, status: 'warn', details: `Ollama is not answering at ${origin}. Start it with: ollama serve` };
+  }
+
+  // /api/ps lists the models that are loaded right now, with the window they were loaded with.
+  const ps = await getJson(`${origin}/api/ps`);
+  const loaded: any[] = Array.isArray(ps?.models) ? ps.models : [];
+  const want = (config.model || '').toLowerCase();
+  const entry = loaded.find((m) => [m?.name, m?.model].some((n) => typeof n === 'string' && n.toLowerCase() === want))
+    ?? (loaded.length === 1 ? loaded[0] : undefined);
+  const ctx = Number(entry?.context_length);
+  if (!Number.isFinite(ctx) || ctx <= 0) {
+    return {
+      name,
+      status: 'warn',
+      details: `Cannot tell yet (the model is not loaded). Send one message, then run /doctor again. ` +
+        `If the model forgets earlier messages, the window is too small: ${OLLAMA_FIX}`,
+    };
+  }
+  if (ctx < MIN_OLLAMA_CONTEXT) {
+    return {
+      name,
+      status: 'warn',
+      details: `${ctx} tokens: too small, Ollama drops earlier messages and the model forgets the conversation. ${OLLAMA_FIX}`,
+    };
+  }
+  return { name, status: 'ok', details: `${ctx} tokens` };
+}
+
 export async function runDoctor(config: AgentConfig): Promise<void> {
   const theme = getCurrentTheme();
   console.log('\n' + theme.boldFn('devx Doctor — System & Environment Health Diagnostics'));
@@ -144,6 +210,9 @@ export async function runDoctor(config: AgentConfig): Promise<void> {
     status: githubOnline ? 'ok' : 'warn',
     details: githubOnline ? 'Online (reachable)' : 'Unreachable'
   });
+
+  const ollamaCheck = await checkOllamaContext(config);
+  if (ollamaCheck) keyChecks.push(ollamaCheck);
 
   // Helper to render section
   const renderSection = (title: string, items: CheckItem[]) => {
