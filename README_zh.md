@@ -203,14 +203,14 @@ devx 2.0 可以由 devx Android 应用来驱动。一个小型主机在你电脑
 这个应用本身也是一个口袋助手，无需账号，也没有我们的服务器：
 
 - **聊天**：可使用你添加的任意服务商（兼容 OpenAI 或 Anthropic）：推理强度、照片和文件、项目、记忆、技能和 MCP 服务器。
-- **语音**：将它设为手机的助手，电源键即可打开它。它能设置闹钟、计时器和提醒，打开应用，查找联系人，准备通话和短信，并控制亮度、勿扰模式、音乐和音量。
+- **语音**：将它设为手机的助手，电源键即可打开它。它能设置闹钟、计时器和提醒，打开应用，查找联系人，准备通话和短信，并控制亮度、勿扰模式、音乐和音量。来自你的服务商的自然语音可以代替手机机械的声音来朗读回答。
 - **地点和天气**来自 OpenStreetMap，无需密钥；你询问时，它还可以查看你的照片和通知。
 - **定时任务**：“每天早上给我发 AI 新闻”。
 - **以卡片呈现的回答**：表格、图表、地图、天气、计时器、清单、图示，以及来自 Google Play 和 F-Droid 的应用卡片。
-- **笔记本**：围绕一个主题学习或收集想法的地方，有自己的资料（文件、照片、网页；可从任何应用分享链接）。学习笔记本有目标和课程计划、表单形式的提问、间隔重复的卡片（独立界面、主屏幕小组件、提醒）、学习统计、可收听的音频概览，以及用可点按的标签引用资料来源的回答。
+- **笔记本**：围绕一个主题学习或收集想法的地方，有自己的资料（文件、照片、网页；可从任何应用分享链接）。学习笔记本有目标和课程计划、表单形式的提问、间隔重复的卡片（独立界面、主屏幕小组件、提醒）、学习统计、可收听的音频概览，以及用可点按的标签引用资料来源的回答。卡片可以带图片，可从 Anki 或 CSV 导入（也可导出为 Anki 包）；概念图显示想法之间如何联系。
 - **消息中的 `@`** 可指向笔记本、项目、文件或定时任务；助手会收到其中的内容。一次搜索即可覆盖聊天、笔记本、文件及其中的文字。
-- **资料库与备份**：你附加过或助手生成的所有文件，内置 PDF、Word、幻灯片和表格查看器；一切都在一个备份文件里，或每周自动复制到你选择的文件夹。
-- **自己的外观与性格**：黑色、深灰或浅色主题，助手的风格和名字，用屏幕锁或生物识别的应用锁，以及单个聊天的锁。聊天可以置顶、归档并添加到主屏幕；四个小组件和两个快速设置磁贴。
+- **资料库、备份与回收站**：你附加过或助手创建的每个文件，内置 PDF、Word、幻灯片和表格查看器；全部内容（聊天、笔记本、记忆、设置）存入一个备份文件，密钥仅在设密码时才会放入，恢复前会先显示其内容；每周自动备份到你选的文件夹或 WebDAV 文件夹（Nextcloud、NAS）；删除的聊天和笔记本在回收站保留 30 天。
+- **自己的外观与性格**：十二种主题（黑色、深灰、浅色等），可随一天中的时间切换，模糊效果可关闭；助手的说话方式和名字，用屏幕锁或生物识别的应用锁，以及单个聊天的锁。聊天可置顶、归档并添加到主屏幕；四个小组件和两个快速设置磁贴。
 - **九种语言**，与 devx 相同。
 
 ```
@@ -288,7 +288,7 @@ devx remote service   # 随电脑启动（systemd / launchd / 启动文件夹）
 `/effort` 设置模型在回答前思考多少：`off`、`low`、`normal`、`high`、`xhigh`、`max` 或 `auto`（使用模型自己的默认值，不发送任何参数）。各模型不同，因此菜单**只提供当前模型支持的级别**：
 
 ```
-╭─ effort ─────────────────────────────────── claude-sonnet-4-5 ─╮
+╭─ effort ─────────────────────────────────── claude-sonnet-5-5 ─╮
 │  ❯ ● auto    model default, nothing is sent                     │
 │    ○ off     no reasoning                                       │
 │    ○ normal  balanced (~6k thinking tokens)                     │
@@ -299,7 +299,7 @@ devx remote service   # 随电脑启动（systemd / launchd / 启动文件夹）
 ```
 
 - `/effort` 打开菜单，`/effort high` 直接设置级别（`medium`、`none`、`maximum` 等别名同样可用），`/effort auto` 恢复模型默认值，`/effort refresh` 更新构建菜单所用的数据（见下文）。
-- 选择**按模型**记忆。切换到不提供已保存级别的模型后，不会发送任何参数。当前级别显示在模型名旁边（`o3 · think high`；`think auto` 表示模型自己的默认值）。智能体工作时，状态行会显示模型到目前为止为你的请求写了多少 token（`↓ 364 tokens`），一轮结束后的那一行会做出汇总（`18.1k in · 59 out`）。
+- 选择**按模型**记忆。切换到不提供已保存级别的模型后，不会发送任何参数。当前级别显示在模型名旁边（`gpt-5.5 · think high`；`think auto` 表示模型自己的默认值）。智能体工作时，状态行会显示模型到目前为止为你的请求写了多少 token（`↓ 364 tokens`），一轮结束后的那一行会做出汇总（`18.1k in · 59 out`）。
 - `devx -p "task" --effort high` 只为这一次运行设置级别（不会被保存）。
 - 如果端点返回 400 并抱怨推理参数，devx 会去掉该参数重试一次，告知你，并不再发送它。
 
@@ -317,9 +317,10 @@ devx remote service   # 随电脑启动（systemd / launchd / 启动文件夹）
 | 模型 | 级别 | 发送为 |
 | :--- | :--- | :--- |
 | OpenAI o 系列、gpt-oss | low、normal、high | `reasoning_effort`（OpenRouter 上为 `reasoning.effort`） |
-| GPT-5、5.1、5.2 | off（GPT-5 为 minimal）、low、normal、high，5.2 起另有 xhigh | `reasoning_effort` |
+| GPT-5.x, 5.5+ | off（GPT-5 为 minimal）、low、normal、high，5.2 起另有 xhigh | `reasoning_effort` |
 | Grok 3 mini | low、high | `reasoning_effort` |
-| Claude 3.7 / 4 / 4.5 | off、low、normal、high、xhigh、max（Opus 4 与 4.1 无 max） | `thinking.budget_tokens`（Anthropic）、`reasoning.max_tokens`（OpenRouter） |
+| Claude 3.7 / 4.x / 5.x (Fable, Opus, Sonnet, Haiku) | off、low、normal、high、xhigh、max（Opus 4 与 4.1 无 max） | `thinking.budget_tokens`（Anthropic）、`reasoning.max_tokens`（OpenRouter） |
+| Gemini 3.x (3.1 Pro, 3.6 Flash) | low, high | `reasoning_effort` |
 | Gemini 2.5 Pro / Flash | low 到 max（Flash 另有 off） | `thinking_budget`（Google）、`reasoning.max_tokens`（OpenRouter） |
 | Qwen3 | off、low、normal、high、max | `enable_thinking` / `thinking_budget`（DashScope） |
 | DeepSeek V3.1+、GLM 4.5+ | off、normal | `reasoning.enabled`、`thinking.type` |

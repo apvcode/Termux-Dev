@@ -203,14 +203,14 @@ devx 2.0 lässt sich über die devx-Android-App steuern. Ein kleiner Host läuft
 Die App ist außerdem ein eigener Taschenassistent, ohne Konto und ohne einen Server von uns:
 
 - **Chat** mit jedem Anbieter, den du hinzufügst (OpenAI- oder Anthropic-kompatibel): Denkstufen, Fotos und Dateien, Projekte, Gedächtnis, Skills und MCP-Server.
-- **Sprache**: Stelle sie als Assistent des Handys ein, und die Einschalttaste öffnet sie. Sie stellt Wecker, Timer und Erinnerungen, öffnet Apps, findet Kontakte, bereitet Anrufe und Nachrichten vor und steuert Helligkeit, „Bitte nicht stören“, Musik und Lautstärke.
+- **Sprache**: Stelle sie als Assistent des Handys ein, und die Einschalttaste öffnet sie. Sie stellt Wecker, Timer und Erinnerungen, öffnet Apps, findet Kontakte, bereitet Anrufe und Nachrichten vor und steuert Helligkeit, „Bitte nicht stören“, Musik und Lautstärke. Eine natürliche Stimme Ihres Anbieters kann die Antworten statt der roboterhaften Telefonstimme vorlesen.
 - **Orte und Wetter** von OpenStreetMap, ohne Schlüssel; auf Wunsch schaut sie sich auch deine Fotos und Benachrichtigungen an.
 - **Geplante Aufgaben**: „schick mir jeden Morgen die KI-Nachrichten“.
 - **Antworten als Karten**: Tabellen, Diagramme, Karten, Wetter, Timer, Checklisten, Schaubilder und App-Karten aus Google Play und F-Droid.
-- **Notizbücher**: ein Ort zum Lernen oder Sammeln von Ideen zu einem Thema, mit eigenen Quellen (Dateien, Fotos, Webseiten; einen Link kannst du aus jeder App teilen). Ein Lern-Notizbuch hat ein Ziel und einen Lektionsplan, Fragen als Formulare, Lernkarten mit verteilter Wiederholung (eigener Bildschirm, Widget, Erinnerung), Lernstatistik, einen Audio-Überblick zum Anhören und Antworten, die ihre Quellen als antippbare Chips nennen.
+- **Notizbücher**: ein Ort zum Lernen oder Sammeln von Ideen zu einem Thema, mit eigenen Quellen (Dateien, Fotos, Webseiten; einen Link kannst du aus jeder App teilen). Ein Lern-Notizbuch hat ein Ziel und einen Lektionsplan, Fragen als Formulare, Lernkarten mit verteilter Wiederholung (eigener Bildschirm, Widget, Erinnerung), Lernstatistik, einen Audio-Überblick zum Anhören und Antworten, die ihre Quellen als antippbare Chips nennen. Karten können Bilder haben und kommen aus Anki oder CSV (und gehen als Anki-Paket hinaus); eine Begriffskarte zeigt, wie die Ideen zusammenhängen.
 - **`@` in der Nachricht** verweist auf ein Notizbuch, ein Projekt, eine Datei oder eine geplante Aufgabe; der Assistent bekommt, was darin steckt. Eine Suche durchsucht Chats, Notizbücher, Dateien und den Text darin.
-- **Bibliothek und Backup**: jede Datei, die du angehängt hast oder der Assistent erstellt hat, mit eingebautem Viewer für PDF, Word, Folien und Tabellen; alles in einer Backup-Datei oder als automatische wöchentliche Kopie in einen Ordner deiner Wahl.
-- **Eigenes Aussehen und Charakter**: schwarzes, dunkelgraues oder helles Design, Art und Name des Assistenten, App-Sperre mit Bildschirmsperre oder Biometrie und Sperren für einzelne Chats. Chats lassen sich anheften, archivieren und auf den Startbildschirm legen; vier Widgets und zwei Schnelleinstellungs-Kacheln.
+- **Bibliothek, Backup und Papierkorb**: jede Datei, die du angehängt hast oder der Assistent erstellt hat, mit eingebautem Viewer für PDF, Word, Folien und Tabellen; alles (Chats, Notizbücher, Gedächtnis, Einstellungen) in einer Backup-Datei, die Schlüssel nur mit Passwort, vor dem Wiederherstellen wird sie angezeigt; eine automatische Wochenkopie in einen Ordner deiner Wahl oder in einen WebDAV-Ordner (Nextcloud, NAS); gelöschte Chats und Notizbücher warten 30 Tage im Papierkorb.
+- **Eigenes Aussehen und Charakter**: zwölf Designs (Schwarz, Dunkelgrau, Hell und weitere), die der Tageszeit folgen können, mit abschaltbarer Unschärfe; Art und Name des Assistenten, App-Sperre mit Bildschirmsperre oder Biometrie und Sperren für einzelne Chats. Chats lassen sich anheften, archivieren und auf den Startbildschirm legen; vier Widgets und zwei Schnelleinstellungs-Kacheln.
 - **Neun Sprachen**, dieselben wie bei devx.
 
 ```
@@ -288,7 +288,7 @@ Tippe `/` im Prompt, um die Befehlspalette mit Autovervollständigung zu öffnen
 `/effort` legt fest, wie viel das Modell vor der Antwort nachdenkt: `off`, `low`, `normal`, `high`, `xhigh`, `max` oder `auto` (der eigene Standard des Modells, es wird nichts gesendet). Modelle unterscheiden sich, daher bietet das Menü **nur die Stufen, die das aktuelle Modell unterstützt**:
 
 ```
-╭─ effort ─────────────────────────────────── claude-sonnet-4-5 ─╮
+╭─ effort ─────────────────────────────────── claude-sonnet-5-5 ─╮
 │  ❯ ● auto    model default, nothing is sent                     │
 │    ○ off     no reasoning                                       │
 │    ○ normal  balanced (~6k thinking tokens)                     │
@@ -299,7 +299,7 @@ Tippe `/` im Prompt, um die Befehlspalette mit Autovervollständigung zu öffnen
 ```
 
 - `/effort` öffnet das Menü, `/effort high` setzt eine Stufe direkt (`medium`, `none`, `maximum` und Ähnliches funktionieren als Aliase), `/effort auto` kehrt zum Standard des Modells zurück, `/effort refresh` aktualisiert die Daten, aus denen das Menü entsteht (siehe unten).
-- Die Wahl wird **pro Modell** gespeichert. Nach dem Wechsel zu einem Modell, das die gespeicherte Stufe nicht anbietet, wird nichts gesendet. Die aktuelle Stufe steht neben dem Modellnamen (`o3 · think high`; `think auto` heißt: Standard des Modells). Während der Agent arbeitet, zeigt die Statuszeile, wie viele Tokens das Modell bisher für deine Anfrage geschrieben hat (`↓ 364 tokens`), und die Zeile nach dem Durchgang fasst es zusammen (`18.1k in · 59 out`).
+- Die Wahl wird **pro Modell** gespeichert. Nach dem Wechsel zu einem Modell, das die gespeicherte Stufe nicht anbietet, wird nichts gesendet. Die aktuelle Stufe steht neben dem Modellnamen (`gpt-5.5 · think high`; `think auto` heißt: Standard des Modells). Während der Agent arbeitet, zeigt die Statuszeile, wie viele Tokens das Modell bisher für deine Anfrage geschrieben hat (`↓ 364 tokens`), und die Zeile nach dem Durchgang fasst es zusammen (`18.1k in · 59 out`).
 - `devx -p "task" --effort high` setzt eine Stufe nur für einen Lauf (sie wird nie gespeichert).
 - Antwortet ein Endpunkt mit 400 und beanstandet den Reasoning-Parameter, wiederholt devx die Anfrage einmal ohne ihn, sagt dir Bescheid und sendet ihn nicht mehr.
 
@@ -317,9 +317,10 @@ Regeln nach Modellnamen (Rückfall):
 | Modell | Stufen | Gesendet als |
 | :--- | :--- | :--- |
 | OpenAI o-Serie, gpt-oss | low, normal, high | `reasoning_effort` (`reasoning.effort` bei OpenRouter) |
-| GPT-5, 5.1, 5.2 | off (minimal bei GPT-5), low, normal, high, ab 5.2 zusätzlich xhigh | `reasoning_effort` |
+| GPT-5.x, 5.5+ | off (minimal bei GPT-5), low, normal, high, ab 5.2 zusätzlich xhigh | `reasoning_effort` |
 | Grok 3 mini | low, high | `reasoning_effort` |
-| Claude 3.7 / 4 / 4.5 | off, low, normal, high, xhigh, max (Opus 4 und 4.1 ohne max) | `thinking.budget_tokens` (Anthropic), `reasoning.max_tokens` (OpenRouter) |
+| Claude 3.7 / 4.x / 5.x (Fable, Opus, Sonnet, Haiku) | off, low, normal, high, xhigh, max (Opus 4 und 4.1 ohne max) | `thinking.budget_tokens` (Anthropic), `reasoning.max_tokens` (OpenRouter) |
+| Gemini 3.x (3.1 Pro, 3.6 Flash) | low, high | `reasoning_effort` |
 | Gemini 2.5 Pro / Flash | low bis max (Flash auch off) | `thinking_budget` (Google), `reasoning.max_tokens` (OpenRouter) |
 | Qwen3 | off, low, normal, high, max | `enable_thinking` / `thinking_budget` (DashScope) |
 | DeepSeek V3.1+, GLM 4.5+ | off, normal | `reasoning.enabled`, `thinking.type` |

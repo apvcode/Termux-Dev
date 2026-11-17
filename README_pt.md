@@ -203,14 +203,14 @@ O devx 2.0 pode ser controlado pelo app devx para Android. Um pequeno host roda 
 O app também é um assistente de bolso por conta própria, sem conta e sem um servidor nosso:
 
 - **Chat** com qualquer provedor que você adicionar (compatível com OpenAI ou Anthropic): níveis de raciocínio, fotos e arquivos, projetos, memória, skills e servidores MCP.
-- **Voz**: defina-o como assistente do celular e o botão de ligar o abre. Ele coloca alarmes, timers e lembretes, abre apps, encontra contatos, prepara ligações e mensagens e controla o brilho, o Não perturbe, a música e o volume.
+- **Voz**: defina-o como assistente do celular e o botão de ligar o abre. Ele coloca alarmes, timers e lembretes, abre apps, encontra contatos, prepara ligações e mensagens e controla o brilho, o Não perturbe, a música e o volume. Uma voz natural do seu provedor pode ler as respostas no lugar da voz robótica do telefone.
 - **Lugares e clima** do OpenStreetMap, sem chaves; também pode olhar suas fotos e notificações quando você pede.
 - **Tarefas agendadas**: "toda manhã me envie as notícias sobre IA".
 - **Respostas como cartões**: tabelas, gráficos, mapas, clima, timers, listas de verificação, diagramas e cartões de apps do Google Play e do F-Droid.
-- **Cadernos**: um lugar para aprender ou reunir ideias sobre um tema, com fontes próprias (arquivos, fotos, páginas da web; compartilhe um link de qualquer app). Um caderno de estudo tem meta e plano de lições, perguntas como formulários, cartões com repetição espaçada (tela própria, widget, lembrete), estatísticas de estudo, um resumo em áudio para ouvir e respostas que citam suas fontes com chips tocáveis.
+- **Cadernos**: um lugar para aprender ou reunir ideias sobre um tema, com fontes próprias (arquivos, fotos, páginas da web; compartilhe um link de qualquer app). Um caderno de estudo tem meta e plano de lições, perguntas como formulários, cartões com repetição espaçada (tela própria, widget, lembrete), estatísticas de estudo, um resumo em áudio para ouvir e respostas que citam suas fontes com chips tocáveis. Os cartões podem ter imagens e chegam do Anki ou de CSV (e saem como pacote do Anki); um mapa de conceitos mostra como as ideias se ligam.
 - **`@` na mensagem** aponta para um caderno, um projeto, um arquivo ou uma tarefa agendada; o assistente recebe o que há neles. Uma única busca cobre conversas, cadernos, arquivos e o texto dentro deles.
-- **Biblioteca e backup**: todos os arquivos que você anexou ou o assistente criou, com visualizador integrado de PDF, Word, slides e planilhas; tudo em um arquivo de backup ou uma cópia semanal automática numa pasta à sua escolha.
-- **Sua própria aparência e personalidade**: tema preto, cinza-escuro ou claro, o jeito e o nome do assistente, bloqueio do app com o bloqueio de tela ou biometria e trancas em conversas isoladas. As conversas podem ser fixadas, arquivadas e adicionadas à tela inicial; quatro widgets e dois blocos de configurações rápidas.
+- **Biblioteca, cópia e lixeira**: cada arquivo que você anexou ou que o assistente criou, com visualizador integrado para PDF, Word, apresentações e planilhas; tudo (conversas, cadernos, memória, configurações) num só arquivo de cópia, com as chaves só sob senha, mostrado antes de restaurar; uma cópia semanal automática numa pasta que você escolher ou numa pasta WebDAV (Nextcloud, um NAS); conversas e cadernos apagados esperam 30 dias na lixeira.
+- **Sua própria aparência e personalidade**: doze temas (preto, cinza escuro, claro e outros) que podem seguir a hora do dia, com um desfoque que você pode desligar; o jeito e o nome do assistente, bloqueio do app com o bloqueio de tela ou biometria e bloqueios em conversas individuais. As conversas podem ser fixadas, arquivadas e adicionadas à tela inicial; quatro widgets e dois blocos de configurações rápidas.
 - **Nove idiomas**, os mesmos do devx.
 
 ```
@@ -288,7 +288,7 @@ Digite `/` no prompt para abrir a paleta de comandos com autocompletar:
 `/effort` define quanto o modelo pensa antes de responder: `off`, `low`, `normal`, `high`, `xhigh`, `max` ou `auto` (o padrão do próprio modelo, nada é enviado). Os modelos diferem, então o menu oferece **apenas os níveis que o modelo atual suporta**:
 
 ```
-╭─ effort ─────────────────────────────────── claude-sonnet-4-5 ─╮
+╭─ effort ─────────────────────────────────── claude-sonnet-5-5 ─╮
 │  ❯ ● auto    model default, nothing is sent                     │
 │    ○ off     no reasoning                                       │
 │    ○ normal  balanced (~6k thinking tokens)                     │
@@ -299,7 +299,7 @@ Digite `/` no prompt para abrir a paleta de comandos com autocompletar:
 ```
 
 - `/effort` abre o menu, `/effort high` define um nível diretamente (`medium`, `none`, `maximum` e similares funcionam como apelidos), `/effort auto` volta ao padrão do modelo, `/effort refresh` atualiza os dados com que o menu é montado (veja abaixo).
-- A escolha é lembrada **por modelo**. Ao trocar para um modelo que não oferece o nível salvo, nada é enviado. O nível atual aparece ao lado do nome do modelo (`o3 · think high`; `think auto` significa o padrão do próprio modelo). Enquanto o agente trabalha, a linha de status mostra quantos tokens o modelo já escreveu para o seu pedido (`↓ 364 tokens`), e a linha após o turno resume tudo (`18.1k in · 59 out`).
+- A escolha é lembrada **por modelo**. Ao trocar para um modelo que não oferece o nível salvo, nada é enviado. O nível atual aparece ao lado do nome do modelo (`gpt-5.5 · think high`; `think auto` significa o padrão do próprio modelo). Enquanto o agente trabalha, a linha de status mostra quantos tokens o modelo já escreveu para o seu pedido (`↓ 364 tokens`), e a linha após o turno resume tudo (`18.1k in · 59 out`).
 - `devx -p "task" --effort high` define um nível só para uma execução (nunca é salvo).
 - Se um endpoint responder 400 e reclamar do parâmetro de raciocínio, o devx repete a requisição uma vez sem ele, avisa você e deixa de enviá-lo.
 
@@ -317,9 +317,10 @@ Regras por nome de modelo (o recurso):
 | Modelo | Níveis | Enviado como |
 | :--- | :--- | :--- |
 | OpenAI série o, gpt-oss | low, normal, high | `reasoning_effort` (`reasoning.effort` no OpenRouter) |
-| GPT-5, 5.1, 5.2 | off (minimal no GPT-5), low, normal, high, mais xhigh a partir do 5.2 | `reasoning_effort` |
+| GPT-5.x, 5.5+ | off (minimal no GPT-5), low, normal, high, mais xhigh a partir do 5.2 | `reasoning_effort` |
 | Grok 3 mini | low, high | `reasoning_effort` |
-| Claude 3.7 / 4 / 4.5 | off, low, normal, high, xhigh, max (Opus 4 e 4.1 sem max) | `thinking.budget_tokens` (Anthropic), `reasoning.max_tokens` (OpenRouter) |
+| Claude 3.7 / 4.x / 5.x (Fable, Opus, Sonnet, Haiku) | off, low, normal, high, xhigh, max (Opus 4 e 4.1 sem max) | `thinking.budget_tokens` (Anthropic), `reasoning.max_tokens` (OpenRouter) |
+| Gemini 3.x (3.1 Pro, 3.6 Flash) | low, high | `reasoning_effort` |
 | Gemini 2.5 Pro / Flash | de low a max (Flash também off) | `thinking_budget` (Google), `reasoning.max_tokens` (OpenRouter) |
 | Qwen3 | off, low, normal, high, max | `enable_thinking` / `thinking_budget` (DashScope) |
 | DeepSeek V3.1+, GLM 4.5+ | off, normal | `reasoning.enabled`, `thinking.type` |

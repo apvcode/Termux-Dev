@@ -203,14 +203,14 @@ devx 2.0 peut être piloté depuis l'app devx pour Android. Un petit hôte tourn
 L'app est aussi un assistant de poche à part entière, sans compte et sans serveur de notre part :
 
 - **Chat** avec n'importe quel fournisseur que vous ajoutez (compatible OpenAI ou Anthropic) : niveaux de raisonnement, photos et fichiers, projets, mémoire, skills et serveurs MCP.
-- **Voix** : définissez-la comme assistant du téléphone et le bouton d'alimentation l'ouvre. Elle règle des réveils, des minuteurs et des rappels, ouvre des apps, trouve des contacts, prépare des appels et des messages, et contrôle la luminosité, Ne pas déranger, la musique et le volume.
+- **Voix** : définissez-la comme assistant du téléphone et le bouton d'alimentation l'ouvre. Elle règle des réveils, des minuteurs et des rappels, ouvre des apps, trouve des contacts, prépare des appels et des messages, et contrôle la luminosité, Ne pas déranger, la musique et le volume. Une voix naturelle de votre fournisseur peut lire les réponses à la place de la voix robotique du téléphone.
 - **Lieux et météo** d'OpenStreetMap, sans clés ; elle peut aussi regarder vos photos et vos notifications quand vous le demandez.
 - **Tâches planifiées** : « chaque matin, envoie-moi les actualités sur l'IA ».
 - **Réponses en cartes** : tableaux, graphiques, cartes, météo, minuteurs, listes de contrôle, schémas et cartes d'apps de Google Play et F-Droid.
-- **Carnets** : un lieu pour apprendre ou réunir des idées sur un sujet, avec ses propres sources (fichiers, photos, pages web ; partagez un lien depuis n'importe quelle appli). Un carnet d'étude a un objectif et un plan de leçons, des questions sous forme de formulaires, des cartes à répétition espacée (écran dédié, widget, rappel), des statistiques d'étude, un résumé audio à écouter et des réponses qui citent leurs sources par des pastilles cliquables.
+- **Carnets** : un lieu pour apprendre ou réunir des idées sur un sujet, avec ses propres sources (fichiers, photos, pages web ; partagez un lien depuis n'importe quelle appli). Un carnet d'étude a un objectif et un plan de leçons, des questions sous forme de formulaires, des cartes à répétition espacée (écran dédié, widget, rappel), des statistiques d'étude, un résumé audio à écouter et des réponses qui citent leurs sources par des pastilles cliquables. Les cartes peuvent avoir des images et arrivent d'Anki ou de CSV (et repartent en paquet Anki) ; une carte des notions montre comment les idées se relient.
 - **`@` dans le message** désigne un carnet, un projet, un fichier ou une tâche planifiée ; l'assistant reçoit ce qu'ils contiennent. Une seule recherche couvre discussions, carnets, fichiers et le texte qu'ils contiennent.
-- **Bibliothèque et sauvegarde** : tous les fichiers que vous avez joints ou que l'assistant a créés, avec une visionneuse intégrée pour PDF, Word, diapositives et tableurs ; tout dans un seul fichier de sauvegarde, ou une copie hebdomadaire automatique dans un dossier de votre choix.
-- **Votre propre apparence et caractère** : thème noir, gris foncé ou clair, la manière et le nom de l'assistant, verrouillage de l'appli par le verrouillage d'écran ou la biométrie, et verrous sur des discussions isolées. Les discussions peuvent être épinglées, archivées et ajoutées à l'écran d'accueil ; quatre widgets et deux tuiles de réglages rapides.
+- **Bibliothèque, sauvegarde et corbeille** : chaque fichier que vous avez joint ou que l'assistant a créé, avec une visionneuse intégrée pour PDF, Word, diaporamas et tableurs ; tout (discussions, carnets, mémoire, réglages) dans un seul fichier de sauvegarde, avec les clés seulement sous mot de passe, montré avant la restauration ; une copie hebdomadaire automatique dans un dossier de votre choix ou un dossier WebDAV (Nextcloud, un NAS) ; les discussions et carnets supprimés attendent 30 jours dans la corbeille.
+- **Votre apparence et caractère** : douze thèmes (noir, gris foncé, clair et d'autres) qui peuvent suivre l'heure de la journée, avec un flou désactivable ; la manière et le nom de l'assistant, verrouillage de l'appli par le verrouillage d'écran ou la biométrie, et verrous sur des discussions précises. Les discussions peuvent être épinglées, archivées et ajoutées à l'écran d'accueil ; quatre widgets et deux tuiles de réglages rapides.
 - **Neuf langues**, les mêmes que devx.
 
 ```
@@ -288,7 +288,7 @@ Tapez `/` dans l’invite pour ouvrir la palette de commandes avec autocompléti
 `/effort` règle combien le modèle réfléchit avant de répondre : `off`, `low`, `normal`, `high`, `xhigh`, `max` ou `auto` (la valeur propre au modèle, rien n’est envoyé). Les modèles diffèrent, donc le menu propose **uniquement les niveaux que le modèle actuel prend en charge** :
 
 ```
-╭─ effort ─────────────────────────────────── claude-sonnet-4-5 ─╮
+╭─ effort ─────────────────────────────────── claude-sonnet-5-5 ─╮
 │  ❯ ● auto    model default, nothing is sent                     │
 │    ○ off     no reasoning                                       │
 │    ○ normal  balanced (~6k thinking tokens)                     │
@@ -299,7 +299,7 @@ Tapez `/` dans l’invite pour ouvrir la palette de commandes avec autocompléti
 ```
 
 - `/effort` ouvre le menu, `/effort high` définit directement un niveau (`medium`, `none`, `maximum` et similaires fonctionnent comme alias), `/effort auto` revient à la valeur du modèle, `/effort refresh` met à jour les données dont le menu est construit (voir plus bas).
-- Le choix est mémorisé **par modèle**. Après un passage à un modèle qui ne propose pas le niveau enregistré, rien n’est envoyé. Le niveau actuel s’affiche à côté du nom du modèle (`o3 · think high` ; `think auto` signifie la valeur propre au modèle). Pendant que l’agent travaille, la ligne d’état montre combien de jetons le modèle a écrits pour votre demande (`↓ 364 tokens`), et la ligne après le tour en fait le total (`18.1k in · 59 out`).
+- Le choix est mémorisé **par modèle**. Après un passage à un modèle qui ne propose pas le niveau enregistré, rien n’est envoyé. Le niveau actuel s’affiche à côté du nom du modèle (`gpt-5.5 · think high` ; `think auto` signifie la valeur propre au modèle). Pendant que l’agent travaille, la ligne d’état montre combien de jetons le modèle a écrits pour votre demande (`↓ 364 tokens`), et la ligne après le tour en fait le total (`18.1k in · 59 out`).
 - `devx -p "task" --effort high` définit un niveau pour une seule exécution (jamais enregistré).
 - Si un point d’accès répond 400 en se plaignant du paramètre de raisonnement, devx répète la requête une fois sans lui, vous le dit et cesse de l’envoyer.
 
@@ -317,9 +317,10 @@ Règles par nom de modèle (le recours) :
 | Modèle | Niveaux | Envoyé comme |
 | :--- | :--- | :--- |
 | OpenAI série o, gpt-oss | low, normal, high | `reasoning_effort` (`reasoning.effort` sur OpenRouter) |
-| GPT-5, 5.1, 5.2 | off (minimal sur GPT-5), low, normal, high, plus xhigh à partir de 5.2 | `reasoning_effort` |
+| GPT-5.x, 5.5+ | off (minimal sur GPT-5), low, normal, high, plus xhigh à partir de 5.2 | `reasoning_effort` |
 | Grok 3 mini | low, high | `reasoning_effort` |
-| Claude 3.7 / 4 / 4.5 | off, low, normal, high, xhigh, max (Opus 4 et 4.1 sans max) | `thinking.budget_tokens` (Anthropic), `reasoning.max_tokens` (OpenRouter) |
+| Claude 3.7 / 4.x / 5.x (Fable, Opus, Sonnet, Haiku) | off, low, normal, high, xhigh, max (Opus 4 et 4.1 sans max) | `thinking.budget_tokens` (Anthropic), `reasoning.max_tokens` (OpenRouter) |
+| Gemini 3.x (3.1 Pro, 3.6 Flash) | low, high | `reasoning_effort` |
 | Gemini 2.5 Pro / Flash | de low à max (Flash aussi off) | `thinking_budget` (Google), `reasoning.max_tokens` (OpenRouter) |
 | Qwen3 | off, low, normal, high, max | `enable_thinking` / `thinking_budget` (DashScope) |
 | DeepSeek V3.1+, GLM 4.5+ | off, normal | `reasoning.enabled`, `thinking.type` |

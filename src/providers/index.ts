@@ -19,7 +19,7 @@ const LEVEL_ORDER = ['off', 'low', 'normal', 'high', 'xhigh', 'max'] as const;
 export function createProvider(config: any, opts: ProviderOptions = {}): LLMProvider {
   const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
   const apiKey = config.apiKey || process.env.OPENAI_API_KEY || '';
-  const model = config.model || 'gpt-4o-mini';
+  const model = config.model || 'gpt-5.5';
 
   // OpenAI or Anthropic wire format: by the base URL, or by what the gateway offers for this model.
   const format = resolveFormat({ baseUrl, model, apiFormat: config.apiFormat });
@@ -48,5 +48,5 @@ export function createProvider(config: any, opts: ProviderOptions = {}): LLMProv
 
 /** Which format the provider for this config speaks (for the status line and notices). */
 export function providerFormat(config: any): 'openai' | 'anthropic' {
-  return resolveFormat({ baseUrl: config.baseUrl || 'https://api.openai.com/v1', model: config.model || 'gpt-4o-mini', apiFormat: config.apiFormat });
+  return resolveFormat({ baseUrl: config.baseUrl || 'https://api.openai.com/v1', model: config.model || 'gpt-5.5', apiFormat: config.apiFormat });
 }

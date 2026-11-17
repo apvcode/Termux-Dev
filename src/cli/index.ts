@@ -226,10 +226,10 @@ function refreshEndpoint(config: any, options?: { force?: boolean }) {
 let probeEndpointsAllowed = true;
 
 const POPULAR_PROVIDER_MODELS: Record<string, string[]> = {
-  google: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'],
-  openai: ['gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o1', 'gpt-4-turbo'],
-  openrouter: ['google/gemini-2.5-flash', 'anthropic/claude-3.7-sonnet', 'openai/gpt-4o', 'deepseek/deepseek-r1', 'meta-llama/llama-3.3-70b-instruct'],
-  anthropic: ['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+  google: ['gemini-3.6-flash', 'gemini-3.1-pro-preview'],
+  openai: ['gpt-5.5'],
+  openrouter: ['google/gemini-3.6-flash', 'anthropic/claude-opus-5-5', 'anthropic/claude-sonnet-5-5', 'openai/gpt-5.5', 'deepseek/deepseek-r1'],
+  anthropic: ['claude-fable-5-2', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
   groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
   mistral: ['mistral-large-latest', 'mistral-small-latest', 'codestral-latest'],

@@ -203,14 +203,14 @@ devx 2.0 can be driven from the devx Android app. A small host runs in the backg
 The app is also a pocket assistant of its own, with no account and no server of ours:
 
 - **Chat** with any provider you add (OpenAI- or Anthropic-compatible): reasoning levels, photos and files, projects, memory, skills and MCP servers.
-- **Voice**: set it as the phone's assistant and the power button opens it. It sets alarms, timers and reminders, opens apps, finds contacts, prepares calls and messages, and controls brightness, Do Not Disturb, music and volume.
+- **Voice**: set it as the phone's assistant and the power button opens it. It sets alarms, timers and reminders, opens apps, finds contacts, prepares calls and messages, and controls brightness, Do Not Disturb, music and volume. A natural voice from your provider can read the answers instead of the phone's robotic one.
 - **Places and weather** from OpenStreetMap, no keys; it can also look at your photos and notifications when you ask.
 - **Scheduled tasks**: "every morning send me the news about AI".
 - **Answers as cards**: tables, charts, maps, weather, timers, checklists, diagrams and app cards from Google Play and F-Droid.
-- **Notebooks**: a place to learn or collect ideas on one topic, with its own sources (files, photos, web pages; share a link from any app). A study notebook has a goal and a plan of lessons, questions as forms, flashcards with spaced repetition (a screen of their own, a home-screen widget, a reminder), study stats, an audio overview to listen to, and answers that cite their sources as tappable chips.
+- **Notebooks**: a place to learn or collect ideas on one topic, with its own sources (files, photos, web pages; share a link from any app). A study notebook has a goal and a plan of lessons, questions as forms, flashcards with spaced repetition (a screen of their own, a home-screen widget, a reminder), study stats, an audio overview to listen to, and answers that cite their sources as tappable chips. Cards can have pictures and come in from Anki or CSV (and go out as an Anki package); a concept map shows how the ideas connect.
 - **`@` in the message** points at a notebook, a project, a file or a scheduled task; the assistant is given what it holds. One search covers chats, notebooks, files and the text inside them.
-- **Library and backup**: every file you attached or the assistant made, with a built-in viewer for PDF, Word, slides and spreadsheets; everything in one backup file, or an automatic weekly copy into a folder you choose.
-- **Your own look and character**: black, dark gray or light theme, the assistant's manner and name, app lock with the screen lock or biometrics, and locks on single chats. Chats can be pinned, archived and added to the home screen; four widgets and two quick-settings tiles.
+- **Library, backup and trash**: every file you attached or the assistant made, with a built-in viewer for PDF, Word, slides and spreadsheets; everything (chats, notebooks, memory, settings) in one backup file, with the keys only under a password, shown before it is restored; an automatic weekly copy into a folder you choose or a WebDAV folder (Nextcloud, a NAS); deleted chats and notebooks wait 30 days in the trash.
+- **Your own look and character**: twelve themes (black, dark gray, light and more) that can follow the time of day, with blur you can turn off; the assistant's manner and name, app lock with the screen lock or biometrics, and locks on single chats. Chats can be pinned, archived and added to the home screen; four widgets and two quick-settings tiles.
 - **Nine languages**, the same as devx.
 
 ```
@@ -288,7 +288,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 `/effort` sets how much the model thinks before it answers: `off`, `low`, `normal`, `high`, `xhigh`, `max` or `auto` (the model's own default, nothing is sent). Models differ, so the menu offers **only the levels the current model supports**:
 
 ```
-╭─ effort ─────────────────────────────────── claude-sonnet-4-5 ─╮
+╭─ effort ─────────────────────────────────── claude-sonnet-5-5 ─╮
 │  ❯ ● auto    model default, nothing is sent                     │
 │    ○ off     no reasoning                                       │
 │    ○ normal  balanced (~6k thinking tokens)                     │
@@ -299,7 +299,7 @@ Type `/` in the prompt to open the autocomplete command palette:
 ```
 
 - `/effort` opens the menu, `/effort high` sets a level directly (`medium`, `none`, `maximum` and similar work as aliases), `/effort auto` goes back to the model default, `/effort refresh` updates the data the menu is built from (see below).
-- The choice is remembered **per model**. After switching to a model that does not offer a saved level, nothing is sent. The current level is shown next to the model name (`o3 · think high`; `think auto` means the model's own default). While the agent works, the status line shows how many tokens the model has written for your request so far (`↓ 364 tokens`), and the line after the turn sums it up (`18.1k in · 59 out`).
+- The choice is remembered **per model**. After switching to a model that does not offer a saved level, nothing is sent. The current level is shown next to the model name (`gpt-5.5 · think high`; `think auto` means the model's own default). While the agent works, the status line shows how many tokens the model has written for your request so far (`↓ 364 tokens`), and the line after the turn sums it up (`18.1k in · 59 out`).
 - `devx -p "task" --effort high` sets a level for one run only (it is never saved).
 - If an endpoint answers 400 and complains about the reasoning parameter, devx repeats the request once without it, tells you, and stops sending it.
 
@@ -317,9 +317,10 @@ Rules by model name (the fallback):
 | Model | Levels | Sent as |
 | :--- | :--- | :--- |
 | OpenAI o-series, gpt-oss | low, normal, high | `reasoning_effort` (`reasoning.effort` on OpenRouter) |
-| GPT-5, 5.1, 5.2 | off (minimal on GPT-5), low, normal, high, plus xhigh from 5.2 | `reasoning_effort` |
+| GPT-5.x, 5.5+ | off (minimal on GPT-5), low, normal, high, plus xhigh from 5.2 | `reasoning_effort` |
 | Grok 3 mini | low, high | `reasoning_effort` |
-| Claude 3.7 / 4 / 4.5 | off, low, normal, high, xhigh, max (Opus 4 and 4.1 without max) | `thinking.budget_tokens` (Anthropic), `reasoning.max_tokens` (OpenRouter) |
+| Claude 3.7 / 4.x / 5.x (Fable, Opus, Sonnet, Haiku) | off, low, normal, high, xhigh, max (Opus 4 and 4.1 without max) | `thinking.budget_tokens` (Anthropic), `reasoning.max_tokens` (OpenRouter) |
+| Gemini 3.x (3.1 Pro, 3.6 Flash) | low, high | `reasoning_effort` |
 | Gemini 2.5 Pro / Flash | low to max (Flash also off) | `thinking_budget` (Google), `reasoning.max_tokens` (OpenRouter) |
 | Qwen3 | off, low, normal, high, max | `enable_thinking` / `thinking_budget` (DashScope) |
 | DeepSeek V3.1+, GLM 4.5+ | off, normal | `reasoning.enabled`, `thinking.type` |

@@ -127,28 +127,29 @@ function familyFor(name: string): Family | 'always-on' | null {
     return { id: 'openai-o', kind: 'effort', levels: ['low', 'normal', 'high'], confidence: 'known', effort: OPENAI_EFFORT };
   }
 
-  const gpt5 = name.match(/^gpt-5(?:\.(\d+))?/);
+  const gpt5 = name.match(/^gpt-([5-9])(?:\.(\d+))?/);
   if (gpt5) {
     if (/chat/.test(name)) return null; // gpt-5-chat does not reason
-    const minor = gpt5[1] ? parseInt(gpt5[1], 10) : 0;
+    const major = parseInt(gpt5[1], 10);
+    const minor = gpt5[2] ? parseInt(gpt5[2], 10) : 0;
     if (/-pro/.test(name)) return { id: 'gpt-5-pro', kind: 'effort', levels: ['high'], confidence: 'known', effort: { high: 'high' } };
     const levels: ReasoningLevel[] = ['off', 'low', 'normal', 'high'];
     const effort: Partial<Record<ReasoningLevel, string>> = {
       // gpt-5 itself cannot be switched off, "minimal" is the closest; 5.1 and later accept "none"
-      off: minor === 0 ? 'minimal' : 'none', low: 'low', normal: 'medium', high: 'high',
+      off: major === 5 && minor === 0 ? 'minimal' : 'none', low: 'low', normal: 'medium', high: 'high',
     };
-    if (minor >= 2 || /codex-max/.test(name)) {
+    if (major > 5 || minor >= 2 || /codex-max/.test(name)) {
       levels.push('xhigh');
       effort.xhigh = 'xhigh';
     }
-    return { id: minor === 0 ? 'gpt-5' : `gpt-5.${minor}`, kind: 'effort', levels, confidence: minor <= 2 ? 'known' : 'guess', effort };
+    return { id: minor === 0 ? `gpt-${major}` : `gpt-${major}.${minor}`, kind: 'effort', levels, confidence: major === 5 && minor <= 2 ? 'known' : 'guess', effort };
   }
 
   if (/^grok-3-mini/.test(name)) {
     return { id: 'grok-3-mini', kind: 'effort', levels: ['low', 'high'], confidence: 'known', effort: { low: 'low', high: 'high' } };
   }
 
-  if (/^claude-/.test(name) && /claude-(3[-.]7|(opus|sonnet|haiku)-[4-9]|[4-9])/.test(name)) {
+  if (/^claude-/.test(name) && /claude-(3[-.]7|(opus|sonnet|haiku|fable)-[4-9]|[4-9])/.test(name)) {
     // Opus 4 / 4.1 can write at most 32k tokens, newer models 64k: that bounds the thinking budget.
     const smallOutput = /opus-4(?![.-]?[5-9])/.test(name);
     const levels: ReasoningLevel[] = smallOutput ? ['off', 'low', 'normal', 'high', 'xhigh'] : ['off', 'low', 'normal', 'high', 'xhigh', 'max'];
