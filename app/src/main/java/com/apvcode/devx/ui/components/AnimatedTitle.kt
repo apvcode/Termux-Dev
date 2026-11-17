@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.apvcode.devx.ui.chat.ThinkingSparkle
+import androidx.compose.foundation.ExperimentalFoundationApi
 
 /**
  * The name of a chat. While the model is still writing it (the chat has the first words of the question as a name for the time
@@ -43,7 +44,7 @@ import com.apvcode.devx.ui.chat.ThinkingSparkle
  * are gone and the new ones come in letter by letter, each fading in from nothing, with the sparkle folding away. A name that
  * is only changed (renamed by hand) appears as it is.
  */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AnimatedChatTitle(
     title: String,

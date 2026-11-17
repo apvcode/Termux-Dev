@@ -21,6 +21,9 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.net.InetAddress
+import java.net.UnknownHostException
+import java.util.UUID
 
 /*
  * MCP (Model Context Protocol) servers the assistant may use: GitHub, documentation, anything that speaks MCP over HTTP.
@@ -73,7 +76,7 @@ class McpSession(private val http: OkHttpClient, private val url: String, privat
         val init = rpc("initialize", JSONObject()
             .put("protocolVersion", PROTOCOL)
             .put("capabilities", JSONObject())
-            .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.3.0")), retry = false)
+            .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.4.0")), retry = false)
         init.optString("protocolVersion").takeIf { it.isNotEmpty() }?.let { protocol = it }
         serverName = init.optJSONObject("serverInfo")?.optString("title")?.takeIf { it.isNotBlank() }
             ?: init.optJSONObject("serverInfo")?.optString("name")?.takeIf { it.isNotBlank() }
@@ -132,7 +135,7 @@ class McpSession(private val http: OkHttpClient, private val url: String, privat
             if (!retry || method == "initialize") throw McpException("The server closed the session.")
             sessionId = null
             val init = rpc("initialize", JSONObject().put("protocolVersion", PROTOCOL).put("capabilities", JSONObject())
-                .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.3.0")), retry = false)
+                .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.4.0")), retry = false)
             init.optString("protocolVersion").takeIf { it.isNotEmpty() }?.let { protocol = it }
             post(JSONObject().put("jsonrpc", "2.0").put("method", "notifications/initialized"), expectId = null)
             rpc(method, params, retry = false)
@@ -236,7 +239,7 @@ class McpStore(private val context: Context, private val secrets: Secrets, priva
                     }
                 }
             }
-        }.getOrDefault(emptyList())
+        }.logged("mcp").getOrDefault(emptyList())
         servers.clear()
         servers.addAll(list)
         servers.filter { it.enabled }.forEach { connect(it) }
@@ -246,7 +249,7 @@ class McpStore(private val context: Context, private val secrets: Secrets, priva
         val json = JSONArray().also { a ->
             servers.forEach { a.put(JSONObject().put("id", it.id).put("slug", it.slug).put("name", it.name).put("url", it.url).put("enabled", it.enabled).put("readOnly", it.readOnly).put("always", JSONArray(it.always.toList()))) }
         }.toString()
-        runCatching { file.writeText(json) }
+        AtomicFile.writeQuietly("mcp", file, json)
     }
 
     /** What is sent with every message: a token as "Authorization: Bearer", and any other headers the person gave. */
@@ -271,7 +274,7 @@ class McpStore(private val context: Context, private val secrets: Secrets, priva
     fun add(name: String, url: String, token: String, extraHeaders: String): McpServer {
         // A server is added once: the same address gives back the one that is there.
         existing(url)?.let { return it }
-        val id = java.util.UUID.randomUUID().toString().take(8)
+        val id = UUID.randomUUID().toString().take(8)
         val base = slugOf(name)
         var slug = base
         var n = 2
@@ -513,26 +516,26 @@ class McpTools(private val store: McpStore) {
 class FallbackDns : okhttp3.Dns {
     private val doh = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).readTimeout(5, TimeUnit.SECONDS).build()
 
-    override fun lookup(hostname: String): List<java.net.InetAddress> {
+    override fun lookup(hostname: String): List<InetAddress> {
         try {
             return okhttp3.Dns.SYSTEM.lookup(hostname)
-        } catch (e: java.net.UnknownHostException) {
-            val found = resolvers.firstNotNullOfOrNull { base -> runCatching { ask(base, hostname) }.getOrNull()?.takeIf { it.isNotEmpty() } }
+        } catch (e: UnknownHostException) {
+            val found = resolvers.firstNotNullOfOrNull { base -> runCatching { ask(base, hostname) }.logged("mcp").getOrNull()?.takeIf { it.isNotEmpty() } }
             return found ?: throw e
         }
     }
 
-    private fun ask(base: String, hostname: String): List<java.net.InetAddress> {
+    private fun ask(base: String, hostname: String): List<InetAddress> {
         val request = Request.Builder().url("$base?name=$hostname&type=A").header("Accept", "application/dns-json").build()
         doh.newCall(request).execute().use { r ->
             if (!r.isSuccessful) return emptyList()
             val answers = JSONObject(r.body?.string().orEmpty()).optJSONArray("Answer") ?: return emptyList()
-            val out = ArrayList<java.net.InetAddress>()
+            val out = ArrayList<InetAddress>()
             for (i in 0 until answers.length()) {
                 val a = answers.getJSONObject(i)
                 if (a.optInt("type") != 1) continue
-                val ip = java.net.InetAddress.getByName(a.optString("data"))
-                out += java.net.InetAddress.getByAddress(hostname, ip.address)
+                val ip = InetAddress.getByName(a.optString("data"))
+                out += InetAddress.getByAddress(hostname, ip.address)
             }
             return out
         }

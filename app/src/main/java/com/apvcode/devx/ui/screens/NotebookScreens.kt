@@ -116,6 +116,15 @@ import com.apvcode.devx.ui.theme.DevxFonts
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import com.apvcode.devx.ui.chat.ThinkingSparkle
 
 // ───────────────────────── a new notebook ─────────────────────────
 
@@ -148,6 +157,7 @@ fun NotebookNewScreen(vm: ChatViewModel, onClose: () -> Unit, onCreated: (String
                 singleLine = true,
                 textStyle = DevxType.Large.copy(fontSize = 38.sp, lineHeight = 46.sp, color = DevxColors.TextPrimary),
                 cursorBrush = SolidColor(DevxColors.Accent),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 decorationBox = { inner ->
                     Box {
@@ -253,10 +263,10 @@ fun SourcesScreen(vm: ChatViewModel, name: String, onBack: () -> Unit, onOpen: (
                     Box(Modifier.size(64.dp).clip(CircleShape).background(DevxColors.Card), contentAlignment = Alignment.Center) {
                         Icon(DevxIcons.Paperclip, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(28.dp))
                     }
-                    Text(stringResource(R.string.notebook_sources_empty), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text(stringResource(R.string.notebook_sources_empty), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = TextAlign.Center)
                 }
             } else {
-                LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     itemsIndexed(info.sources.toList(), key = { _, a -> a.id }) { i, a ->
                         SourceRow(
                             a, vm, delayMs = (i * 45).coerceAtMost(360), modifier = Modifier.animateItem(),
@@ -293,7 +303,7 @@ fun SourcesScreen(vm: ChatViewModel, name: String, onBack: () -> Unit, onOpen: (
             Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircleIconButton(Icons.Outlined.Close, stringResource(R.string.cd_close), { if (!busy) siteOpen = false })
-                    Text(stringResource(R.string.site_title), style = DevxType.BodyStrong, color = DevxColors.TextPrimary, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text(stringResource(R.string.site_title), style = DevxType.BodyStrong, color = DevxColors.TextPrimary, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
                     Box(
                         Modifier.size(44.dp).pressable(enabled = text.isNotBlank() && !busy, scaleTo = 0.9f) {
                             busy = true
@@ -306,7 +316,7 @@ fun SourcesScreen(vm: ChatViewModel, name: String, onBack: () -> Unit, onOpen: (
                         }.clip(CircleShape).background(if (text.isNotBlank()) Color(0xFF2B3F9E) else DevxColors.Card),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (busy) Box(Modifier.size(18.dp)) { com.apvcode.devx.ui.chat.ThinkingSparkle() }
+                        if (busy) Box(Modifier.size(18.dp)) { ThinkingSparkle() }
                         else Icon(Icons.Outlined.Check, stringResource(R.string.task_save), tint = if (text.isNotBlank()) Color.White else DevxColors.TextDisabled, modifier = Modifier.size(22.dp))
                     }
                 }
@@ -337,7 +347,7 @@ fun SourcesScreen(vm: ChatViewModel, name: String, onBack: () -> Unit, onOpen: (
 }
 
 @Composable
-private fun SheetRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: Int, onClick: () -> Unit) {
+private fun SheetRow(icon: ImageVector, label: Int, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().pressable(scaleTo = 0.98f, haptic = false, onClick = onClick).padding(horizontal = 28.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(22.dp)) {
         Icon(icon, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(24.dp))
         Text(stringResource(label), style = DevxType.Body.copy(fontSize = 18.sp), color = DevxColors.TextPrimary)
@@ -352,7 +362,7 @@ private fun SourceRow(
 ) {
     var menu by remember { mutableStateOf(false) }
     val press = remember { PressState() }
-    val shown = remember { androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true } }
+    val shown = remember { MutableTransitionState(false).apply { targetState = true } }
     val summary = vm.libraryMeta.summaries[a.id]
     val state = vm.libraryMeta.states[a.id]
     val shape = RoundedCornerShape(20.dp)
@@ -387,7 +397,7 @@ private fun SourceRow(
 @Composable
 fun Shimmer(modifier: Modifier = Modifier) {
     val phase by rememberInfiniteTransition(label = "shimmer").animateFloat(0f, 1f, infiniteRepeatable(tween(1300, easing = LinearEasing), RepeatMode.Restart), label = "shimmer-phase")
-    val sweep = androidx.compose.ui.graphics.Brush.horizontalGradient(
+    val sweep = Brush.horizontalGradient(
         listOf(DevxColors.Outline.copy(alpha = 0.5f), DevxColors.TextDisabled.copy(alpha = 0.55f), DevxColors.Outline.copy(alpha = 0.5f)),
         startX = -200f + phase * 900f, endX = 100f + phase * 900f,
     )
@@ -399,7 +409,7 @@ fun Shimmer(modifier: Modifier = Modifier) {
 
 /** The small picture of a source: the photo itself, or the icon of the file's kind. */
 @Composable
-fun SourceThumb(a: Attachment, vm: ChatViewModel, size: androidx.compose.ui.unit.Dp = 52.dp) {
+fun SourceThumb(a: Attachment, vm: ChatViewModel, size: Dp = 52.dp) {
     val shape = RoundedCornerShape(14.dp)
     Box(Modifier.size(size).clip(shape).background(DevxColors.CardInner), contentAlignment = Alignment.Center) {
         if (a.kind == AttachmentKind.Image) {
@@ -444,6 +454,7 @@ fun NotebookSettingsScreen(vm: ChatViewModel, name: String, onBack: () -> Unit, 
                 onValueChange = { text = it; vm.setProjectInstructions(name, it) },
                 textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
                 cursorBrush = SolidColor(DevxColors.Accent),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 260.dp).clip(RoundedCornerShape(24.dp)).background(DevxColors.Card),
                 decorationBox = { inner ->
                     Box(Modifier.padding(20.dp)) {

@@ -123,7 +123,7 @@ class ImageTools(
             val out = StringBuilder("Pictures inside pages $from to $to of $total of ${a.name}:\n")
             var any = false
             for (p in from..to) {
-                val images = runCatching { pageImages(doc.getPage(p - 1)) }.getOrDefault(emptyList())
+                val images = runCatching { pageImages(doc.getPage(p - 1)) }.logged("imagetools").getOrDefault(emptyList())
                 if (images.isEmpty()) continue
                 any = true
                 out.append("Page $p: ")

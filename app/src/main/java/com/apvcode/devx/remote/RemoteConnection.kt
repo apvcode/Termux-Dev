@@ -1,5 +1,6 @@
 package com.apvcode.devx.remote
 
+import com.apvcode.devx.data.attempt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -21,6 +22,8 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 
 enum class LinkState { Idle, Connecting, Online, Offline }
 
@@ -58,7 +61,7 @@ suspend fun raceConnect(
             if (result.isCompleted) { link.close(); return }
             val channel = connectSecure(link, hostPub, signer, did, pair, onSas)
             if (!result.complete(channel)) channel.close()
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             errors[label] = e.message ?: e.javaClass.simpleName
@@ -90,7 +93,7 @@ private suspend fun pairInOrder(hostPub: ByteArray, signer: Signer, did: String,
         try {
             val link = way()
             return connectSecure(link, hostPub, signer, did, pair, onSas, timeoutMs = 7000)
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             if (e is RemoteException && e.denied) throw e
@@ -205,7 +208,7 @@ class RemoteConnection(
                 markSeen()
                 state = LinkState.Offline
                 error = null
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 state = LinkState.Offline
@@ -251,7 +254,7 @@ class RemoteConnection(
         onComputerChanged(updated)
         // The computer learns who is here, and whether the memory of this phone may be read.
         scope.launch(Dispatchers.IO) {
-            runCatching { request("hello", profile()) }
+            attempt("remoteconnection") { request("hello", profile()) }
             _online.emit(Unit)
         }
     }
@@ -285,7 +288,7 @@ class RemoteConnection(
         withContext(Dispatchers.IO) { ch.send(JSONObject().put("k", "req").put("id", id).put("m", method).put("p", params)) }
         val res = try {
             withTimeout(timeoutMs) { d.await() }
-        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+        } catch (e: TimeoutCancellationException) {
             waiting.remove(id)
             throw RemoteException("$method: the computer did not answer")
         }

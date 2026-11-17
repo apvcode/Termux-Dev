@@ -20,6 +20,11 @@ import javax.crypto.KeyAgreement
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.security.PublicKey
 
 /**
  * The cryptography of the link to the computer: P-256 (ECDH to agree on a key, ECDSA to prove who is who),
@@ -43,9 +48,9 @@ class KeystoreSigner(private val alias: String = "devx_remote_identity") : Signe
         if (!ks.containsAlias(alias)) {
             val gen = KeyPairGenerator.getInstance("EC", "AndroidKeyStore")
             gen.initialize(
-                android.security.keystore.KeyGenParameterSpec.Builder(alias, android.security.keystore.KeyProperties.PURPOSE_SIGN)
+                KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
                     .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-                    .setDigests(android.security.keystore.KeyProperties.DIGEST_SHA256)
+                    .setDigests(KeyProperties.DIGEST_SHA256)
                     .build(),
             )
             gen.generateKeyPair()
@@ -94,7 +99,7 @@ object RemoteCrypto {
 
     fun rawPoint(key: ECPublicKey): ByteArray = byteArrayOf(4) + fixed32(key.w.affineX) + fixed32(key.w.affineY)
 
-    fun publicFromRaw(raw: ByteArray): java.security.PublicKey {
+    fun publicFromRaw(raw: ByteArray): PublicKey {
         require(raw.size == 65 && raw[0] == 4.toByte()) { "bad public key" }
         val point = ECPoint(BigInteger(1, raw.copyOfRange(1, 33)), BigInteger(1, raw.copyOfRange(33, 65)))
         return KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(point, params))
@@ -114,7 +119,7 @@ object RemoteCrypto {
     /** HKDF-SHA256 (RFC 5869). */
     fun hkdf(ikm: ByteArray, salt: ByteArray, info: ByteArray, length: Int): ByteArray {
         val prk = hmac(if (salt.isEmpty()) ByteArray(32) else salt, ikm)
-        val out = java.io.ByteArrayOutputStream()
+        val out = ByteArrayOutputStream()
         var t = ByteArray(0)
         var i = 1
         while (out.size() < length) {
@@ -144,7 +149,7 @@ class Sealer(key: ByteArray) {
 
     @Synchronized
     fun seal(plain: ByteArray): ByteArray {
-        val s = ByteArray(8).also { java.nio.ByteBuffer.wrap(it).putLong(seq++) }
+        val s = ByteArray(8).also { ByteBuffer.wrap(it).putLong(seq++) }
         val c = Cipher.getInstance("AES/GCM/NoPadding")
         c.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, ByteArray(4) + s))
         c.updateAAD(s)
@@ -161,7 +166,7 @@ class Opener(key: ByteArray) {
     fun open(frame: ByteArray): ByteArray? {
         if (frame.size < 8 + 16) return null
         val s = frame.copyOfRange(0, 8)
-        val n = java.nio.ByteBuffer.wrap(s).long
+        val n = ByteBuffer.wrap(s).long
         if (n <= last) return null
         return try {
             val c = Cipher.getInstance("AES/GCM/NoPadding")

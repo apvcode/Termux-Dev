@@ -92,6 +92,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
+import com.apvcode.devx.ui.components.SettingsDivider
 
 // ───────────────────────── the pieces ─────────────────────────
 
@@ -115,7 +120,7 @@ fun LockGlyph(open: Float, modifier: Modifier = Modifier, tint: Color = DevxColo
             val shackle = Path().apply {
                 moveTo(p(8f, 11f).x, p(8f, 11f).y)
                 lineTo(p(8f, 7f).x, p(8f, 7f).y)
-                arcTo(androidx.compose.ui.geometry.Rect(p(8f, 3f), p(16f, 11f)), 180f, 180f, false)
+                arcTo(Rect(p(8f, 3f), p(16f, 11f)), 180f, 180f, false)
                 lineTo(p(16f, 11f - open * 3f).x, p(16f, 11f - open * 3f).y)
             }
             drawPath(shackle, tint, style = line)
@@ -158,7 +163,7 @@ private fun Appear(index: Int, modifier: Modifier = Modifier, content: @Composab
 }
 
 @Composable
-private fun PadKey(label: String?, index: Int, enabled: Boolean, onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector? = null) {
+private fun PadKey(label: String?, index: Int, enabled: Boolean, onClick: () -> Unit, icon: ImageVector? = null) {
     Appear(index) {
         Box(
             Modifier.size(76.dp).clip(CircleShape).background(if (label != null || icon != null) DevxColors.Card else Color.Transparent)
@@ -468,7 +473,7 @@ private fun LockSettings(onBack: () -> Unit, onTurnOn: () -> Unit, onTurnOff: ()
             SettingsGroup {
                 SettingsSwitchRow(stringResource(R.string.settings_pin), stringResource(R.string.lock_switch_hint), AppLock.enabled) { on -> if (on) onTurnOn() else onTurnOff() }
             }
-            androidx.compose.animation.AnimatedVisibility(AppLock.enabled, enter = fadeIn(tween(260)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 300f), initialScale = 0.96f), exit = fadeOut(tween(160))) {
+            AnimatedVisibility(AppLock.enabled, enter = fadeIn(tween(260)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 300f), initialScale = 0.96f), exit = fadeOut(tween(160))) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.lock_scope_title), style = DevxType.Section, color = DevxColors.TextSecondary, modifier = Modifier.padding(start = 6.dp))
                     ScopePicker()
@@ -478,17 +483,17 @@ private fun LockSettings(onBack: () -> Unit, onTurnOn: () -> Unit, onTurnOff: ()
                     )
                 }
             }
-            androidx.compose.animation.AnimatedVisibility(AppLock.enabled, enter = fadeIn(tween(260)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 300f), initialScale = 0.96f), exit = fadeOut(tween(160))) {
+            AnimatedVisibility(AppLock.enabled, enter = fadeIn(tween(260)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 300f), initialScale = 0.96f), exit = fadeOut(tween(160))) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     SettingsGroup {
                         SettingsRow(title = stringResource(R.string.lock_change), showChevron = true, onClick = onChange)
                         if (Biometrics.available(context)) {
-                            com.apvcode.devx.ui.components.SettingsDivider()
+                            SettingsDivider()
                             SettingsSwitchRow(stringResource(R.string.lock_biometric), stringResource(R.string.lock_biometric_hint), AppLock.biometric) { AppLock.useBiometric(it) }
                         }
-                        com.apvcode.devx.ui.components.SettingsDivider()
+                        SettingsDivider()
                         SettingsRow(title = stringResource(R.string.lock_after), value = timeoutLabel(AppLock.timeoutSeconds), showChevron = true, onClick = { timeoutDialog = true })
-                        com.apvcode.devx.ui.components.SettingsDivider()
+                        SettingsDivider()
                         SettingsRow(title = stringResource(R.string.lock_now), showChevron = false, onClick = { AppLock.lockNow() })
                     }
                     if (AppLock.locksChats) Text(stringResource(R.string.lock_chats_hint), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp))
@@ -511,7 +516,7 @@ private fun LockSettings(onBack: () -> Unit, onTurnOn: () -> Unit, onTurnOff: ()
 private fun ScopePicker() {
     val options = listOf(LockScope.Chats to R.string.lock_scope_chats, LockScope.App to R.string.lock_scope_app, LockScope.Both to R.string.lock_scope_both)
     val selected = options.indexOfFirst { it.first == AppLock.scope }.coerceAtLeast(0)
-    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().clip(CircleShape).background(DevxColors.Card).padding(4.dp)) {
+    BoxWithConstraints(Modifier.fillMaxWidth().clip(CircleShape).background(DevxColors.Card).padding(4.dp)) {
         val w = maxWidth / options.size
         val x by androidx.compose.animation.core.animateDpAsState(w * selected, spring(dampingRatio = 0.78f, stiffness = 420f), label = "scope-thumb")
         Box(Modifier.androidxOffset(x).size(width = w, height = 44.dp).clip(CircleShape).background(DevxColors.Accent))
@@ -526,7 +531,7 @@ private fun ScopePicker() {
     }
 }
 
-private fun Modifier.androidxOffset(x: androidx.compose.ui.unit.Dp): Modifier = this.then(Modifier.offset(x = x))
+private fun Modifier.androidxOffset(x: Dp): Modifier = this.then(Modifier.offset(x = x))
 
 @Composable
 private fun timeoutLabel(seconds: Int): String = when (seconds) {

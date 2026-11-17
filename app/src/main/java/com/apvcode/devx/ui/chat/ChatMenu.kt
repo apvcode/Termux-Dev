@@ -102,6 +102,13 @@ import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import java.io.File
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.text.style.TextOverflow
+import com.apvcode.devx.data.AppLock
+import com.apvcode.devx.data.ContextLimit
+import com.apvcode.devx.data.ModelLimits
+import com.apvcode.devx.ui.components.AnimatedChatTitle
 
 /** What the chat menu hands back to the screen: things only the screen can do. */
 class ChatMenuActions(
@@ -150,14 +157,14 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                 Column {
                     if (shown == 0) {
                         // The name of this chat in full (it wraps instead of being cut), animated while the model is still writing it.
-                        com.apvcode.devx.ui.components.AnimatedChatTitle(
+                        AnimatedChatTitle(
                             title = chat.title,
                             naming = chat.naming,
                             style = DevxType.BodyStrong.copy(fontSize = 14.sp, lineHeight = 19.sp),
                             color = DevxColors.TextPrimary,
                             maxLines = 3,
                             mark = false,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = if (chat.messages.isEmpty()) 6.dp else 2.dp),
                         )
                         // What the provider counted, when it said; otherwise the rough estimate, set against the model's window.
@@ -165,19 +172,24 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                         val cutAt = chat.summaryUpTo?.let { id -> shown.indexOfFirst { it.id == id } } ?: -1
                         // A count from before a shortening no longer says how big the chat is.
                         val counted = shown.withIndex().lastOrNull { it.value.contextTokens > 0 && it.index > cutAt }?.value
-                        val limit = remember(chat.model) { chat.model?.model?.let { com.apvcode.devx.data.ModelLimits.of(it) } }
+                        val limit = remember(chat.model) { chat.model?.model?.let { ModelLimits.of(it) } }
                         val used = counted?.contextTokens ?: estimate
-                        if (used != null && limit != null && chat.messages.isNotEmpty()) {
+                        if (limit != null && chat.messages.isNotEmpty()) {
+                            // The place of the bar is kept from the first frame (the estimate comes a moment later), so the menu does not jump.
                             ContextMeter(used, limit, estimated = counted == null)
-                            if (counted != null) {
-                                Text(
-                                    stringResource(R.string.menu_usage, tokenLabel(chat.activePath().sumOf { it.tokensIn }), tokenLabel(chat.activePath().sumOf { it.tokensOut })),
-                                    style = DevxType.Caption,
-                                    color = DevxColors.TextDisabled,
-                                    modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 4.dp, bottom = 6.dp),
-                                )
-                            } else Spacer(Modifier.height(6.dp))
                         }
+                        // What the provider counted over the whole chat. It does not depend on the window of the model or on a count
+                        // being known for the last answer: whenever anything was counted, it is shown.
+                        val sent = shown.sumOf { it.tokensIn }
+                        val received = shown.sumOf { it.tokensOut }
+                        if (sent > 0 || received > 0) {
+                            Text(
+                                stringResource(R.string.menu_usage, tokenLabel(sent), tokenLabel(received)),
+                                style = DevxType.Caption,
+                                color = DevxColors.TextDisabled,
+                                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 4.dp, bottom = 6.dp),
+                            )
+                        } else if (limit != null && chat.messages.isNotEmpty()) Spacer(Modifier.height(6.dp))
                         MenuRow(DevxIcons.Share, stringResource(R.string.msg_share)) { open = false; actions.onShare() }
                         MenuRow(DevxIcons.Pin, stringResource(if (chat.pinned) R.string.menu_unpin else R.string.menu_pin)) {
                             open = false
@@ -187,7 +199,7 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                             if (chat.locked) DevxIcons.LockOpen else DevxIcons.Lock,
                             stringResource(if (chat.locked) R.string.menu_unlock else R.string.menu_lock),
                             // Locking needs the app lock to be on and to cover chats; a chat that is already locked can always be released.
-                            enabled = chat.locked || com.apvcode.devx.data.AppLock.locksChats,
+                            enabled = chat.locked || AppLock.locksChats,
                         ) { open = false; actions.onToggleLock() }
                         MenuRow(
                             DevxIcons.Minimize,
@@ -302,7 +314,7 @@ fun UploadedFilesScreen(
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 modifier = Modifier.weight(1f),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -515,21 +527,21 @@ private fun tokenLabel(tokens: Int): String = com.apvcode.devx.data.formatTokens
 
 /** The room a chat takes in the model's window: the numbers and a thin bar that fills (and turns red when it is nearly full). */
 @Composable
-private fun ContextMeter(used: Int, limit: com.apvcode.devx.data.ContextLimit, estimated: Boolean) {
-    val fraction = (used.toFloat() / limit.tokens).coerceIn(0f, 1f)
-    val shown by androidx.compose.animation.core.animateFloatAsState(fraction, androidx.compose.animation.core.tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "context-fill")
+private fun ContextMeter(used: Int?, limit: ContextLimit, estimated: Boolean) {
+    val fraction = ((used ?: 0).toFloat() / limit.tokens).coerceIn(0f, 1f)
+    val shown by androidx.compose.animation.core.animateFloatAsState(fraction, androidx.compose.animation.core.tween(600, easing = FastOutSlowInEasing), label = "context-fill")
     val tint = when { fraction > 0.85f -> DevxColors.Danger; fraction > 0.65f -> DevxColors.Warning; else -> DevxColors.TextPrimary }
     Column(Modifier.padding(start = 18.dp, end = 18.dp, top = 4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 stringResource(
                     R.string.menu_context_of,
-                    (if (estimated) "≈ " else "") + tokenLabel(used),
+                    if (used == null) "…" else (if (estimated) "≈ " else "") + tokenLabel(used),
                     (if (limit.approximate) "~" else "") + tokenLabel(limit.tokens),
                 ),
                 style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.weight(1f),
             )
-            Text(percentLabel(fraction), style = DevxType.Caption, color = tint)
+            Text(if (used == null) "" else percentLabel(fraction), style = DevxType.Caption, color = tint)
         }
         Spacer(Modifier.height(6.dp))
         Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(DevxColors.Outline)) {

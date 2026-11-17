@@ -46,6 +46,8 @@ import com.apvcode.devx.ui.components.errorTitleRes
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import java.util.UUID
+import androidx.compose.ui.text.input.KeyboardType
+import java.net.URI
 
 private const val OPENAI_URL = "https://api.openai.com/v1"
 private const val ANTHROPIC_URL = "https://api.anthropic.com"
@@ -125,7 +127,7 @@ fun ProviderEditScreen(vm: ChatViewModel, providerId: String?, onBack: () -> Uni
             }
         }
         item { DevxTextField(stringResource(R.string.provider_name), name, { name = it }, placeholder = stringResource(R.string.provider_name_hint)) }
-        item { DevxTextField(stringResource(R.string.provider_url), baseUrl, { baseUrl = it }, keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri) }
+        item { DevxTextField(stringResource(R.string.provider_url), baseUrl, { baseUrl = it }, keyboardType = KeyboardType.Uri) }
         item {
             Text(
                 stringResource(R.string.provider_kind_hint),
@@ -243,4 +245,4 @@ private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
     )
 }
 
-private fun hostOf(url: String): String = runCatching { java.net.URI(url.trim()).host }.getOrNull() ?: url
+private fun hostOf(url: String): String = runCatching { URI(url.trim()).host }.getOrNull() ?: url

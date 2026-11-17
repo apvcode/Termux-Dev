@@ -180,7 +180,7 @@ object MarkdownParser {
         return Rich(text, ids)
     }
 
-    private fun androidx.compose.ui.text.AnnotatedString.Builder.inline(first: Node?, math: List<MathSpan>, ids: MutableList<Int>) {
+    private fun AnnotatedString.Builder.inline(first: Node?, math: List<MathSpan>, ids: MutableList<Int>) {
         var cursor = first
         while (cursor != null) {
             val node: Node = cursor
@@ -204,7 +204,7 @@ object MarkdownParser {
     }
 
     /** Text may carry formula tokens: each becomes an inline picture slot (`appendInlineContent`). */
-    private fun androidx.compose.ui.text.AnnotatedString.Builder.appendWithMath(literal: String, math: List<MathSpan>, ids: MutableList<Int>) {
+    private fun AnnotatedString.Builder.appendWithMath(literal: String, math: List<MathSpan>, ids: MutableList<Int>) {
         var last = 0
         for (match in MathExtract.token.findAll(literal)) {
             append(literal.substring(last, match.range.first))

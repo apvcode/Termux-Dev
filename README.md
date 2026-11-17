@@ -64,7 +64,7 @@ The API key is kept encrypted on the phone (Android Keystore) and goes only to t
 - Type `@` in the field: a menu of what you can point at (a notebook, a project, a file of the library, a scheduled task). A notebook or a project becomes part of the sentence, in its colour, and the assistant is given what it holds. By voice just say its name.
 - One search for chats, notebooks, projects, files and sources, also by what is written inside documents, PDFs and notes.
 - Paste pictures and files straight into the message field (from the clipboard or the keyboard). "Ask devx" on selected text does not touch your clipboard.
-- Backup and restore of chats, notebooks, memory, skills and settings in one file; an automatic weekly copy into a folder you choose (the last four are kept).
+- Backup and restore of everything in one file: chats, notebooks and projects, memory, skills, character, attachments and settings. API keys and tokens go in only if you set a password (they are encrypted with it). Before restoring, the app shows what is in the file and what it will replace. A weekly copy is made by itself into a folder you choose and, if you like, also uploaded to a WebDAV folder (Nextcloud, a NAS); the last four are kept.
 - Pin and archive chats, lock a single chat, add a chat to the home screen. "Ask devx" on selected text quotes the passage as a card in your next message.
 - The assistant works with files in a folder of its own: it creates and reads files, makes and unpacks archives, reads a PDF page by page and looks at its pictures, edits pictures, and unpacks, changes, repacks and signs APKs. Approvals can be given from the notification itself (Allow / Deny).
 - Four widgets (an ask bar, quick buttons, the latest chats, the cards that are due) and two quick-settings tiles (ask, voice).
@@ -78,14 +78,16 @@ The API key is kept encrypted on the phone (Android Keystore) and goes only to t
 - The assistant can change a notebook or a project (name, icon, colour, description, instructions, goal), and after talking things through it can propose a new notebook or project: you confirm on a card.
 - Share a link, a text, a PDF or a picture from any app: devx offers a new chat or one of your notebooks, where it becomes a source (a link is read and kept).
 - Study stats on the page: days in a row, the last seven days as bars; a home-screen widget shows how many cards are due and starts the review. Cards and the notebook's overview can be heard (an *audio overview* is written to be listened to, then read aloud), and a notebook exports as one Markdown file.
+- Cards can have a picture, and can be answered aloud. They come in from Anki (`.apkg` or text) and from CSV, and go out as an Anki package with pictures, Anki text or CSV. A *concept map* shows the notebook's ideas and how they connect, coloured by how well you know each, with *Explain* and *Quiz me*. A notebook can be put in the archive, or copied to start again (its sources and lessons, not its chats).
 - The library holds every file you ever attached or the assistant made: search, filters, where it was used, attach to a new chat, delete everywhere. PDF, Word, slides, spreadsheets, text, images and sites open in the built-in viewer; Office originals are kept.
 
 ### Look, character and security
 
-- Appearance: follow the system, black, dark gray or light.
+- Appearance has its own page: three quick choices (system, black, light) and a screen of other themes (dark gray, Midnight, Forest, Dusk, Ember, Ocean, Paper, Sakura, Mint). The theme can change by itself with the time of day (a day one and a night one), and the switch is animated. Blurred glass can be turned off: the buttons then stay solid.
 - Character: pick a manner (calm, no fluff, detailed, friendly, professional, blunt, mentor), fine-tune the tone, give the assistant a name and write your own instructions. One tap resets it.
 - App lock with the screen lock, a code or biometrics; single chats can be locked too, and the list of recent apps hides the picture while a lock is on.
 - Photos per message, notifications about answers and approvals, and whether a computer may run in the "everything" mode are in the settings.
+- Data and security have their own page: the lock, the copies and the trash. Deleted chats, projects and notebooks stay in the trash for 30 days and can be put back (right after deleting, a message offers Undo). A chat file that cannot be read is put aside, not lost, and you are told. What the app recovered from is listed under **About → Diagnostics**.
 
 ### Voice assistant
 
@@ -95,6 +97,7 @@ The API key is kept encrypted on the phone (Android Keystore) and goes only to t
 - Looks at your gallery, reads on-screen notifications, works in one folder you pick, but only when you ask and only if you allowed it.
 - Scheduled tasks: "every morning send me the news about AI". They run by themselves and arrive as a chat and a notification.
 - Speech speed, voice and a separate fast model for talking are in **Settings → Voice assistant**.
+- A natural voice from your provider (OpenAI-compatible speech or Gemini) can replace the phone's robotic one: pick the provider, the speech model (from its list, or type a name) and the voice, and hear a sample. If it fails, the reason is shown and the phone's voice reads meanwhile.
 - Tap the pill to write instead of speaking; hold it and swipe up to open the app with the same chat (a hint above the pill always shows how). The microphone has its own soft sounds instead of the speech service's beep.
 - "Keep listening after an answer" (hands free) and the language you speak, chosen apart from the app's.
 - Scheduled tasks have a screen of their own: a time, the days, the model for each one, "run now".

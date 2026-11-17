@@ -1,5 +1,12 @@
 package com.apvcode.devx.ui.chat
 
+import com.apvcode.devx.data.logged
+import com.apvcode.devx.data.SpaceBook
+import com.apvcode.devx.data.branchPosition
+import com.apvcode.devx.data.addContinuation
+import com.apvcode.devx.data.continuationNote
+import com.apvcode.devx.data.SpaceRules
+import com.apvcode.devx.data.attempt
 import com.apvcode.devx.data.Artifact
 import com.apvcode.devx.ui.chat.MentionKind as MK
 import com.apvcode.devx.data.PhoneTools
@@ -23,6 +30,7 @@ import com.apvcode.devx.data.SkillStore
 import com.apvcode.devx.data.SkillTools
 import com.apvcode.devx.data.ProjectInfo
 import com.apvcode.devx.data.ProjectLook
+import com.apvcode.devx.data.ErrorLog
 import com.apvcode.devx.data.ProjectStore
 import android.app.Application
 import android.net.Uri
@@ -89,6 +97,39 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Date
 import java.util.UUID
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.os.SystemClock
+import androidx.compose.runtime.snapshots.Snapshot
+import com.apvcode.devx.data.AppLock
+import com.apvcode.devx.data.ApprovalBridge
+import com.apvcode.devx.data.CardDraft
+import com.apvcode.devx.data.FileHit
+import com.apvcode.devx.data.FileText
+import com.apvcode.devx.data.InsideFinder
+import com.apvcode.devx.data.InsideHit
+import com.apvcode.devx.data.Lesson
+import com.apvcode.devx.data.Library
+import com.apvcode.devx.data.LibraryEntry
+import com.apvcode.devx.data.LibraryMeta
+import com.apvcode.devx.data.MapTools
+import com.apvcode.devx.data.ModelLimits
+import com.apvcode.devx.data.NotebookExport
+import com.apvcode.devx.data.NotebookPrompt
+import com.apvcode.devx.data.NotebookTools
+import com.apvcode.devx.data.PrefFiles
+import com.apvcode.devx.data.ScheduledTask
+import com.apvcode.devx.data.SearchHit
+import com.apvcode.devx.data.Tasks
+import com.apvcode.devx.data.Trash
+import com.apvcode.devx.data.TrashItem
+import java.net.URI
+import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CompletableDeferred
 
 /**
  * Everything the screens need: chats (as trees), projects, providers with their models, and the
@@ -98,6 +139,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val context = app.applicationContext
     private val store = Store(context)
     private val secrets = Secrets(context)
+    private val trash = Trash(java.io.File(context.filesDir, "trash"))
     private val api = Api()
     private val attachmentStore = AttachmentStore(context)
     private val workspace = Workspace(context)
@@ -120,7 +162,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val webTools = WebTools(context)
 
     /** What the assistant said about each file (what it took from it); the library reads it. */
-    val libraryMeta = com.apvcode.devx.data.LibraryMeta(context)
+    val libraryMeta = LibraryMeta(context)
     private val toolbox = Toolbox(
         context, attachmentStore, webTools, WorkTools(context, workspace, artifacts),
         MemoryTools(memory, { projectInfo[it]?.memory }) { chatDigests() },
@@ -128,7 +170,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         McpTools(mcp),
         ImageTools(context, attachmentStore, artifacts),
         PhoneTools(context),
-        com.apvcode.devx.data.NotebookTools({ projectInfo[it] }, { library }, { chatId, file -> useLibraryFile(chatId, file) }, { saveProjects() }, { name, args -> updateSpace(name, args) }, { name, urls -> withContext(Dispatchers.Main) { addSites(name, urls) } },
+        NotebookTools({ projectInfo[it] }, { library }, { chatId, file -> useLibraryFile(chatId, file) }, { saveProjects() }, { name, args -> updateSpace(name, args) }, { name, urls -> withContext(Dispatchers.Main) { addSites(name, urls) } },
         { chatId, a -> withContext(Dispatchers.Main) { createSpace(chatId, a) } },
         { kind -> when (kind) { "study" -> context.getString(R.string.space_ask_study) to context.getString(R.string.space_ask_study_label); "ideas" -> context.getString(R.string.space_ask_ideas) to context.getString(R.string.space_ask_ideas_label); else -> context.getString(R.string.space_ask_project) to context.getString(R.string.space_ask_project_label) } },
         { name, a -> remindStudy(name, a) },
@@ -138,7 +180,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun artifact(id: String): Artifact? = artifacts.get(id)
 
     fun artifactFile(a: Artifact): java.io.File = artifacts.fileOf(a)
-    private val prefs = context.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences(PrefFiles.SETTINGS, Context.MODE_PRIVATE)
 
     // ---------- state ----------
 
@@ -150,23 +192,23 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     val draftAttachments = mutableStateListOf<Attachment>()
 
     /** What @ can point at: the person's notebooks and projects (in the order of the drawer), and the files of the library. */
-    fun mentionItems(): List<com.apvcode.devx.ui.chat.MentionItem> {
+    fun mentionItems(): List<MentionItem> {
         val spaces = projects.mapNotNull { name ->
-            projectInfo[name]?.let { com.apvcode.devx.ui.chat.MentionItem(name, name, it.goal.ifBlank { it.description }.replace("\n", " ").trim(), if (it.isNotebook) MK.Notebook else MK.Project, it) }
+            projectInfo[name]?.let { MentionItem(name, name, it.goal.ifBlank { it.description }.replace("\n", " ").trim(), if (it.isNotebook) MK.Notebook else MK.Project, it) }
         }
         val files = library.filter { it.attachment != null }.take(60).map { e ->
-            com.apvcode.devx.ui.chat.MentionItem("file:" + e.id, e.name, e.summary.replace("\n", " ").trim(), MK.File, attachment = e.attachment)
+            MentionItem("file:" + e.id, e.name, e.summary.replace("\n", " ").trim(), MK.File, attachment = e.attachment)
         }
         val extra = buildList {
-            com.apvcode.devx.data.Tasks.all(context).forEach { t -> add(com.apvcode.devx.ui.chat.MentionItem("task:" + t.id, t.title, com.apvcode.devx.data.Tasks.daysText(t.days) + " %02d:%02d".format(t.hour, t.minute), MK.Tasks)) }
+            Tasks.all(context).forEach { t -> add(MentionItem("task:" + t.id, t.title, Tasks.daysText(t.days) + " %02d:%02d".format(t.hour, t.minute), MK.Tasks)) }
         }
         return spaces + files + extra
     }
 
     /** How a kept mention looks (null when what it pointed at is gone). */
-    fun mentionLook(key: String): com.apvcode.devx.ui.chat.MentionLook? {
-        if (key.startsWith("task:")) return com.apvcode.devx.data.Tasks.get(context, key.removePrefix("task:").toIntOrNull() ?: -1)?.let { com.apvcode.devx.ui.chat.MentionLook(it.title, MK.Tasks, null) }
-        return projectInfo[key]?.let { com.apvcode.devx.ui.chat.MentionLook(key, if (it.isNotebook) MK.Notebook else MK.Project, it) }
+    fun mentionLook(key: String): MentionLook? {
+        if (key.startsWith("task:")) return Tasks.get(context, key.removePrefix("task:").toIntOrNull() ?: -1)?.let { MentionLook(it.title, MK.Tasks, null) }
+        return projectInfo[key]?.let { MentionLook(key, if (it.isNotebook) MK.Notebook else MK.Project, it) }
     }
 
     /** The notebooks and projects a text points at with "@Name" (their keys). */
@@ -174,7 +216,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if ('@' !in text) return emptyList()
         val keys = HashMap<String, String>()
         projects.forEach { keys[it] = it }
-        com.apvcode.devx.data.Tasks.all(context).forEach { keys.putIfAbsent(it.title, "task:" + it.id) }
+        Tasks.all(context).forEach { keys.putIfAbsent(it.title, "task:" + it.id) }
         return com.apvcode.devx.ui.chat.mentionSpans(text, keys.keys).mapNotNull { keys[it.name] }.distinct()
     }
 
@@ -192,6 +234,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     val providers = mutableStateListOf<Provider>()
     val projects = mutableStateListOf<String>()
     private val chatStates = mutableStateListOf<Chat>()
+
+    /** The rules for the list of notebooks and projects and their chats live in [SpaceBook] (tested on their own); this model writes what changed. */
+    private val book = SpaceBook(projects, projectInfo, chatStates)
 
     var currentId by mutableStateOf<String?>(null)
         private set
@@ -219,16 +264,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         mcp.load()
         viewModelScope.launch {
             val data = withContext(Dispatchers.IO) {
-                runCatching { ReasoningCatalog.load(context) }
-                runCatching { com.apvcode.devx.data.ModelLimits.load(context) }
-                val names = store.loadProjects()
-                val info = projectStore.load(names).also { projectStore.save(it) }
-                listOf(store.loadProviders(), names, store.loadModel(), store.loadChats(), store.loadEfforts(), info)
+                attempt("chatviewmodel") { ReasoningCatalog.load(context) }
+                attempt("chatviewmodel") { ModelLimits.load(context) }
+                val info = projectStore.load(store.loadProjects()).also { projectStore.save(it) }
+                // Names come from the loaded details, so a project that was only in the details is not dropped.
+                listOf(store.loadProviders(), info.keys.toList(), store.loadModel(), store.loadChats(), store.loadEfforts(), info)
             }
             @Suppress("UNCHECKED_CAST")
             providers += data[0] as List<Provider>
             @Suppress("UNCHECKED_CAST")
-            projects += data[1] as List<String>
+            projects += (data[1] as List<String>).filter { it !in projects }
             defaultModel = data[2] as ModelRef?
             @Suppress("UNCHECKED_CAST")
             chatStates += data[3] as List<Chat>
@@ -241,7 +286,32 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             projectInfo.values.forEach { it.memory.load() }
             hookSummaries()
             loaded = true
+            healRenamedProjects()
+            adoptOrphanChats()
+            refreshTrash()
+            purgeOldTrash()
+            store.damagedChats.takeIf { it > 0 }?.let { Toast.makeText(context, context.getString(R.string.chats_damaged, it), Toast.LENGTH_LONG).show() }
         }
+    }
+
+    /**
+     * A rename that was cut short (the app was killed after the project had its new name but before every chat was written) leaves
+     * chats with the old name. Each chat also knows the id of its project, so it is put under the project's present name.
+     */
+    private fun healRenamedProjects() {
+        book.healRenamed().forEach { chat ->
+            ErrorLog.warn("projects", "chat ${chat.id} was put under \"${chat.project}\" after a rename that was cut short")
+            save(chat)
+        }
+    }
+
+    /**
+     * A chat that points at a project that is not in the list (the list or the details were damaged once) would be in no section of
+     * the side panel at all. The project is made again with the plain defaults, so the chat is back where it was.
+     */
+    private fun adoptOrphanChats() {
+        val made = book.adoptOrphans({ newId().take(8) }) { id -> ProjectInfo(id, "", "", ProjectLook.DEFAULT_ICON, ProjectLook.colors.first(), projectStore.memoryOf(id)) }
+        if (made > 0) saveProjects()
     }
 
     // ---------- what the screens read ----------
@@ -260,11 +330,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun consumeFresh(id: String): Boolean = fresh.remove(id)
 
     /** "2 of 3": where this message sits among its alternatives, or null when it has none. */
-    fun branchOf(msg: Msg): Pair<Int, Int>? {
-        val chat = current ?: return null
-        val list = chat.siblings(msg).sortedBy { it.createdAt }
-        return if (list.size > 1) (list.indexOfFirst { it.id == msg.id } + 1) to list.size else null
-    }
+    fun branchOf(msg: Msg): Pair<Int, Int>? = current?.branchPosition(msg)
 
     val chats: List<ChatSummary>
         get() = chatStates.filter { !it.archived && !it.temporary }.sortedByDescending { it.updatedAt }.map { chat ->
@@ -275,7 +341,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // A locked chat shows nothing of what is in it.
                 // Read without being watched: the words of an answer that is being written must not make the list of chats (which the
                 // menu keeps ready) be built again with every little piece. It is made again when the answer is finished.
-                preview = if (chat.locked) "" else androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { previewOf(chat) },
+                preview = if (chat.locked) "" else Snapshot.withoutReadObservation { previewOf(chat) },
                 time = age(chat.updatedAt),
                 status = if (chat.id in streaming) ChatStatus.Working else ChatStatus.Idle,
                 pinned = chat.pinned,
@@ -387,13 +453,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Two files with one name could not be told apart by the model (the tools find a file by its name): the second becomes "name (2)". */
     private fun uniquelyNamed(file: Attachment): Attachment {
-        val taken = (draftAttachments.map { it.name } + current?.messages.orEmpty().flatMap { m -> m.attachments.map { it.name } }).map { it.lowercase() }.toSet()
-        if (file.name.lowercase() !in taken) return file
-        val base = file.name.substringBeforeLast('.', file.name)
-        val ext = file.name.substringAfterLast('.', "").let { if (it.isEmpty() || it == file.name) "" else ".$it" }
-        var n = 2
-        while ("$base ($n)$ext".lowercase() in taken) n++
-        return file.copy(name = "$base ($n)$ext")
+        val taken = draftAttachments.map { it.name } + current?.messages.orEmpty().flatMap { m -> m.attachments.map { it.name } }
+        val name = SpaceRules.numberedName(file.name, taken)
+        return if (name == file.name) file else file.copy(name = name)
     }
 
     /** What the gallery picker returns: photos and videos together. Photos are shrunk, videos are kept whole. */
@@ -431,7 +493,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var sharedDraft by mutableStateOf<String?>(null)
 
     /** Something shared from another app starts a new chat: its words in the field, its pictures and files attached. Nothing is sent. */
-    fun startFromShare(text: String, uris: List<android.net.Uri>) {
+    fun startFromShare(text: String, uris: List<Uri>) {
         newChat()
         sharedDraft = text.ifBlank { null }
         val (images, others) = uris.partition { context.contentResolver.getType(it).orEmpty().startsWith("image/") || context.contentResolver.getType(it).orEmpty().startsWith("video/") }
@@ -453,15 +515,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Looks for words in every chat (see [ChatFinder]); the work is done off the main thread by the caller. */
-    fun search(query: String): List<com.apvcode.devx.data.SearchHit> = com.apvcode.devx.data.ChatFinder.run(chatStates.toList(), query)
+    fun search(query: String): List<SearchHit> = com.apvcode.devx.data.ChatFinder.run(chatStates.toList(), query)
 
     /** The notebooks and projects whose name, description or goal fit the words, the best first. */
+    /** Words found inside notebooks and projects: cards, lessons, instructions, memory notes. */
+    fun searchInside(query: String): List<InsideHit> = InsideFinder.run(projectInfo.toMap(), query, general = memory.notes.toList())
+
     fun searchSpaces(query: String): List<Pair<String, ProjectInfo>> = projects.mapNotNull { n ->
         projectInfo[n]?.let { i -> com.apvcode.devx.data.spaceMatch(n, i.description, i.goal, query).takeIf { it > 0 }?.let { score -> Triple(n, i, score) } }
     }.sortedByDescending { it.third }.take(8).map { it.first to it.second }
 
     /** The text of files read once for searching (by file id), cut to a size that fits in memory. */
-    private val sourceText = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val sourceText = ConcurrentHashMap<String, String>()
 
     private fun plainTextOf(a: Attachment): String = sourceText.getOrPut(a.id) {
         val file = attachmentStore.fileOf(a)
@@ -469,20 +534,20 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         runCatching {
             when {
                 a.kind == AttachmentKind.Pdf -> com.tom_roush.pdfbox.pdmodel.PDDocument.load(file).use { doc -> com.tom_roush.pdfbox.text.PDFTextStripper().apply { endPage = doc.numberOfPages.coerceAtMost(60) }.getText(doc) }
-                ext in setOf("docx", "xlsx", "pptx", "odt", "ods", "odp") -> com.apvcode.devx.data.FileText.office(file, ext, 150_000).orEmpty()
+                ext in setOf("docx", "xlsx", "pptx", "odt", "ods", "odp") -> FileText.office(file, ext, 150_000).orEmpty()
                 a.kind == AttachmentKind.Text -> file.readText()
                 else -> ""
             }
-        }.getOrDefault("").take(150_000)
+        }.logged("chatviewmodel").getOrDefault("").take(150_000)
     }
 
     /**
      * The files that the words fit: by name, by what the assistant said about them, by the chat they were in; then by what they say
      * inside (the text of documents, PDFs and notes), with a line around the words. Blocking: it reads files the first time.
      */
-    fun searchFiles(query: String): List<com.apvcode.devx.data.FileHit> {
-        val named = com.apvcode.devx.data.Library.search(library, query).take(8)
-        val out = named.map { com.apvcode.devx.data.FileHit(it, null) }.toMutableList()
+    fun searchFiles(query: String): List<FileHit> {
+        val named = Library.search(library, query).take(8)
+        val out = named.map { FileHit(it, null) }.toMutableList()
         val q = query.trim()
         if (q.length >= 3) {
             val seen = named.map { it.id }.toSet()
@@ -491,7 +556,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 val a = e.attachment ?: continue
                 if (e.id in seen || a.kind == AttachmentKind.Image || a.kind == AttachmentKind.Video) continue
                 val cut = com.apvcode.devx.data.ChatFinder.snippet(plainTextOf(a), q) ?: continue
-                out += com.apvcode.devx.data.FileHit(e, cut.text)
+                out += FileHit(e, cut.text)
             }
         }
         return out
@@ -595,7 +660,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun warmConnection() {
         val ref = defaultModel ?: return
         val provider = providers.firstOrNull { it.id == ref.providerId } ?: return
-        viewModelScope.launch(Dispatchers.IO) { runCatching { api.warm(provider) } }
+        viewModelScope.launch(Dispatchers.IO) { runCatching { api.warm(provider) }.logged("chatviewmodel") }
     }
 
     /** The voice assistant is talking to the model: answers are short and spoken, and thinking is skipped. */
@@ -672,7 +737,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun setLocked(id: String, locked: Boolean) {
         withChat(id) { it.locked = locked }
         // With the app code the chat closes at once (the cover slides in); with the device lock it stays open until the next relock.
-        if (locked) { if (com.apvcode.devx.data.AppLock.locksChats) unlocked -= id else if (id !in unlocked) unlocked += id } else unlocked -= id
+        if (locked) { if (AppLock.locksChats) unlocked -= id else if (id !in unlocked) unlocked += id } else unlocked -= id
     }
 
     fun unlock(id: String) {
@@ -706,30 +771,47 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun archiveChat(id: String) = withChat(id) { it.archived = true }
 
-    fun deleteChat(id: String) {
-        jobs[id]?.cancel()
-        chatStates.firstOrNull { it.id == id }?.let { chat ->
-            val files = chat.messages.flatMap { it.attachments }.distinctBy { it.id }.filter { !usedElsewhere(it, id) }
-            viewModelScope.launch(Dispatchers.IO) { files.forEach(attachmentStore::delete) }
-        }
-        chatStates.firstOrNull { it.id == id }?.let { chat ->
-            // The files the assistant made for this chat go with it, and so does its working folder.
-            val ids = Regex("```devx-file\\n([^\\n`]+)\\n```")
-            chat.messages.forEach { m -> ids.findAll(m.text).forEach { artifacts.delete(it.groupValues[1]) } }
-            workspace.delete(chat.id)
-        }
-        chatStates.removeAll { it.id == id }
+    /** The files a chat was the only user of: its attachments, what the assistant made for it, and its working folder. */
+    private fun purgeChatFiles(chat: Chat) {
+        val files = chat.messages.flatMap { it.attachments }.distinctBy { it.id }.filter { !usedElsewhere(it, chat.id) }
+        viewModelScope.launch(Dispatchers.IO) { files.forEach(attachmentStore::delete) }
+        SpaceBook.madeFiles(chat).forEach { artifacts.delete(it) }
+        workspace.delete(chat.id)
+    }
+
+    /** What a chat leaves on disk besides itself: the ids to keep while it is in the trash. */
+    private fun keepOf(chat: Chat): Set<String> = SpaceBook.filesOf(chat)
+
+    /** The chat leaves the list and the disk but goes to the trash; its files stay until it is removed from there. */
+    private fun detachChat(chat: Chat) {
+        jobs[chat.id]?.cancel()
+        chatStates.removeAll { it.id == chat.id }
         memory.invalidateSummary()
-        if (currentId == id) currentId = null
-        viewModelScope.launch(Dispatchers.IO) { store.deleteChat(id) }
+        if (currentId == chat.id) currentId = null
+    }
+
+    fun deleteChat(id: String) {
+        val chat = chatStates.firstOrNull { it.id == id } ?: return
+        if (chat.temporary) {
+            // Never saved, never in the trash.
+            purgeChatFiles(chat)
+            detachChat(chat)
+            return
+        }
+        val json = chat.toJson().toString()
+        val keep = keepOf(chat)
+        val title = chat.title
+        detachChat(chat)
+        viewModelScope.launch(Dispatchers.IO + NonCancellable) {
+            val item = trash.putChat(title, json, keep)
+            store.deleteChat(id)
+            withContext(Dispatchers.Main) { refreshTrash(); lastTrashed = item }
+        }
     }
 
     fun createProject(name: String, description: String = "", icon: String = ProjectLook.DEFAULT_ICON, color: Long = ProjectLook.colors.first(), kind: String = ProjectInfo.KIND_PROJECT): Boolean {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty() || trimmed in projects) return false
-        projects += trimmed
-        val id = newId().take(8)
-        projectInfo[trimmed] = ProjectInfo(id, description.trim(), "", icon, color, projectStore.memoryOf(id), kind = kind)
+        val made = book.create(name, newId().take(8)) { id -> ProjectInfo(id, description.trim(), "", icon, color, projectStore.memoryOf(id), kind = kind) }
+        if (!made) return false
         hookSummaries()
         saveProjects()
         return true
@@ -752,45 +834,151 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         saveProjects()
     }
 
-    fun renameProject(old: String, new: String) {
-        val name = new.trim()
-        if (name.isEmpty() || name == old) return
-        val index = projects.indexOf(old)
-        if (index >= 0) projects[index] = name
-        projectInfo.remove(old)?.let { projectInfo[name] = it }
-        chatStates.filter { it.project == old }.forEach { it.project = name; save(it) }
-        // Messages that pointed at it with @ keep pointing at it.
-        chatStates.forEach { c ->
-            var touched = false
-            c.messages.forEach { m -> if (old in m.mentions) { m.mentions = m.mentions.map { if (it == old) name else it }; touched = true } }
-            if (touched) save(c)
+    /** False when nothing changed: the name is empty or the same, or another project already has it (that one would be overwritten). */
+    fun renameProject(old: String, new: String): Boolean {
+        val touched = book.rename(old, new) ?: return false
+        touched.forEach(::save)
+        saveProjects()
+        return true
+    }
+
+    /** Deleting a project takes the chats inside it with it. All of it goes to the trash, so it can be put back. */
+    fun deleteProject(name: String) {
+        val info = projectInfo[name] ?: return
+        val inside = chatStates.filter { it.project == name }
+        val chatJsons = inside.map { it.toJson().toString() }
+        val keep = (inside.flatMap { keepOf(it) } + info.sources.map { it.id }).toSet()
+        val meta = projectStore.encode(info).toString()
+        val memoryFiles = listOf("project_${info.id}.json", "project_${info.id}_summary.json")
+            .mapNotNull { n -> java.io.File(context.filesDir, n).takeIf { it.exists() }?.let { n to it.readBytes() } }.toMap()
+        val chatIds = inside.map { it.id }
+        inside.forEach { jobs[it.id]?.cancel(); if (it.temporary) purgeChatFiles(it) }
+        if (currentId in chatIds) currentId = null
+        book.take(name)
+        if (inside.isNotEmpty()) memory.invalidateSummary()
+        info.memory.destroy()
+        saveProjects()
+        viewModelScope.launch(Dispatchers.IO + NonCancellable) {
+            val item = trash.putProject(name, meta, chatJsons, memoryFiles, keep)
+            chatIds.forEach { store.deleteChat(it) }
+            withContext(Dispatchers.Main) { refreshTrash(); lastTrashed = item }
         }
+    }
+
+    /** Puts a notebook or a project away (or back): it leaves the lists of the side panel, nothing is deleted. */
+    fun setArchived(name: String, on: Boolean) {
+        projectInfo[name]?.archived = on
         saveProjects()
     }
 
-    /** Deleting a project deletes the chats inside it. */
-    fun deleteProject(name: String) {
-        chatStates.filter { it.project == name }.map { it.id }.forEach { deleteChat(it) }
-        projects.remove(name)
-        projectInfo.remove(name)?.let { info ->
-            info.memory.destroy()
-            val gone = info.sources.toList().filter { !usedElsewhere(it, null) }
-            viewModelScope.launch(Dispatchers.IO) { gone.forEach(attachmentStore::delete) }
-            info.sources.forEach { libraryMeta.forget(it.id) }
-        }
+    /**
+     * A new notebook or project made from this one, to start again: the description, instructions, goal, look, the files and sites,
+     * the lessons (not done) and the cards (new). The chats, the memory notes, the days of study and the dates are not copied.
+     * Gives the name of the copy.
+     */
+    fun duplicateProject(name: String): String? {
+        if (projectInfo[name] == null) return null
+        val base = context.getString(R.string.space_copy_name, name).take(60)
+        val copy = book.duplicate(name, base, newId().take(8)) { id, plan -> ProjectInfo(id, memory = projectStore.memoryOf(id), plan = plan) } ?: return null
+        hookSummaries()
         saveProjects()
+        return copy
+    }
+
+    // ---------- the trash ----------
+
+    /** What was deleted lately, newest first. */
+    val trashItems = mutableStateListOf<TrashItem>()
+
+    /** The last thing put in the trash: the screen offers to undo it for a few seconds. */
+    var lastTrashed by mutableStateOf<TrashItem?>(null)
+
+    private fun refreshTrash() {
+        val list = trash.list()
+        trashItems.clear()
+        trashItems += list
+    }
+
+    /** Puts a chat, a project or a notebook back. A name that is taken gets a number; a chat whose project is gone goes to the plain list. */
+    fun restoreFromTrash(id: String): Boolean {
+        val item = trashItems.firstOrNull { it.id == id } ?: return false
+        if (lastTrashed?.id == id) lastTrashed = null
+        return if (item.isProject) restoreProject(item) else restoreChat(item)
+    }
+
+    private fun restoreChat(item: TrashItem): Boolean {
+        val chat = runCatching { com.apvcode.devx.data.chatFromJson(org.json.JSONObject(trash.chat(item.id) ?: return false)) }.logged("chatviewmodel").getOrNull() ?: return false
+        if (!book.restore(chat)) return false
+        save(chat)
+        removeFromTrash(item)
+        return true
+    }
+
+    private fun restoreProject(item: TrashItem): Boolean {
+        val bundle = trash.project(item.id) ?: return false
+        val info = runCatching { projectStore.decode(org.json.JSONObject(bundle.meta)) }.logged("chatviewmodel").getOrNull() ?: return false
+        bundle.files.forEach { (n, bytes) -> runCatching { java.io.File(context.filesDir, n).writeBytes(bytes) }.logged("chatviewmodel") }
+        viewModelScope.launch { info.memory.load() }
+        val chats = bundle.chats.mapNotNull { json -> runCatching { com.apvcode.devx.data.chatFromJson(org.json.JSONObject(json)) }.logged("chatviewmodel").getOrNull() }
+        val name = book.restore(bundle.name, info, chats)
+        chats.filter { it.project == name }.forEach(::save)
+        hookSummaries()
+        saveProjects()
+        removeFromTrash(item)
+        return true
+    }
+
+    private fun removeFromTrash(item: TrashItem) {
+        trashItems.removeAll { it.id == item.id }
+        viewModelScope.launch(Dispatchers.IO + NonCancellable) { trash.remove(item.id) }
+    }
+
+    /** Removes it for good, with the files that only it used. */
+    fun purgeTrash(id: String) {
+        val item = trashItems.firstOrNull { it.id == id } ?: return
+        if (lastTrashed?.id == id) lastTrashed = null
+        viewModelScope.launch {
+            val parsed = withContext(Dispatchers.IO + NonCancellable) {
+                val chats = ArrayList<Chat>()
+                var sources = emptyList<Attachment>()
+                if (item.isProject) {
+                    trash.project(id)?.let { b ->
+                        b.chats.forEach { j -> runCatching { com.apvcode.devx.data.chatFromJson(org.json.JSONObject(j)) }.logged("chatviewmodel").getOrNull()?.let(chats::add) }
+                        sources = runCatching { projectStore.decode(org.json.JSONObject(b.meta)).sources }.logged("chatviewmodel").getOrDefault(emptyList())
+                    }
+                } else trash.chat(id)?.let { j -> runCatching { com.apvcode.devx.data.chatFromJson(org.json.JSONObject(j)) }.logged("chatviewmodel").getOrNull()?.let(chats::add) }
+                trash.remove(id)
+                chats to sources
+            }
+            trashItems.removeAll { it.id == id }
+            // Now that it is not listed, what was kept for it is free to go (unless something else uses it).
+            val (chats, sources) = parsed
+            chats.forEach(::purgeChatFiles)
+            val gone = sources.filter { !usedElsewhere(it, null) }
+            withContext(Dispatchers.IO) { gone.forEach(attachmentStore::delete) }
+            sources.forEach { libraryMeta.forget(it.id) }
+        }
+    }
+
+    fun emptyTrash() = trashItems.toList().forEach { purgeTrash(it.id) }
+
+    /** Items that have been in the trash for the whole time are removed for good. */
+    private fun purgeOldTrash() {
+        val old = trash.expired(System.currentTimeMillis()).map { it.id }.toSet()
+        trashItems.filter { it.id in old }.forEach { purgeTrash(it.id) }
     }
 
 
     // ---------- notebooks and the library ----------
 
     /** Every file the app knows (see [com.apvcode.devx.data.Library]): sent in chats, made by the assistant, added to notebooks. */
-    val library: List<com.apvcode.devx.data.LibraryEntry>
-        get() = com.apvcode.devx.data.Library.build(chatStates.toList(), projectInfo.toMap(), { artifacts.get(it) }, libraryMeta.summaries, libraryMeta::seen)
+    val library: List<LibraryEntry>
+        get() = Library.build(chatStates.toList(), projectInfo.toMap(), { artifacts.get(it) }, libraryMeta.summaries, libraryMeta::seen)
 
     /** True when the file is still wanted by something else: a notebook, another chat, or the files taken from the library. */
     private fun usedElsewhere(a: Attachment, exceptChat: String?): Boolean =
-        projectInfo.values.any { p -> p.sources.any { it.id == a.id } } ||
+        trashItems.any { a.id in it.keep } ||
+            projectInfo.values.any { p -> p.sources.any { it.id == a.id } } ||
             chatStates.any { c -> c.id != exceptChat && (c.messages.any { m -> m.attachments.any { it.id == a.id } } || c.libraryFiles.any { it.id == a.id }) }
 
     /** The file to show, download or share: the document as it was given (for a Word file, the .docx itself), not the text the model reads. */
@@ -804,10 +992,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val others = if (!info.useNotes) emptyList() else chatStates.filter { it.project == name && it.id != chat.id && !it.temporary && !it.locked }
             .sortedByDescending { it.updatedAt }.take(10).map { c ->
                 val said = c.activePath().lastOrNull { it.role == Role.Assistant && it.text.isNotBlank() }?.text.orEmpty().replace(Regex("\\s+"), " ").trim().take(160)
-                com.apvcode.devx.data.NotebookPrompt.ChatLine(c.title, said)
+                NotebookPrompt.ChatLine(c.title, said)
             }
-        val sources = info.sources.map { a -> com.apvcode.devx.data.NotebookPrompt.SourceLine(a.name, com.apvcode.devx.data.libKindOf(a.name, a.mime, a.kind, a.url), libraryMeta.summaries[a.id].orEmpty(), a.url) }
-        return com.apvcode.devx.data.NotebookPrompt.build(name, info.isStudy, info.goal, sources, others, info.useNotes, if (info.isStudy) info.plan else null)
+        val sources = info.sources.map { a -> NotebookPrompt.SourceLine(a.name, com.apvcode.devx.data.libKindOf(a.name, a.mime, a.kind, a.url), libraryMeta.summaries[a.id].orEmpty(), a.url) }
+        return NotebookPrompt.build(name, info.isStudy, info.goal, sources, others, info.useNotes, if (info.isStudy) info.plan else null, info.deadline)
     }
 
     /** The assistant takes a file of the library into a chat: the file tools can read it from now on. False if it was there already. */
@@ -822,10 +1010,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** The assistant sets (or clears) the reminder to study: a scheduled task that opens a chat in this notebook at the time, with the cards that are due. */
     private fun remindStudy(name: String, a: org.json.JSONObject): String {
         val marker = "study:$name"
-        val existing = com.apvcode.devx.data.Tasks.all(context).firstOrNull { it.project == name && it.prompt.startsWith("[$marker]") }
+        val existing = Tasks.all(context).firstOrNull { it.project == name && it.prompt.startsWith("[$marker]") }
         if (a.optBoolean("off", false)) {
             if (existing == null) return "There was no reminder."
-            com.apvcode.devx.data.Tasks.remove(context, existing.id)
+            Tasks.remove(context, existing.id)
             return "The reminder is removed."
         }
         val parts = a.optString("time").trim().split(':', '.')
@@ -833,31 +1021,67 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val min = parts.getOrNull(1)?.trim()?.toIntOrNull()
         if (h == null || min == null || h !in 0..23 || min !in 0..59) return "Write the time as HH:mm (24-hour)."
         val list = a.optJSONArray("days")
-        val days = list?.let { arr -> com.apvcode.devx.data.Tasks.daysFrom((0 until arr.length()).map { arr.optString(it) }) }?.takeIf { it != 0 } ?: com.apvcode.devx.data.ScheduledTask.ALL
+        val days = list?.let { arr -> Tasks.daysFrom((0 until arr.length()).map { arr.optString(it) }) }?.takeIf { it != 0 } ?: ScheduledTask.ALL
         val prompt = "[$marker] " + context.getString(R.string.study_prompt_reminder)
         val task = if (existing != null) {
             existing.hour = h; existing.minute = min; existing.days = days; existing.enabled = true; existing.prompt = prompt
-            com.apvcode.devx.data.Tasks.update(context, existing); existing
-        } else com.apvcode.devx.data.Tasks.add(context, name, prompt, h, min, days, null, project = name)
-        return "The reminder is set: %02d:%02d %s. At that time a notification says how many cards are due; a tap opens them.".format(task.hour, task.minute, com.apvcode.devx.data.Tasks.daysText(task.days))
+            Tasks.update(context, existing); existing
+        } else Tasks.add(context, name, prompt, h, min, days, null, project = name)
+        return "The reminder is set: %02d:%02d %s. At that time a notification says how many cards are due; a tap opens them.".format(task.hour, task.minute, Tasks.daysText(task.days))
     }
 
     /** An audio overview was asked for: the answer is read aloud when it is ready. */
     var autoListen by mutableStateOf(false)
 
+    /** What reading a file of cards gave: how many cards the file has and how many were new to the notebook; or why it could not be read. */
+    class CardImport(val inFile: Int, val added: Int, val problem: Int? = null)
+
+    /** Cards from a file (text: tab, semicolon or comma separated, Anki plain text; or an Anki package) go into the notebook. Off the main thread. */
+    suspend fun importCards(name: String, uri: android.net.Uri): CardImport {
+        val plan = projectInfo[name]?.plan ?: return CardImport(0, 0, R.string.cards_import_failed)
+        val drafts = withContext(Dispatchers.IO) {
+            runCatching {
+                val label = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }.orEmpty()
+                val stream = context.contentResolver.openInputStream(uri) ?: error("no stream")
+                stream.use {
+                    if (label.endsWith(".apkg", true) || label.endsWith(".colpkg", true)) com.apvcode.devx.data.ApkgImport.read(context, it)
+                    else com.apvcode.devx.data.CardIO.parseText(it.readBytes().take(8_000_000).toByteArray().decodeToString())
+                }
+            }.logged("chatviewmodel")
+        }
+        val list = drafts.getOrElse { e ->
+            ErrorLog.warn("cards", "a file of cards could not be read", e)
+            return CardImport(0, 0, if (e is com.apvcode.devx.data.ApkgImport.Unsupported) R.string.cards_import_new_format else R.string.cards_import_failed)
+        }
+        if (list.isEmpty()) return CardImport(0, 0, R.string.cards_import_none)
+        val added = plan.addDrafts(list, dueAt = System.currentTimeMillis(), limit = 2000)
+        if (added > 0) saveProjects()
+        return CardImport(list.size, added)
+    }
+
+    /** The cards as text for a file: Anki's plain text (tab separated) or comma separated values. */
+    fun exportCards(name: String, csv: Boolean): String {
+        val cards = projectInfo[name]?.plan?.cards?.toList().orEmpty()
+        return if (csv) com.apvcode.devx.data.CardIO.toCsv(cards) else com.apvcode.devx.data.CardIO.toTsv(cards)
+    }
+
+    /** The cards as an Anki package (with their pictures), written to [out]. Gives how many cards went in. */
+    fun exportApkg(name: String, out: java.io.OutputStream): Int =
+        com.apvcode.devx.data.ApkgExport.write(context, projectInfo[name]?.plan?.cards?.toList().orEmpty(), name, out)
+
     /** A notebook or a project as a Markdown text (for the file the person saves). */
     fun exportNotebook(name: String): String {
         val info = projectInfo[name] ?: return ""
         val l = { id: Int -> context.getString(id) }
-        val labels = com.apvcode.devx.data.NotebookExport.Labels(l(R.string.notebook_goal), l(R.string.project_instructions), l(R.string.nb_progress), l(R.string.export_cards), l(R.string.project_knowledge), l(R.string.memory_summary), l(R.string.notebook_sources), l(R.string.export_streak))
-        return com.apvcode.devx.data.NotebookExport.markdown(
+        val labels = NotebookExport.Labels(l(R.string.notebook_goal), l(R.string.project_instructions), l(R.string.nb_progress), l(R.string.export_cards), l(R.string.project_knowledge), l(R.string.memory_summary), l(R.string.notebook_sources), l(R.string.export_streak))
+        return NotebookExport.markdown(
             name, info.description, info.goal, info.instructions,
             info.plan.lessons.map { Triple(it.title, it.status, it.note) },
             info.plan.cards.map { it.front to it.back },
             info.memory.notes.map { it.text },
             info.memory.summary,
-            info.sources.map { a -> com.apvcode.devx.data.NotebookExport.Source(a.name, libraryMeta.summaries[a.id].orEmpty(), a.url) },
-            labels, java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date()), info.plan.log.streak(),
+            info.sources.map { a -> NotebookExport.Source(a.name, libraryMeta.summaries[a.id].orEmpty(), a.url) },
+            labels, java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(Date()), info.plan.log.streak(),
         )
     }
 
@@ -869,6 +1093,22 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** What is said to the assistant to make the first cards of a notebook. */
+    /** A card being made from words picked in a message: the notebook and the words (they become the answer). The screen asks for the question. */
+    var cardDraft by mutableStateOf<Pair<String, String>?>(null)
+
+    /** A card the person wrote (or picked from a message) goes to the study notebook's cards. False when it is empty, there is one with the same question, or the notebook is full. */
+    fun addCard(name: String, front: String, back: String, image: String = ""): Boolean {
+        val plan = projectInfo[name]?.plan ?: return false
+        val added = plan.addDrafts(listOf(CardDraft(front, back, "", image)), dueAt = System.currentTimeMillis()) > 0
+        if (added) saveProjects()
+        return added
+    }
+
+    /** A string of the app in its language with values put in (for a prompt sent from a screen). */
+    fun text(id: Int, vararg args: Any): String = context.getString(id, *args)
+
+    fun graphBuildPrompt(): String = context.getString(R.string.graph_build_prompt)
+
     fun cardsMakePrompt(): String = context.getString(R.string.cards_make_prompt)
 
     /**
@@ -899,31 +1139,40 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 info.icon = icon; done += "icon $icon"
             }
             a.optString("color").trim().lowercase().takeIf { it.isNotEmpty() }?.let { c ->
-                val i = com.apvcode.devx.data.NotebookTools.PALETTE.indexOf(c)
-                if (i < 0) return@withContext "Unknown colour \"$c\". The colours are: " + com.apvcode.devx.data.NotebookTools.PALETTE.joinToString(", ")
+                val i = NotebookTools.PALETTE.indexOf(c)
+                if (i < 0) return@withContext "Unknown colour \"$c\". The colours are: " + NotebookTools.PALETTE.joinToString(", ")
                 info.color = ProjectLook.colors[i]; done += "colour $c"
             }
             a.optString("description").trim().takeIf { it.isNotEmpty() }?.let { info.description = it.take(600); done += "description" }
             a.optString("instructions").trim().takeIf { it.isNotEmpty() }?.let { info.instructions = it.take(4000); done += "instructions" }
             a.optString("goal").trim().takeIf { it.isNotEmpty() }?.let { if (info.isNotebook) { info.goal = it.take(300); done += "goal" } }
+            a.optString("deadline").trim().takeIf { it.isNotEmpty() }?.let { text ->
+                if (!info.isStudy) return@let
+                if (text.equals("none", true)) { info.deadline = 0L; done += "deadline removed" }
+                else {
+                    val day = runCatching { LocalDate.parse(text) }.getOrNull() ?: return@withContext "The deadline must be a day as YYYY-MM-DD, or none."
+                    info.deadline = day.toEpochDay(); done += "deadline $day"
+                }
+            }
             var finalName = name
             a.optString("title").trim().takeIf { it.isNotEmpty() && it != name }?.let { t ->
-                if (t in projects) return@withContext "The name \"$t\" is taken by another project or notebook."
-                renameProject(name, t.take(60)); finalName = t.take(60); done += "name \"$finalName\""
+                val short = t.take(60)
+                if (short in projects || !renameProject(name, short)) return@withContext "The name \"$short\" is taken by another project or notebook."
+                finalName = short; done += "name \"$finalName\""
             }
             saveProjects()
             if (done.isEmpty()) "Nothing was changed: give at least one field." else "Changed: " + done.joinToString(", ") + ". The page shows it now."
         }
-    }.getOrDefault("Could not change it.")
+    }.logged("chatviewmodel").getOrDefault("Could not change it.")
 
     /** A notebook or a project made by the assistant, after the person confirmed: the chat it was talked over in moves into it. */
     private fun createSpace(chatId: String, a: org.json.JSONObject): String {
         val kind = a.optString("kind").trim().lowercase().let { if (it in setOf("study", "ideas", "project")) it else "project" }
         var name = a.optString("title").trim().take(60)
         if (name.isEmpty()) return "Give the name."
-        if (name in projects) { var n = 2; while ("$name $n" in projects) n++; name = "$name $n" }
+        name = SpaceRules.uniqueName(name) { it in projects }
         val icon = a.optString("icon").trim().takeIf { it in ProjectLook.icons } ?: when (kind) { "study" -> "school"; "ideas" -> "bulb"; else -> "folder" }
-        val ci = com.apvcode.devx.data.NotebookTools.PALETTE.indexOf(a.optString("color").trim().lowercase())
+        val ci = NotebookTools.PALETTE.indexOf(a.optString("color").trim().lowercase())
         val color = if (ci >= 0) ProjectLook.colors[ci] else when (kind) { "study" -> 0xFF6C9BE8L; "ideas" -> 0xFFE8A05CL; else -> ProjectLook.colors.first() }
         val k = when (kind) { "study" -> ProjectInfo.KIND_STUDY; "ideas" -> ProjectInfo.KIND_IDEAS; else -> ProjectInfo.KIND_PROJECT }
         if (!createProject(name, a.optString("description"), icon, color, k)) return "Could not make it."
@@ -939,11 +1188,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setNotebookGoal(name: String, goal: String) { projectInfo[name]?.goal = goal.trim(); saveProjects() }
 
+    /** The day (a day number) the person wants to reach the goal of a study notebook by; 0 removes it. */
+    fun setNotebookDeadline(name: String, epochDay: Long) { projectInfo[name]?.deadline = epochDay.coerceAtLeast(0L); saveProjects() }
+
     fun setNotebookUseNotes(name: String, on: Boolean) { projectInfo[name]?.useNotes = on; saveProjects() }
 
     fun setStudyLesson(name: String, lesson: String, status: String) {
         val plan = projectInfo[name]?.plan
-        if (plan?.mark(lesson, status, null)?.status == com.apvcode.devx.data.Lesson.DONE) plan.log.record()
+        if (plan?.mark(lesson, status, null)?.status == Lesson.DONE) plan.log.record()
         saveProjects()
     }
 
@@ -976,15 +1228,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun uniqueSourceName(info: ProjectInfo, name: String): String {
-        val taken = info.sources.map { it.name.lowercase() }.toSet()
-        if (name.lowercase() !in taken) return name
-        val base = name.substringBeforeLast('.', name)
-        val ext = name.substringAfterLast('.', "").let { if (it.isEmpty() || it == name) "" else ".$it" }
-        var n = 2
-        while ("$base ($n)$ext".lowercase() in taken) n++
-        return "$base ($n)$ext"
-    }
+    private fun uniqueSourceName(info: ProjectInfo, name: String): String = SpaceRules.numberedName(name, info.sources.map { it.name })
 
     /**
      * Something shared from another app goes into a notebook as sources: the links are read and kept, a text of its own is kept as a
@@ -1015,9 +1259,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         for (raw in urls.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(10)) {
             val url = if (raw.startsWith("http")) raw else "https://$raw"
             if (info.sources.any { it.url == url }) continue
-            val page = runCatching { webTools.readPage(url) }.getOrNull()
+            val page = runCatching { webTools.readPage(url) }.logged("chatviewmodel").getOrNull()
             if (page == null) { failed++; continue }
-            val title = page.title.ifBlank { runCatching { java.net.URI(url).host.orEmpty().removePrefix("www.") }.getOrDefault(url) }.take(80)
+            val title = page.title.ifBlank { runCatching { URI(url).host.orEmpty().removePrefix("www.") }.getOrDefault(url) }.take(80)
             val saved = withContext(Dispatchers.IO) { attachmentStore.saveText("$title.txt", "$title\n$url\n\n${page.text.take(200_000)}") }
             val att = saved.copy(url = url)
             info.sources += att
@@ -1063,7 +1307,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val line = answer?.trim()?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()?.trim('"', '«', '»')?.take(260)
                 if (line.isNullOrBlank()) libraryMeta.states[a.id] = "failed" else libraryMeta.setSummary(a.id, line)
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 libraryMeta.states.remove(a.id)
                 throw e
             } catch (e: Exception) {
@@ -1084,17 +1328,17 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     com.tom_roush.pdfbox.pdmodel.PDDocument.load(file).use { doc ->
                         com.tom_roush.pdfbox.text.PDFTextStripper().apply { endPage = doc.numberOfPages.coerceAtMost(6) }.getText(doc)
                     }
-                }.getOrNull().orEmpty().trim()
+                }.logged("chatviewmodel").getOrNull().orEmpty().trim()
                 (if (text.length > 40) text.take(7_000) else "(a PDF of ${attachmentStore.pdfPages(a) ?: "?"} pages with almost no text: a scan or a drawing)") to emptyList()
             }
-            ext in setOf("docx", "xlsx", "pptx", "odt", "ods", "odp") -> (com.apvcode.devx.data.FileText.office(file, ext, 7_000) ?: "(a document whose text could not be read)") to emptyList()
-            a.kind == AttachmentKind.Text -> runCatching { file.readText().take(7_000) }.getOrDefault("") to emptyList()
+            ext in setOf("docx", "xlsx", "pptx", "odt", "ods", "odp") -> (FileText.office(file, ext, 7_000) ?: "(a document whose text could not be read)") to emptyList()
+            a.kind == AttachmentKind.Text -> runCatching { file.readText().take(7_000) }.logged("chatviewmodel").getOrDefault("") to emptyList()
             else -> "(a file of ${a.size / 1024} KB that the app cannot read)" to emptyList()
         }
     }
 
     /** Takes a file out of the library everywhere: from the chats' messages, from the notebooks, and from the phone. */
-    fun deleteLibraryEntry(entry: com.apvcode.devx.data.LibraryEntry) {
+    fun deleteLibraryEntry(entry: LibraryEntry) {
         val a = entry.attachment
         if (a != null) {
             chatStates.forEach { c ->
@@ -1122,7 +1366,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Puts a file of the library on the next message (the same file, not a copy: it stays one file in the library). */
-    fun attachFromLibrary(entry: com.apvcode.devx.data.LibraryEntry): Boolean {
+    fun attachFromLibrary(entry: LibraryEntry): Boolean {
         val a = entry.attachment ?: return false
         if (draftAttachments.any { it.id == a.id }) return true
         draftAttachments += a
@@ -1132,6 +1376,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- providers and models ----------
 
     fun providerKey(id: String): String = secrets.get(id).orEmpty()
+
+    /** Every key and token, opened: only for a backup that the person locks with a password. */
+    fun exportSecrets(): Map<String, String> = secrets.all()
+
+    /** The keys and tokens of a backup go into this phone's keystore. */
+    fun importSecrets(map: Map<String, String>) = secrets.putAll(map)
 
     /** [key] null leaves the saved key as it is. */
     fun saveProvider(provider: Provider, key: String?) {
@@ -1254,7 +1504,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         syncService()
         jobs[chat.id] = viewModelScope.launch {
-            val self = coroutineContext[kotlinx.coroutines.Job]
+            val self = coroutineContext[Job]
             try {
                 // The tools it may use: the files attached to this chat (never anything else on the phone), and
                 // the web when the person has allowed it. Without any tool this is the plain request it always was.
@@ -1273,7 +1523,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     if (memoryOn) memory.forPrompt(hint = user.text) else null,
                     ref.model,
                     if (memoryOn) memory.summary else null,
-                    if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
+                    if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(MapTools.KEY_ID).isNullOrBlank()) else null,
                     mentions = mentionSection(chat, user, memoryOn),
                 ) else SystemPrompt.forUser(
                     Prefs.nickname,
@@ -1282,7 +1532,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     if (skillsOn) skills.forPrompt() else null,
                     ref.model,
                     if (memoryOn) memory.summary else null,
-                    phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
+                    phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(MapTools.KEY_ID).isNullOrBlank()) else null,
                     voice = if (voiceMode) SystemPrompt.VOICE else null,
                     guidesAsTool = tools.isNotEmpty(),
                     spaces = !byVoice && project == null && !chat.temporary,
@@ -1302,11 +1552,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     override fun allowed(serverId: String) = serverId in (mcpAllowed[chat.id] ?: emptySet())
 
                     override suspend fun approve(request: ToolApproval): ApprovalDecision {
-                        val answer = kotlinx.coroutines.CompletableDeferred<ApprovalDecision>()
+                        val answer = CompletableDeferred<ApprovalDecision>()
                         val pendingApproval = PendingApproval(request) { answer.complete(it) }
                         withContext(Dispatchers.Main.immediate) { assistant.approval = pendingApproval }
                         // With the app away, a notification carries the question and its buttons.
-                        com.apvcode.devx.data.ApprovalBridge.put(chat.id, pendingApproval)
+                        ApprovalBridge.put(chat.id, pendingApproval)
                         if (!com.apvcode.devx.AppState.foreground) com.apvcode.devx.GenerationService.announceApproval(context, chat.id, chat.title, request)
                         try {
                             // Nobody answers for a long time: it counts as "cancel".
@@ -1314,8 +1564,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             if (said == ApprovalDecision.ThisChat) mcpAllowed.getOrPut(chat.id) { HashSet() } += request.serverId
                             return said
                         } finally {
-                            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main.immediate) { assistant.approval = null }
-                            com.apvcode.devx.data.ApprovalBridge.remove(chat.id)
+                            withContext(NonCancellable + Dispatchers.Main.immediate) { assistant.approval = null }
+                            ApprovalBridge.remove(chat.id)
                             com.apvcode.devx.GenerationService.withdrawApproval(context, chat.id)
                         }
                     }
@@ -1529,35 +1779,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** A user turn that tells the model to go on: joined to the last one when that is a user turn too (turns must alternate). */
-    private fun MutableList<WireMessage>.addContinuation(note: String) {
-        val last = lastOrNull()
-        if (last != null && last.role == "user") {
-            this[lastIndex] = WireMessage("user", last.text + "\n\n" + note, last.images, last.documents)
-        } else {
-            this += WireMessage("user", note)
-        }
-    }
-
-    /** What the model is told when an answer that broke off is continued: the steps it had already taken. */
-    private fun continuationNote(done: Msg): String {
-        val steps = done.steps.joinToString("\n") { st ->
-            "- " + st.kind.name.lowercase() + (if (st.detail.isNotBlank()) ": " + st.detail else "") + (if (st.note.isNotBlank()) " (" + st.note + ")" else "")
-        }
-        return "(The connection broke while you were answering." +
-            (if (steps.isNotEmpty()) " The steps you had already taken:\n$steps\n" else " ") +
-            "Continue from where you stopped. Do not repeat what is done or what you have already said.)"
-    }
-
     /** Waits before the next try: until the network is back if there is none, or for [ms]. */
     private suspend fun awaitConnection(ms: Long) {
-        val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+        val cm = context.getSystemService(ConnectivityManager::class.java)
         val offline = runCatching { cm?.activeNetwork == null }.getOrDefault(false)
         if (!offline || cm == null) { delay(ms); return }
         kotlinx.coroutines.withTimeoutOrNull(ms * 2) {
             kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
-                val callback = object : android.net.ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: android.net.Network) { if (cont.isActive) cont.resume(Unit) {} }
+                val callback = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) { if (cont.isActive) cont.resume(Unit) {} }
                 }
                 val ok = runCatching { cm.registerDefaultNetworkCallback(callback) }.isSuccess
                 if (!ok) cont.resume(Unit) {}
@@ -1590,22 +1820,22 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val info = projectInfo[name] ?: return@mapNotNull null
             val chats = chatStates.filter { it.project == name && it.id != chat.id && !it.temporary && !it.locked }.sortedByDescending { it.updatedAt }.take(8).map { c ->
                 val said = c.activePath().lastOrNull { it.role == Role.Assistant && it.text.isNotBlank() }?.text.orEmpty().replace(Regex("\\s+"), " ").trim().take(140)
-                com.apvcode.devx.data.NotebookPrompt.ChatLine(c.title, said)
+                NotebookPrompt.ChatLine(c.title, said)
             }
-            com.apvcode.devx.data.NotebookPrompt.Mentioned(
+            NotebookPrompt.Mentioned(
                 name, info.isNotebook, info.isStudy, info.description, info.instructions, info.goal,
-                info.sources.map { a -> com.apvcode.devx.data.NotebookPrompt.SourceLine(a.name, com.apvcode.devx.data.libKindOf(a.name, a.mime, a.kind, a.url), libraryMeta.summaries[a.id].orEmpty(), a.url) },
+                info.sources.map { a -> NotebookPrompt.SourceLine(a.name, com.apvcode.devx.data.libKindOf(a.name, a.mime, a.kind, a.url), libraryMeta.summaries[a.id].orEmpty(), a.url) },
                 chats, if (info.isStudy) info.plan else null,
                 if (memoryOn) info.memory.forPrompt(limit = 1800, hint = hint) else "", if (memoryOn) info.memory.summary else "",
             )
         }
         val extras = ArrayList<Pair<String, String>>()
         keys.filter { it.startsWith("task:") }.forEach { key ->
-            val t = com.apvcode.devx.data.Tasks.get(context, key.removePrefix("task:").toIntOrNull() ?: -1) ?: return@forEach
+            val t = Tasks.get(context, key.removePrefix("task:").toIntOrNull() ?: -1) ?: return@forEach
             val last = t.lastChatId?.let { id -> chatStates.firstOrNull { it.id == id } }?.activePath()?.lastOrNull { it.role == Role.Assistant && it.text.isNotBlank() }?.text.orEmpty().trim().take(1200)
-            extras += t.title to ("A scheduled task: " + com.apvcode.devx.data.Tasks.daysText(t.days) + " at %02d:%02d, ".format(t.hour, t.minute) + (if (t.enabled) "on" else "off") + ".\nIts prompt: " + t.prompt.take(600) + (if (last.isNotEmpty()) "\nThe last answer it gave:\n$last" else ""))
+            extras += t.title to ("A scheduled task: " + Tasks.daysText(t.days) + " at %02d:%02d, ".format(t.hour, t.minute) + (if (t.enabled) "on" else "off") + ".\nIts prompt: " + t.prompt.take(600) + (if (last.isNotEmpty()) "\nThe last answer it gave:\n$last" else ""))
         }
-        return com.apvcode.devx.data.NotebookPrompt.mentions(list, extras)
+        return NotebookPrompt.mentions(list, extras)
     }
 
     private fun filesOf(chat: Chat, upTo: Msg): List<Attachment> {
@@ -1638,7 +1868,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             if (skillsOn) skills.forPrompt() else null,
             null,
             if (memoryOn) memory.summary else null,
-            phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) else null,
+            phone = if (Prefs.phoneTools) PhoneTools.promptSection(Prefs.twoGis && !secrets.get(MapTools.KEY_ID).isNullOrBlank()) else null,
             guidesAsTool = tools.isNotEmpty(),
             spaces = project == null && !chat.temporary,
             mentions = mentionSection(chat, upTo, memoryOn),
@@ -1751,7 +1981,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** What a compression did: the size before and after, in rough tokens. */
     class Shortened(val before: Int, val after: Int)
 
-    private var compactJob: kotlinx.coroutines.Job? = null
+    private var compactJob: Job? = null
 
     /** Starts the compression; [onFailed] is called when it could not be done (not when it was cancelled). */
     fun startCompaction(id: String, onFailed: () -> Unit) {
@@ -1759,7 +1989,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         compactJob = viewModelScope.launch {
             val done = try {
                 compactChat(id)
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 null
@@ -1793,7 +2023,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val told = path.subList(from, cut).filter { it.text.isNotBlank() }
         compressText = ""
         compressCount = told.size
-        compressStartedAt = android.os.SystemClock.elapsedRealtime()
+        compressStartedAt = SystemClock.elapsedRealtime()
         compressAfter = path[cut - 1].id
         compacting = id
         try {
@@ -1828,7 +2058,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             chat.summaryBefore = before
             chat.summaryAfter = after
             chat.summaryCount = told.size
-            chat.summarySeconds = ((android.os.SystemClock.elapsedRealtime() - compressStartedAt) / 1000).toInt().coerceAtLeast(1)
+            chat.summarySeconds = ((SystemClock.elapsedRealtime() - compressStartedAt) / 1000).toInt().coerceAtLeast(1)
             // The card opens on the result, and its sizes count down from the old number to the new one, this once.
             compactedNow = id
             save(chat)
@@ -1844,7 +2074,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val prompt = "Write a very short title (at most 5 words) for a conversation that begins with the message below, in the same language as the message. " +
             "Say what it is about, not what is asked of the assistant. Answer with the title only: no quotes, no full stop.\n\nMessage: ${question.take(700)}"
         val before = chat.title
-        val title = runCatching { api.complete(provider, key, model, "", listOf(WireMessage("user", prompt))) }
+        val title = runCatching { api.complete(provider, key, model, "", listOf(WireMessage("user", prompt))) }.logged("chatviewmodel")
             .getOrNull()?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()?.trim('"', '«', '»', '.', '*', '#', ' ')?.take(60)
         // Not if the person gave the chat a name of their own while the model was thinking.
         if (!title.isNullOrBlank() && chat.title == before) {
@@ -1866,7 +2096,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         var finalName = name.trim()
         var finalDescription = description.trim()
         if (finalName.isEmpty() || finalDescription.isEmpty()) {
-            val made = runCatching { describeSkill(body) }.getOrNull()
+            val made = runCatching { describeSkill(body) }.logged("chatviewmodel").getOrNull()
             if (finalName.isEmpty()) {
                 finalName = made?.first?.let { skillFolderNameOrNull(it) } ?: skillFolderNameOrNull(body.trim().split(Regex("\\s+")).take(3).joinToString("-")) ?: "skill"
             }
@@ -1966,7 +2196,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
         val key = secrets.get(provider.id).orEmpty()
         val wire = provider.copy(kind = formatOf(provider, ref.model))
-        val prompt = (if (project == null) SUMMARY_PROMPT else PROJECT_SUMMARY_PROMPT) + "\n- " + TIME_RULE.format(java.text.SimpleDateFormat("EEEE d MMMM yyyy", java.util.Locale.ENGLISH).format(java.util.Date())) +
+        val prompt = (if (project == null) SUMMARY_PROMPT else PROJECT_SUMMARY_PROMPT) + "\n- " + TIME_RULE.format(SimpleDateFormat("EEEE d MMMM yyyy", Locale.ENGLISH).format(Date())) +
             (if (project != null) "\n\n## The project: $project\n" + about.ifBlank { "(no description)" } else "") +
             (if (store.summary.isNotBlank() && !store.summaryManual) "\n\n## The overview written last time (it may be out of date: keep what the notes and messages below still support, and change or drop what they contradict or no longer mention)\n" + store.summary else "") +
             "\n\n## Notes the assistant saved\n" + notes.ifBlank { "(none)" } +
@@ -2039,7 +2269,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- the overviews renew themselves ----------
 
-    private val summaryJobs = HashMap<String?, kotlinx.coroutines.Job>()
+    private val summaryJobs = HashMap<String?, Job>()
     private val hooked = HashSet<String>()
 
     /** Notes saved, changed or removed (by the assistant or the person) wake the overview of their own memory a little later. */
@@ -2100,6 +2330,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** The chat is written to disk. Turning it into text (a long chat is a lot of it) is done off the main thread too. */
     private fun save(chat: Chat) {
         if (chat.temporary) return
+        chat.projectId = chat.project?.let { projectInfo[it]?.id }
         viewModelScope.launch(saver) { store.saveChatJson(chat.id, chat.toJson().toString()) }
     }
 
@@ -2109,9 +2340,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun saveProjects() {
+        // Before the saved lists are read, the lists here are empty: writing them would wipe the saved ones.
+        if (!loaded) return
         com.apvcode.devx.Widgets.refreshSoon(context)
         val copy = projects.toList()
-        viewModelScope.launch(Dispatchers.IO) { store.saveProjects(copy) }
+        // Not tied to the model's life: closing the app right after a change must not drop the write.
+        viewModelScope.launch(Dispatchers.IO + NonCancellable) { store.saveProjects(copy) }
         projectStore.save(projectInfo.toMap())
     }
 

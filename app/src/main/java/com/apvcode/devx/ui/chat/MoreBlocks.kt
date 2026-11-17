@@ -80,6 +80,17 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import android.annotation.SuppressLint
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import com.apvcode.devx.data.PrefFiles
+import com.apvcode.devx.ui.components.DevxIcons
+import java.time.LocalDate
+import java.time.format.TextStyle
 
 /*
  * More pictures for an answer, each a fenced block with one JSON object: weather, timer and stopwatch, a checklist whose ticks
@@ -107,7 +118,7 @@ fun RichBlock(block: Block.Rich, modifier: Modifier = Modifier) {
 
 /** What is kept between visits to a message: the ticks of a checklist and the end of a timer. */
 private object Kept {
-    private fun prefs(context: Context) = context.getSharedPreferences("rich_state", Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = context.getSharedPreferences(PrefFiles.RICH_STATE, Context.MODE_PRIVATE)
     fun get(context: Context, key: String): String? = prefs(context).getString(key, null)
     fun put(context: Context, key: String, value: String?) { prefs(context).edit().apply { if (value == null) remove(key) else putString(key, value) }.apply() }
 }
@@ -154,7 +165,7 @@ fun WeatherBlock(json: String, modifier: Modifier = Modifier) {
                         val cur = b.getJSONObject("current"); val d = b.getJSONObject("daily")
                         val times = d.getJSONArray("time")
                         val days = (1 until times.length()).map { i ->
-                            val label = java.time.LocalDate.parse(times.getString(i)).dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault())
+                            val label = LocalDate.parse(times.getString(i)).dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
                             Day(label, d.getJSONArray("temperature_2m_min").optDouble(i).roundToInt(), d.getJSONArray("temperature_2m_max").optDouble(i).roundToInt(), d.getJSONArray("weather_code").optInt(i), d.getJSONArray("precipitation_probability_max").optInt(i))
                         }
                         Forecast(o.str("place"), cur.optDouble("temperature_2m").roundToInt(), cur.optDouble("apparent_temperature").roundToInt(), cur.optInt("weather_code"), cur.optDouble("wind_speed_10m").roundToInt(), days)
@@ -495,7 +506,7 @@ private fun mermaidPage(context: Context, code: String): String {
 }
 
 /** A flowchart, sequence diagram, state chart and the like, drawn from Mermaid text by a copy of Mermaid inside the app (no network). */
-@android.annotation.SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun MermaidBlock(code: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -505,7 +516,7 @@ fun MermaidBlock(code: String, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xFF101010)).border(1.dp, DevxColors.Outline, RoundedCornerShape(20.dp))) {
         AndroidView(
             factory = { ctx ->
-                android.webkit.WebView(ctx).apply {
+                WebView(ctx).apply {
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     isVerticalScrollBarEnabled = false; isHorizontalScrollBarEnabled = false
                     settings.apply { javaScriptEnabled = true; domStorageEnabled = false; allowFileAccess = false; allowContentAccess = false; blockNetworkLoads = true }
@@ -513,8 +524,8 @@ fun MermaidBlock(code: String, modifier: Modifier = Modifier) {
                         @JavascriptInterface fun height(px: Int) { post { heightDp = (px / ctx.resources.displayMetrics.density).toInt().coerceIn(80, 900) + 8 } }
                         @JavascriptInterface fun failed() { post { failed = true } }
                     }, "DevxBridge")
-                    webViewClient = object : android.webkit.WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?) = true
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?) = true
                     }
                 }
             },
@@ -555,7 +566,7 @@ fun AppsBlock(json: String, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(22.dp)
     Column(modifier.fillMaxWidth().clip(shape).background(DevxColors.Card)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            androidx.compose.material3.Icon(if (store == AppStores.FDROID) com.apvcode.devx.ui.components.DevxIcons.Download else com.apvcode.devx.ui.components.DevxIcons.GooglePlay, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp))
+            Icon(if (store == AppStores.FDROID) DevxIcons.Download else DevxIcons.GooglePlay, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp))
             Text(AppStores.label(store), style = DevxType.BodyStrong, color = DevxColors.TextPrimary)
         }
         val list = apps
@@ -563,7 +574,7 @@ fun AppsBlock(json: String, modifier: Modifier = Modifier) {
             list == null && !failed -> repeat(spec?.optJSONArray("ids")?.length()?.coerceIn(1, 3) ?: 2) { AppSkeleton() }
             list.isNullOrEmpty() -> Text(stringResource(R.string.apps_failed), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp))
             else -> list.forEachIndexed { i, app ->
-                if (i > 0) androidx.compose.material3.HorizontalDivider(color = DevxColors.Outline, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                if (i > 0) HorizontalDivider(color = DevxColors.Outline, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
                 AppRow(app) { openStore(context, app) }
             }
         }
@@ -573,7 +584,7 @@ fun AppsBlock(json: String, modifier: Modifier = Modifier) {
 @Composable
 private fun AppSkeleton() {
     val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "skeleton")
-    val a by pulse.animateFloat(0.25f, 0.6f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(800), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
+    val a by pulse.animateFloat(0.25f, 0.6f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(800), RepeatMode.Reverse), label = "a")
     Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Box(Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.10f * a)))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

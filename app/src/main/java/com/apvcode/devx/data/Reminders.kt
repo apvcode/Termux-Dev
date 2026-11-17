@@ -43,12 +43,12 @@ object Reminders {
             val o = array.getJSONObject(i)
             Reminder(o.getInt("id"), o.getLong("at"), o.optString("text"))
         }
-    }.getOrDefault(emptyList())
+    }.logged("reminders").getOrDefault(emptyList())
 
     private fun write(context: Context, list: List<Reminder>) {
         val array = JSONArray()
         list.forEach { array.put(JSONObject().put("id", it.id).put("at", it.at).put("text", it.text)) }
-        file(context).writeText(array.toString())
+        AtomicFile.writeQuietly("reminders", file(context), array.toString())
     }
 
     /** Saves a reminder and sets its alarm. Returns it, and whether the alarm is exact (false: the phone may be a few minutes late). */
@@ -104,7 +104,7 @@ object Reminders {
     }
 
     private fun unschedule(context: Context, id: Int) {
-        runCatching { context.getSystemService(AlarmManager::class.java).cancel(pending(context, id)) }
+        attempt("reminders") { context.getSystemService(AlarmManager::class.java).cancel(pending(context, id)) }
     }
 
     /** After a restart or an update the alarms are gone: set them again; what was missed in the meantime is shown now. */
@@ -124,7 +124,7 @@ object Reminders {
             if (reminder != null) write(context, list - reminder)
         }
         if (reminder == null) return
-        runCatching {
+        attempt("reminders") {
             val manager = context.getSystemService(NotificationManager::class.java)
             if (Build.VERSION.SDK_INT >= 26) {
                 manager.createNotificationChannel(

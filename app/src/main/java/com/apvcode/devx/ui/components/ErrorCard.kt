@@ -39,6 +39,7 @@ import com.apvcode.devx.R
 import com.apvcode.devx.data.ErrorKind
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import androidx.compose.animation.core.Animatable
 
 /**
  * A failed answer, explained quietly: one neutral card, no alarm colours. It says what happened in
@@ -70,8 +71,8 @@ fun ErrorCard(
     }
     val shape = RoundedCornerShape(24.dp)
     // The card rises into place with a little spring, and its icon lands after it.
-    val enter = remember { androidx.compose.animation.core.Animatable(0f) }
-    val badge = remember { androidx.compose.animation.core.Animatable(0.4f) }
+    val enter = remember { Animatable(0f) }
+    val badge = remember { Animatable(0.4f) }
     LaunchedEffect(Unit) {
         launch { enter.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 320f)) }
         kotlinx.coroutines.delay(120)

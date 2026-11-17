@@ -3,6 +3,7 @@ package com.apvcode.devx.data
 import android.content.Context
 import org.json.JSONObject
 import java.io.InputStream
+import java.util.Locale
 
 /** Where a context size comes from: the models.dev catalogue, devx's own table, a rule by the model's name, or a plain guess. */
 enum class LimitSource { Catalogue, Table, Rule, Default }
@@ -23,7 +24,7 @@ object ModelLimits {
 
     fun load(context: Context) {
         if (loaded) return
-        runCatching {
+        attempt("modellimits") {
             load(context.assets.open("context-catalog.json"), context.assets.open("model-limits.json"))
         }
     }
@@ -69,7 +70,7 @@ object ModelLimits {
 
 /** A count of tokens in a few characters: 840, 12.4k, 393k, 1M, 1.05M (never "1050.0k"). */
 fun formatTokens(n: Int): String {
-    fun trim(v: Double, digits: Int) = String.format(java.util.Locale.US, "%.${digits}f", v).trimEnd('0').trimEnd('.')
+    fun trim(v: Double, digits: Int) = String.format(Locale.US, "%.${digits}f", v).trimEnd('0').trimEnd('.')
     return when {
         n < 1_000 -> n.toString()
         n < 100_000 -> trim(n / 1_000.0, 1) + "k"

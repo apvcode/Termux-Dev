@@ -75,6 +75,9 @@ import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.graphics.Color
 
 /**
  * Any file of the app, opened to be read right here: pictures (pinch to zoom), PDFs (page by page), Word, PowerPoint and Excel documents
@@ -192,7 +195,7 @@ private fun PageBody(text: String) {
     SelectionContainer(Modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 28.dp),
+            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 28.dp),
         ) {
             item {
                 Column(
@@ -216,10 +219,10 @@ private fun SlidesBody(text: String) {
     val slides = remember(text) {
         text.split(Regex("(?m)^-- Slide \\d+\\s*$")).map { it.trim() }.filter { it.isNotEmpty() }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         itemsIndexed(slides) { i, slide ->
             val lines = slide.lines().map { it.trim() }.filter { it.isNotEmpty() }
-            val shown = remember { androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true } }
+            val shown = remember { MutableTransitionState(false).apply { targetState = true } }
             AnimatedVisibility(visibleState = shown, enter = fadeIn(tween(260, delayMillis = (i * 40).coerceAtMost(400))) + slideInVertically(spring(dampingRatio = 0.85f, stiffness = 380f)) { it / 5 }) {
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(DevxColors.Card).border(1.dp, DevxColors.Outline, RoundedCornerShape(18.dp)).padding(18.dp),
@@ -260,9 +263,9 @@ private fun SheetBody(text: String) {
         val rows = remember(tab, sheets) { sheets.getOrNull(tab)?.second.orEmpty().lines().filter { it.isNotBlank() }.map { it.split('\t') } }
         val columns = remember(rows) { rows.maxOfOrNull { it.size } ?: 0 }
         Box(Modifier.weight(1f).fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            LazyColumn(Modifier.width((columns * 132 + 28).dp.coerceAtLeast(300.dp)).navigationBarsPadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
+            LazyColumn(Modifier.width((columns * 132 + 28).dp.coerceAtLeast(300.dp)).navigationBarsPadding(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
                 itemsIndexed(rows) { r, cells ->
-                    Row(Modifier.fillMaxWidth().background(if (r == 0) DevxColors.Card else androidx.compose.ui.graphics.Color.Transparent).border(0.5.dp, DevxColors.Outline.copy(alpha = 0.6f))) {
+                    Row(Modifier.fillMaxWidth().background(if (r == 0) DevxColors.Card else Color.Transparent).border(0.5.dp, DevxColors.Outline.copy(alpha = 0.6f))) {
                         for (c in 0 until columns) {
                             Text(
                                 cells.getOrElse(c) { "" }, style = if (r == 0) DevxType.BodyStrong else DevxType.Body, color = DevxColors.TextPrimary,

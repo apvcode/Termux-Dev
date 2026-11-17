@@ -110,6 +110,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import kotlin.math.sin
+import android.os.SystemClock
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import com.apvcode.devx.data.VoiceTrace
+import kotlinx.coroutines.CoroutineStart
 
 private val PillColor = Color(0xF2101012)
 private val CardColor = Color(0xF20C0C0E)
@@ -144,7 +155,7 @@ fun VoiceAssistantScreen(
             kotlinx.coroutines.delay(500)
             session.submit(say, byVoice = true)
         } else if (listenAtStart) {
-            com.apvcode.devx.data.VoiceTrace.mark("screen drawn, listening requested")
+            VoiceTrace.mark("screen drawn, listening requested")
             session.listen()
         }
     }
@@ -163,7 +174,7 @@ fun VoiceAssistantScreen(
                     VoicePhase.Listening -> 0.12f + 0.88f * session.voice.levels[VoiceInput.LEVELS - 1]
                     VoicePhase.Thinking -> 0.22f + 0.08f * sin(t * 2.2f)
                     VoicePhase.Speaking -> {
-                        val sinceWord = android.os.SystemClock.elapsedRealtime() - session.speaker.lastWordAt
+                        val sinceWord = SystemClock.elapsedRealtime() - session.speaker.lastWordAt
                         val bump = (1f - sinceWord / 240f).coerceIn(0f, 1f) * 0.3f
                         (0.32f + 0.14f * sin(t * 6.9f) + 0.09f * sin(t * 11.7f + 1.3f) + bump).coerceIn(0f, 1f)
                     }
@@ -178,7 +189,7 @@ fun VoiceAssistantScreen(
     LaunchedEffect(Unit) { enter.animateTo(1f, tween(380, easing = FastOutSlowInEasing)) }
 
     // Held and drawn upward, the whole assistant follows the finger and, let go high enough, flies up into the app.
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    val density = LocalDensity.current
     val drag = remember { Animatable(0f) }
     val threshold = with(density) { 150.dp.toPx() }
     val flyTo = with(density) { 340.dp.toPx() }
@@ -235,7 +246,7 @@ fun VoiceAssistantScreen(
                     alpha = (1f - 0.55f * lift).coerceIn(0f, 1f)
                     val grow = 1f + 0.025f * lift.coerceAtMost(1f)
                     scaleX = grow; scaleY = grow
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+                    transformOrigin = TransformOrigin(0.5f, 1f)
                 },
             // No gap between the blocks is set here: each block carries its own 10 dp below it, so that the gap comes and goes with the
             // block (a gap kept by the column vanished all at once when a block had left, which was a jump).
@@ -407,22 +418,22 @@ private fun Pill(
     energy: () -> Float,
     clock: () -> Float,
     enter: () -> Float,
-    drag: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
+    drag: Animatable<Float, AnimationVector1D>,
     threshold: Float,
     maxPull: Float,
     onOpen: () -> Unit,
     onTouch: () -> Unit,
 ) {
     val focus = LocalFocusManager.current
-    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var text by remember { mutableStateOf("") }
     var focused by remember { mutableStateOf(false) }
     var lines by remember { mutableStateOf(1) }
     // While the whole assistant is being pulled up, the field does not take part (it would answer a hold with its own menu).
     var pulling by remember { mutableStateOf(false) }
-    val fieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val fieldFocus = remember { FocusRequester() }
     val phase = session.phase
     val typing = focused || text.isNotEmpty()
     val send = {
@@ -482,19 +493,19 @@ private fun Pill(
                     crossed = false
                     focus.clearFocus()
                     scope.launch { drag.stop() }
-                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         change.consume()
                         if (!change.pressed) break
                         val dy = change.position.y - change.previousPosition.y
-                        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { drag.snapTo((drag.value + dy).coerceIn(-maxPull, 0f)) }
+                        scope.launch(start = CoroutineStart.UNDISPATCHED) { drag.snapTo((drag.value + dy).coerceIn(-maxPull, 0f)) }
                         // A small tick as the pull goes past the point where letting go opens the app, and again if it goes back.
                         val over = -drag.value > threshold
                         if (over != crossed) {
                             crossed = over
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         }
                     }
                     pulling = false
@@ -557,7 +568,7 @@ private fun Pill(
                     onTextLayout = { lines = it.lineCount },
                     textStyle = DevxType.Body.copy(color = Color.White),
                     cursorBrush = SolidColor(Color.White),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { send() }),
                     modifier = Modifier
                         .fillMaxWidth()

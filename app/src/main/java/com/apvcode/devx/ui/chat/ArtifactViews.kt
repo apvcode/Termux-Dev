@@ -64,6 +64,7 @@ import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import java.io.File
+import com.apvcode.devx.data.LibKind
 
 private val CODE_EXTENSIONS = setOf(
     "py", "kt", "kts", "java", "js", "mjs", "ts", "tsx", "jsx", "go", "rs", "c", "h", "cpp", "hpp", "cs", "swift", "dart", "php", "rb", "lua", "sh", "bash",
@@ -144,7 +145,7 @@ fun ArtifactViewer(artifact: Artifact, vm: ChatViewModel, onClose: () -> Unit, m
     val context = LocalContext.current
     val file = remember(artifact.id) { vm.artifactFile(artifact) }
     // A PDF, a Word, PowerPoint or Excel file the assistant made is read here, as a document (see DocumentViewer).
-    if (com.apvcode.devx.data.libKindOf(artifact.name, artifact.mime, null) in setOf(com.apvcode.devx.data.LibKind.Pdf, com.apvcode.devx.data.LibKind.Word, com.apvcode.devx.data.LibKind.Sheet, com.apvcode.devx.data.LibKind.Slides)) {
+    if (com.apvcode.devx.data.libKindOf(artifact.name, artifact.mime, null) in setOf(LibKind.Pdf, LibKind.Word, LibKind.Sheet, LibKind.Slides)) {
         com.apvcode.devx.ui.screens.DocumentViewer(file, artifact.name, artifact.mime, onClose, modifier)
         return
     }

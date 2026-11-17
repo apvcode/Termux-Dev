@@ -1,5 +1,6 @@
 package com.apvcode.devx.remote
 
+import com.apvcode.devx.data.attempt
 import java.util.Base64
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
@@ -7,6 +8,7 @@ import java.util.Timer
 import java.util.TimerTask
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import android.util.Log
 
 private const val PKT_HELLO = 0x01
 private const val PKT_HELLO2 = 0x02
@@ -17,7 +19,7 @@ private const val IDLE_MS = 45_000L
 
 /** A line for the log of the link (adb logcat -s DevxRemote). Never contains what is said, only what happened. */
 object RLog {
-    @Volatile var out: (String) -> Unit = { runCatching { android.util.Log.d("DevxRemote", it) } }
+    @Volatile var out: (String) -> Unit = { runCatching { Log.d("DevxRemote", it) } }
     fun d(line: String) = out(line)
 }
 
@@ -78,7 +80,7 @@ class SecureChannel internal constructor(
         RLog.d("channel ended: $why (silent=$silent)")
         dead = true
         timer.cancel()
-        runCatching { link.close() }
+        attempt("secure") { link.close() }
         if (!silent) onClose()
     }
 }
@@ -114,7 +116,7 @@ suspend fun connectSecure(
         if (state == 2) return
         state = 2
         timer.cancel()
-        runCatching { link.close() }
+        attempt("secure") { link.close() }
         if (cont.isActive) cont.resumeWithException(e)
     }
     timer.schedule(object : TimerTask() { override fun run() { fail(RemoteException("no answer")) } }, timeoutMs)

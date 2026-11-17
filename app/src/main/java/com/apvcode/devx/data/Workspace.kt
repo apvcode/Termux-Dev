@@ -37,7 +37,7 @@ class Workspace(context: Context) {
             if (link.exists() || Files.isSymbolicLink(link.toPath())) continue
             val source = store.originalOf(a)
             runCatching { Files.createSymbolicLink(link.toPath(), source.toPath()) }
-                .onFailure { runCatching { source.copyTo(link) } }
+                .onFailure { runCatching { source.copyTo(link) }.logged("workspace") }
         }
     }
 
@@ -77,7 +77,7 @@ class ArtifactStore(context: Context) {
         val dir = File(root, id.trim())
         val meta = JSONObject(File(dir, "meta.json").readText())
         Artifact(id.trim(), meta.getString("name"), meta.optString("mime", "application/octet-stream"), meta.optLong("size"))
-    }.getOrNull()
+    }.logged("workspace").getOrNull()
 
     fun fileOf(a: Artifact): File = File(File(root, a.id), a.name)
 

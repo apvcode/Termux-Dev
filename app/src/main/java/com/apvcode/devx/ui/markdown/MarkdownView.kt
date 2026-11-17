@@ -59,15 +59,8 @@ import androidx.compose.ui.unit.sp
 import com.apvcode.devx.ui.chat.CodeView
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
-
-/** How fast new text appears, and how many characters at the edge are still fading in. */
-private const val CHARS_PER_SECOND = 80f
-
-/** While the answer is still coming, the writing never goes faster than this (the edge stays a soft wave, not a jump). */
-private const val STREAMING_MAX_CPS = 420f
-
-/** When no more text is coming, what is left is written out in about this long. */
-private const val CATCH_UP_SECONDS = 0.8f
+import android.os.SystemClock
+import androidx.compose.runtime.CompositionLocalProvider
 
 /** The fading edge is wider the faster the writing goes, so that it never turns into a jump: between these widths, in characters. */
 private const val FADE_MIN = 14f
@@ -112,24 +105,27 @@ fun MarkdownText(rawMarkdown: String, modifier: Modifier = Modifier, animate: Bo
     val fade = remember { androidx.compose.runtime.mutableFloatStateOf(FADE_MIN) }
     LaunchedEffect(smooth) {
         if (!smooth) return@LaunchedEffect
-        // One steady pace, frame by frame, that never restarts when more text arrives. While text is still coming the writing speeds
-        // up with how far behind it is, but only to a ceiling, so that it is always seen being written. When the text stops coming,
-        // what is left is written out faster, in under a second, still as a moving edge. The faster it goes, the wider the edge.
-        var lastGrowth = android.os.SystemClock.uptimeMillis()
+        // One steady pace, frame by frame. It is kept across the arrival of new text (the loop below is restarted for every piece, but the
+        // speed and the time of the last frame are not), so no frame is lost and the speed never starts over. The writing trails the
+        // text by a short while, however fast the text comes (see [RevealPace]); the faster it goes, the wider the fading edge.
+        var lastGrowth = SystemClock.uptimeMillis()
+        var lastFrame = 0L
+        var speed = RevealPace.MIN_CPS
         androidx.compose.runtime.snapshotFlow { goal.value }.collectLatest { target ->
-            lastGrowth = android.os.SystemClock.uptimeMillis()
-            var last = androidx.compose.runtime.withFrameNanos { it }
+            lastGrowth = SystemClock.uptimeMillis()
             while (reveal.value < target) {
                 val now = androidx.compose.runtime.withFrameNanos { it }
-                val dt = ((now - last) / 1_000_000_000f).coerceIn(0f, 0.05f)
-                last = now
+                val dt = if (lastFrame == 0L) 0f else ((now - lastFrame) / 1_000_000_000f).coerceIn(0f, 0.05f)
+                lastFrame = now
                 val behind = target - reveal.value
-                val growing = android.os.SystemClock.uptimeMillis() - lastGrowth < 400
-                val speed = if (growing) (CHARS_PER_SECOND + behind * 0.6f).coerceAtMost(STREAMING_MAX_CPS)
-                else maxOf(CHARS_PER_SECOND * 2, behind / CATCH_UP_SECONDS).coerceAtMost(1800f)
+                val growing = SystemClock.uptimeMillis() - lastGrowth < 400
+                speed = RevealPace.next(speed, behind, growing, dt)
                 fade.floatValue += ((speed * 0.16f).coerceIn(FADE_MIN, FADE_CHARS.toFloat()) - fade.floatValue) * 0.15f
                 reveal.snapTo(minOf(target.toFloat(), reveal.value + speed * dt))
             }
+            // Caught up: the next piece of text starts from the slowest pace, and its first frame only sets the clock.
+            speed = RevealPace.MIN_CPS
+            lastFrame = 0L
         }
     }
     LaunchedEffect(total) { if (!smooth) reveal.snapTo(total.toFloat()) }
@@ -137,7 +133,7 @@ fun MarkdownText(rawMarkdown: String, modifier: Modifier = Modifier, animate: Bo
     // character. The edge inside a block moves in the drawing (see [revealing]), so it costs no new layout.
     val begun by remember(placed) { derivedStateOf { val v = reveal.value.toInt(); offsets.count { it < v } } }
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalRevealFade provides fade) {
+    CompositionLocalProvider(LocalRevealFade provides fade) {
     Column(modifier.fillMaxWidth()) {
         var previous: Md? = null
         placed.forEachIndexed { i, item ->

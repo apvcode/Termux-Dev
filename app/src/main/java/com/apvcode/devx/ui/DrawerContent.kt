@@ -88,10 +88,9 @@ import com.apvcode.devx.model.ChatStatus
 import com.apvcode.devx.model.ChatSummary
 import com.apvcode.devx.ui.chat.ChatViewModel
 import com.apvcode.devx.ui.components.DevxIcons
-import dev.chrisbanes.haze.rememberHazeState
-import dev.chrisbanes.haze.hazeSource
 import com.apvcode.devx.ui.components.LocalGlass
 import com.apvcode.devx.ui.components.glass
+import dev.chrisbanes.haze.hazeSource
 import com.apvcode.devx.ui.components.MenuRow
 import com.apvcode.devx.ui.components.PopupMenu
 import com.apvcode.devx.ui.components.PressState
@@ -99,9 +98,29 @@ import com.apvcode.devx.ui.components.menuOffset
 import com.apvcode.devx.ui.components.pressAnchor
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import com.apvcode.devx.data.ProjectInfo
+import com.apvcode.devx.remote.RemoteHub
+import com.apvcode.devx.ui.components.AnimatedChatTitle
+import com.apvcode.devx.ui.screens.ProjectBadge
 
 /** What the user is being asked about after picking something in a long-press menu. */
-private sealed interface Ask {
+internal sealed interface Ask {
     data class RenameChat(val chat: ChatSummary) : Ask
     data class DeleteChat(val chat: ChatSummary) : Ask
     data class DeleteChats(val ids: List<String>) : Ask
@@ -136,27 +155,37 @@ fun DrawerContent(
     val picked = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     fun toggle(id: String) { if (id in picked) picked.remove(id) else picked.add(id) }
     fun stopSelecting() { selecting = false; picked.clear() }
-    androidx.activity.compose.BackHandler(enabled = selecting) { stopSelecting() }
+    BackHandler(enabled = selecting) { stopSelecting() }
     var projectsOpen by remember { mutableStateOf(true) }
     var notebooksOpen by remember { mutableStateOf(true) }
     var chatsOpen by remember { mutableStateOf(true) }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
+    // The list of chats is built once here (it reads every chat and cuts a preview from each); the sections below only sort it.
+    val allChats by remember { derivedStateOf { vm.chats } }
     // Every project, even an empty one, with its chats (pinned first).
     val projectChats by remember {
         derivedStateOf {
-            val all = vm.chats
-            vm.projects.filter { vm.projectInfo[it]?.isNotebook != true }.associateWith { name -> all.filter { it.project == name }.sortedByDescending { it.pinned } }
+            val all = allChats
+            vm.projects.filter { vm.projectInfo[it]?.isNotebook != true && vm.projectInfo[it]?.archived != true }.associateWith { name -> all.filter { it.project == name }.sortedByDescending { it.pinned } }
         }
     }
     // The notebooks are a section of their own: they are made to learn and to work from sources.
     val notebookChats by remember {
         derivedStateOf {
-            val all = vm.chats
-            vm.projects.filter { vm.projectInfo[it]?.isNotebook == true }.associateWith { name -> all.filter { it.project == name }.sortedByDescending { it.pinned } }
+            val all = allChats
+            vm.projects.filter { vm.projectInfo[it]?.isNotebook == true && vm.projectInfo[it]?.archived != true }.associateWith { name -> all.filter { it.project == name }.sortedByDescending { it.pinned } }
         }
     }
+    // Put away: not in the sections above, but one tap from them (the last section, folded).
+    val archivedChats by remember {
+        derivedStateOf {
+            val all = allChats
+            vm.projects.filter { vm.projectInfo[it]?.archived == true }.associateWith { name -> all.filter { it.project == name }.sortedByDescending { it.pinned } }
+        }
+    }
+    var archiveOpen by remember { mutableStateOf(false) }
     val plainChats by remember {
-        derivedStateOf { vm.chats.filter { it.project == null }.sortedByDescending { it.pinned } }
+        derivedStateOf { allChats.filter { it.project == null }.sortedByDescending { it.pinned } }
     }
     val projectNames = vm.projects.toList()
     val chatRow: @Composable (ChatSummary, Modifier) -> Unit = { chat, m ->
@@ -169,8 +198,8 @@ fun DrawerContent(
     var topHeight by remember { mutableStateOf(0.dp) }
     var bottomHeight by remember { mutableStateOf(0.dp) }
     val panel = DevxColors.Drawer
-    val haze = rememberHazeState()
-    androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides haze) {
+    val haze = dev.chrisbanes.haze.rememberHazeState()
+    CompositionLocalProvider(LocalGlass provides haze) {
     Box(
         modifier
             .width(width)
@@ -180,11 +209,11 @@ fun DrawerContent(
             .navigationBarsPadding(),
     ) {
         LazyColumn(
-            Modifier.fillMaxSize().hazeSource(haze).padding(horizontal = 16.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = topHeight, bottom = bottomHeight),
+            modifier = Modifier.fillMaxSize().hazeSource(haze).padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = topHeight, bottom = bottomHeight),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-                if (vm.chats.isEmpty() && vm.projects.isEmpty()) {
+                if (allChats.isEmpty() && vm.projects.isEmpty()) {
                 item(key = "empty") {
                     Text(
                         stringResource(R.string.drawer_empty),
@@ -214,6 +243,7 @@ fun DrawerContent(
                             title = book, count = chats.size, expanded = open, onToggle = { collapsed[book] = !open },
                             info = vm.projectInfo[book], onOpen = { onOpenProject(book) },
                             onNewChat = { vm.newChat(book); onNavigate(Screen.Chat) }, onAsk = { ask = it },
+                            onArchive = { vm.setArchived(book, true) }, onDuplicate = { vm.duplicateProject(book) },
                         )
                         FoldList(open, chats) { chat, m -> chatRow(chat, m) }
                     }
@@ -239,6 +269,7 @@ fun DrawerContent(
                             title = project, count = chats.size, expanded = open, onToggle = { collapsed[project] = open },
                             info = vm.projectInfo[project], onOpen = { onOpenProject(project) },
                             onNewChat = { vm.newChat(project); onNavigate(Screen.Chat) }, onAsk = { ask = it },
+                            onArchive = { vm.setArchived(project, true) }, onDuplicate = { vm.duplicateProject(project) },
                         )
                         FoldList(open, chats) { chat, m -> chatRow(chat, m) }
                     }
@@ -262,11 +293,37 @@ fun DrawerContent(
                 // A very long list stays lazy (only what is on the screen is built); it folds with the lazy list's own animation.
                 items(plainChats, key = { it.id }) { chat -> chatRow(chat, Modifier.animateItem(fadeInSpec = DrawerFadeIn, placementSpec = DrawerPlacement, fadeOutSpec = DrawerFadeOut)) }
             }
+            if (archivedChats.isNotEmpty()) {
+                item(key = "archive") {
+                    SectionHeader(
+                        icon = DevxIcons.Archive,
+                        title = stringResource(R.string.drawer_archive),
+                        count = archivedChats.size,
+                        expanded = archiveOpen,
+                        onClick = { archiveOpen = !archiveOpen },
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                item(key = "archive-body") {
+                    FoldList(archiveOpen, archivedChats.entries.toList()) { (name, chats), rowMod ->
+                        Column(rowMod) {
+                            val open = collapsed["archive:$name"] == false
+                            ProjectHeader(
+                                title = name, count = chats.size, expanded = open, onToggle = { collapsed["archive:$name"] = !open },
+                                info = vm.projectInfo[name], onOpen = { onOpenProject(name) },
+                                onNewChat = { vm.newChat(name); onNavigate(Screen.Chat) }, onAsk = { ask = it },
+                                onArchive = { vm.setArchived(name, false) }, onDuplicate = { vm.duplicateProject(name) },
+                            )
+                            FoldList(open, chats) { chat, m -> chatRow(chat, m) }
+                        }
+                    }
+                }
+            }
         }
 
         Column(
             Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to panel.copy(alpha = 0.88f), 0.55f to panel.copy(alpha = 0.55f), 1f to panel.copy(alpha = 0f)))
+                .background(Brush.verticalGradient(0f to panel.copy(alpha = 0.88f), 0.55f to panel.copy(alpha = 0.55f), 1f to panel.copy(alpha = 0f)))
                 .onSizeChanged { topHeight = with(density) { it.height.toDp() } }
                 .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 22.dp),
         ) {
@@ -277,7 +334,7 @@ fun DrawerContent(
 
         Box(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to panel.copy(alpha = 0f), 0.5f to panel.copy(alpha = 0.55f), 1f to panel.copy(alpha = 0.9f)))
+                .background(Brush.verticalGradient(0f to panel.copy(alpha = 0f), 0.5f to panel.copy(alpha = 0.55f), 1f to panel.copy(alpha = 0.9f)))
                 .onSizeChanged { bottomHeight = with(density) { it.height.toDp() } }
                 .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 14.dp),
         ) {
@@ -308,7 +365,7 @@ fun DrawerContent(
                 } else {
                     // The buttons shrink to the room there is: on a narrow screen (or a large display scale) the round ones get smaller,
                     // and when even that is not enough the new-chat button keeps only its icon. The word never breaks into letters.
-                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
                         val tight = maxWidth < 300.dp
                         val tiny = maxWidth < 236.dp
                         val round = if (tiny) 40.dp else if (tight) 44.dp else 50.dp
@@ -329,7 +386,7 @@ fun DrawerContent(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                             ) {
                                 Icon(DevxIcons.ChatPlus, stringResource(R.string.menu_new_chat), tint = DevxColors.OnAccent, modifier = Modifier.size(22.dp))
-                                if (!tiny) Text(stringResource(R.string.menu_new_chat), style = DevxType.Body, color = DevxColors.OnAccent, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
+                                if (!tiny) Text(stringResource(R.string.menu_new_chat), style = DevxType.Body, color = DevxColors.OnAccent, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
                             }
                             RoundAction(DevxIcons.Clock, stringResource(R.string.menu_tasks), size = round) { onNavigate(Screen.Tasks) }
                             RoundAction(DevxIcons.Mcp, stringResource(R.string.menu_mcp), size = round) { onNavigate(Screen.Mcp) }
@@ -364,7 +421,7 @@ private fun LibraryButton(count: Int, onClick: () -> Unit, modifier: Modifier = 
 @Composable
 private fun RemoteButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     // How many chats on the computers want a look; nothing is shown when none does.
-    val waiting = com.apvcode.devx.remote.RemoteHub.store.items.sumOf { com.apvcode.devx.remote.RemoteHub.connection(it.hostId)?.attention ?: 0 }
+    val waiting = RemoteHub.store.items.sumOf { RemoteHub.connection(it.hostId)?.attention ?: 0 }
     Row(
         modifier
             .fillMaxWidth()
@@ -376,8 +433,8 @@ private fun RemoteButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     ) {
         Icon(DevxIcons.Desktop, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp))
         Text(stringResource(R.string.remote_title), style = DevxType.Body, color = DevxColors.TextSecondary, modifier = Modifier.weight(1f))
-        androidx.compose.animation.AnimatedVisibility(visible = waiting > 0, enter = androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f)) + androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.scaleOut() + androidx.compose.animation.fadeOut()) {
-            Text("$waiting", style = DevxType.Caption.copy(fontSize = 12.sp, lineHeight = 14.sp), color = DevxColors.OnAccent, modifier = Modifier.defaultMinSize(minWidth = 22.dp).clip(CircleShape).background(DevxColors.Accent).padding(horizontal = 7.dp, vertical = 3.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        AnimatedVisibility(visible = waiting > 0, enter = androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f)) + androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.scaleOut() + androidx.compose.animation.fadeOut()) {
+            Text("$waiting", style = DevxType.Caption.copy(fontSize = 12.sp, lineHeight = 14.sp), color = DevxColors.OnAccent, modifier = Modifier.defaultMinSize(minWidth = 22.dp).clip(CircleShape).background(DevxColors.Accent).padding(horizontal = 7.dp, vertical = 3.dp), textAlign = TextAlign.Center)
         }
     }
 }
@@ -400,7 +457,7 @@ private fun SearchButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RoundAction(icon: ImageVector, description: String, badge: Int = 0, size: androidx.compose.ui.unit.Dp = 50.dp, onClick: () -> Unit) {
+private fun RoundAction(icon: ImageVector, description: String, badge: Int = 0, size: Dp = 50.dp, onClick: () -> Unit) {
     Box(
         Modifier
             .size(size)
@@ -442,20 +499,20 @@ private fun Chevron(expanded: Boolean) {
  */
 @Composable
 private fun <T> FoldList(open: Boolean, items: List<T>, row: @Composable (T, Modifier) -> Unit) {
-    androidx.compose.animation.AnimatedVisibility(
+    AnimatedVisibility(
         visible = open,
         enter = androidx.compose.animation.expandVertically(spring(dampingRatio = 0.92f, stiffness = 240f), expandFrom = Alignment.Top) + fadeIn(tween(200)),
-        exit = androidx.compose.animation.shrinkVertically(tween(380, delayMillis = 70, easing = androidx.compose.animation.core.FastOutSlowInEasing), shrinkTowards = Alignment.Top) + fadeOut(tween(220, delayMillis = 60)),
+        exit = androidx.compose.animation.shrinkVertically(tween(380, delayMillis = 70, easing = FastOutSlowInEasing), shrinkTowards = Alignment.Top) + fadeOut(tween(220, delayMillis = 60)),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items.forEachIndexed { i, item ->
                 val a by transition.animateFloat(
                     transitionSpec = {
-                        val appearing = targetState == androidx.compose.animation.EnterExitState.Visible
-                        tween(320, delayMillis = if (appearing) (i * 38).coerceAtMost(300) else ((items.size - 1 - i) * 22).coerceAtMost(180), easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                        val appearing = targetState == EnterExitState.Visible
+                        tween(320, delayMillis = if (appearing) (i * 38).coerceAtMost(300) else ((items.size - 1 - i) * 22).coerceAtMost(180), easing = FastOutSlowInEasing)
                     },
                     label = "fold-row",
-                ) { if (it == androidx.compose.animation.EnterExitState.Visible) 1f else 0f }
+                ) { if (it == EnterExitState.Visible) 1f else 0f }
                 row(item, Modifier.graphicsLayer { alpha = a; translationY = (1f - a) * -16.dp.toPx(); val sc = 0.96f + 0.04f * a; scaleX = sc; scaleY = sc })
             }
         }
@@ -463,9 +520,9 @@ private fun <T> FoldList(open: Boolean, items: List<T>, row: @Composable (T, Mod
 }
 
 /** How the rows of the list come and go when a section is folded or opened: they fade, and the rest glides to its new place. */
-private val DrawerFadeIn = androidx.compose.animation.core.tween<Float>(320, delayMillis = 60, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-private val DrawerFadeOut = androidx.compose.animation.core.tween<Float>(180, easing = androidx.compose.animation.core.FastOutLinearInEasing)
-private val DrawerPlacement = androidx.compose.animation.core.spring(dampingRatio = 0.88f, stiffness = 300f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1))
+private val DrawerFadeIn = androidx.compose.animation.core.tween<Float>(320, delayMillis = 60, easing = FastOutSlowInEasing)
+private val DrawerFadeOut = androidx.compose.animation.core.tween<Float>(180, easing = FastOutLinearInEasing)
+private val DrawerPlacement = androidx.compose.animation.core.spring(dampingRatio = 0.88f, stiffness = 300f, visibilityThreshold = IntOffset(1, 1))
 
 /** Top-level section of the list ("Projects", "Chats"): can be folded away. */
 @Composable
@@ -512,10 +569,12 @@ private fun ProjectHeader(
     count: Int,
     expanded: Boolean,
     onToggle: () -> Unit,
-    info: com.apvcode.devx.data.ProjectInfo?,
+    info: ProjectInfo?,
     onOpen: () -> Unit,
     onNewChat: () -> Unit,
     onAsk: (Ask) -> Unit,
+    onArchive: () -> Unit = {},
+    onDuplicate: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -540,11 +599,11 @@ private fun ProjectHeader(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (info != null) {
-                com.apvcode.devx.ui.screens.ProjectBadge(info.icon, info.color, 28.dp)
+                ProjectBadge(info.icon, info.color, 28.dp)
             } else {
                 Icon(DevxIcons.Folder, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
             }
-            Text(title, style = DevxType.Section, color = DevxColors.TextPrimary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(title, style = DevxType.Section, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Text("$count", style = DevxType.Caption, color = DevxColors.TextDisabled)
             Box(Modifier.size(40.dp).pressable(haptic = false, onClick = onToggle).clip(CircleShape), contentAlignment = Alignment.Center) {
                 Chevron(expanded)
@@ -554,6 +613,14 @@ private fun ProjectHeader(
             MenuRow(DevxIcons.ChatPlus, stringResource(R.string.project_new_chat)) {
                 menu = false
                 onNewChat()
+            }
+            MenuRow(DevxIcons.Archive, stringResource(if (info?.archived == true) R.string.space_unarchive else R.string.menu_archive)) {
+                menu = false
+                onArchive()
+            }
+            MenuRow(DevxIcons.Copy, stringResource(R.string.space_duplicate)) {
+                menu = false
+                onDuplicate()
             }
             MenuRow(DevxIcons.FolderOff, stringResource(R.string.menu_delete), danger = true) {
                 menu = false
@@ -565,7 +632,7 @@ private fun ProjectHeader(
 
 /** One chat: tap opens it, long-press opens the menu. */
 @Composable
-private fun ChatItem(
+internal fun ChatItem(
     chat: ChatSummary,
     projects: List<String>,
     vm: ChatViewModel,
@@ -673,8 +740,8 @@ private fun ChatCard(chat: ChatSummary, current: Boolean, selecting: Boolean, se
     // past if it is too long to be seen whole.
     val lift by androidx.compose.animation.animateColorAsState(
         when {
-            selected -> androidx.compose.ui.graphics.Color.White.copy(alpha = 0.10f).compositeOver(DevxColors.Card)
-            current -> androidx.compose.ui.graphics.Color.White.copy(alpha = 0.06f).compositeOver(DevxColors.Card)
+            selected -> Color.White.copy(alpha = 0.10f).compositeOver(DevxColors.Card)
+            current -> Color.White.copy(alpha = 0.06f).compositeOver(DevxColors.Card)
             else -> DevxColors.Card
         },
         tween(260), label = "card-color",
@@ -682,8 +749,8 @@ private fun ChatCard(chat: ChatSummary, current: Boolean, selecting: Boolean, se
     val border by androidx.compose.animation.animateColorAsState(
         when {
             selected -> DevxColors.Accent.copy(alpha = 0.85f)
-            current -> androidx.compose.ui.graphics.Color.White.copy(alpha = 0.20f)
-            else -> androidx.compose.ui.graphics.Color.Transparent
+            current -> Color.White.copy(alpha = 0.20f)
+            else -> Color.Transparent
         },
         tween(260), label = "card-border",
     )
@@ -692,14 +759,14 @@ private fun ChatCard(chat: ChatSummary, current: Boolean, selecting: Boolean, se
         Modifier
             .fillMaxWidth()
             .pressable(scaleTo = 0.975f, haptic = false, onLongClick = onLongClick, onClick = onClick)
-            .clip(shape)
-            .background(lift)
-            .border(1.5.dp, border, shape)
+            // The rounded plate is drawn as it is (a clip on top of it, for every card of a long list, was a mask drawn for each).
+            .background(lift, shape)
+            .then(if (border.alpha > 0f) Modifier.border(1.5.dp, border, shape) else Modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // The mark of a pickable chat slides in from the left and pushes the words aside.
-        androidx.compose.animation.AnimatedVisibility(
+        AnimatedVisibility(
             visible = selecting,
             enter = androidx.compose.animation.expandHorizontally(spring(dampingRatio = 0.75f, stiffness = 420f), expandFrom = Alignment.Start) +
                 androidx.compose.animation.scaleIn(spring(dampingRatio = 0.5f, stiffness = 500f), initialScale = 0.3f) + fadeIn(tween(160)),
@@ -712,13 +779,13 @@ private fun ChatCard(chat: ChatSummary, current: Boolean, selecting: Boolean, se
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // The name has its own place at the start of the line and never moves for anything: the marks of the chat stand after it.
-                com.apvcode.devx.ui.components.AnimatedChatTitle(
+                AnimatedChatTitle(
                     title = chat.title,
                     naming = chat.naming,
                     style = DevxType.BodyStrong,
                     color = DevxColors.TextPrimary,
                     mark = false,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 when (chat.status) {
@@ -736,7 +803,7 @@ private fun ChatCard(chat: ChatSummary, current: Boolean, selecting: Boolean, se
                 // An answer is being written: a small green light that breathes, at the end of the line.
                 if (chat.status == ChatStatus.Working) {
                     val glow by androidx.compose.animation.core.rememberInfiniteTransition(label = "working").animateFloat(
-                        0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "glow",
+                        0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "glow",
                     )
                     Box(Modifier.size(7.dp).graphicsLayer { alpha = glow }.background(DevxColors.Success, CircleShape))
                 }
@@ -749,15 +816,21 @@ private fun ChatCard(chat: ChatSummary, current: Boolean, selecting: Boolean, se
 // ---------- Dialogs ----------
 
 @Composable
-private fun AskHost(ask: Ask?, onDismiss: () -> Unit, vm: ChatViewModel, onDeleted: () -> Unit = {}) {
+internal fun AskHost(ask: Ask?, onDismiss: () -> Unit, vm: ChatViewModel, onDeleted: () -> Unit = {}) {
+    val context = LocalContext.current
+    // Said when a name could not be used because another project or notebook has it (an empty or unchanged name needs no word).
+    fun nameTaken(name: String, own: String = "") {
+        val t = name.trim()
+        if (t.isNotEmpty() && t != own && t in vm.projects) Toast.makeText(context, context.getString(R.string.name_taken, t), Toast.LENGTH_LONG).show()
+    }
     when (ask) {
         null -> Unit
-        Ask.NewProject -> RenameDialog(stringResource(R.string.dialog_new_project), "", onDismiss) { vm.createProject(it) }
+        Ask.NewProject -> RenameDialog(stringResource(R.string.dialog_new_project), "", onDismiss) { if (!vm.createProject(it)) nameTaken(it) }
         is Ask.RenameChat -> RenameDialog(stringResource(R.string.dialog_rename_chat), ask.chat.title, onDismiss) {
             vm.renameChat(ask.chat.id, it)
         }
         is Ask.RenameProject -> RenameDialog(stringResource(R.string.dialog_rename_project), ask.name, onDismiss) {
-            vm.renameProject(ask.name, it)
+            if (!vm.renameProject(ask.name, it)) nameTaken(it, ask.name)
         }
         is Ask.DeleteChat -> ConfirmDelete(
             icon = DevxIcons.ChatOff,

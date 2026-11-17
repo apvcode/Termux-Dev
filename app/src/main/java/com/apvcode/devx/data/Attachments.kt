@@ -17,6 +17,12 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
+import android.util.Log
+import java.io.ByteArrayOutputStream
 
 /**
  * Photos and files that people attach. They are copied into the app's own folder right away (the
@@ -30,10 +36,10 @@ class AttachmentStore(private val context: Context) {
 
     /** How many pages a PDF has; null when it cannot be opened. */
     fun pdfPages(a: Attachment): Int? = runCatching {
-        android.os.ParcelFileDescriptor.open(fileOf(a), android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-            android.graphics.pdf.PdfRenderer(fd).use { it.pageCount }
+        ParcelFileDescriptor.open(fileOf(a), ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+            PdfRenderer(fd).use { it.pageCount }
         }
-    }.getOrNull()
+    }.logged("attachments").getOrNull()
 
     /** The still picture shown for a video. */
     fun thumbOf(a: Attachment): File = File(dir, a.file.substringBeforeLast('.') + ".thumb.jpg")
@@ -133,7 +139,7 @@ class AttachmentStore(private val context: Context) {
     private fun onWhite(bitmap: Bitmap): Bitmap {
         if (!bitmap.hasAlpha()) return bitmap
         val flat = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-        android.graphics.Canvas(flat).apply { drawColor(android.graphics.Color.WHITE); drawBitmap(bitmap, 0f, 0f, null) }
+        Canvas(flat).apply { drawColor(Color.WHITE); drawBitmap(bitmap, 0f, 0f, null) }
         bitmap.recycle()
         return flat
     }
@@ -170,7 +176,7 @@ class AttachmentStore(private val context: Context) {
                 still?.let { saveScaled(it, thumbOf(attachment), 640, 82) }
                 attachment
             } finally {
-                runCatching { retriever.release() }
+                attempt("attachments") { retriever.release() }
             }
         } catch (e: Exception) {
             out.delete()
@@ -191,7 +197,7 @@ class AttachmentStore(private val context: Context) {
             (0 until count).mapNotNull { i ->
                 val at = duration * 1000L * (2 * i + 1) / (2 * count)
                 retriever.getFrameAtTime(at, MediaMetadataRetriever.OPTION_CLOSEST)?.let { frame ->
-                    val bytes = java.io.ByteArrayOutputStream()
+                    val bytes = ByteArrayOutputStream()
                     val scaled = scaledTo(frame, 1024)
                     scaled.compress(Bitmap.CompressFormat.JPEG, 80, bytes)
                     if (scaled !== frame) scaled.recycle()
@@ -202,7 +208,7 @@ class AttachmentStore(private val context: Context) {
         } catch (e: Exception) {
             emptyList()
         } finally {
-            runCatching { retriever.release() }
+            attempt("attachments") { retriever.release() }
         }
     }
 
@@ -215,7 +221,7 @@ class AttachmentStore(private val context: Context) {
         } catch (e: Exception) {
             null
         } finally {
-            runCatching { retriever.release() }
+            attempt("attachments") { retriever.release() }
         }
     }
 
@@ -264,7 +270,7 @@ class AttachmentStore(private val context: Context) {
                             out.writeText(text)
                             // The document itself is kept too, so that it can be opened, downloaded and shared as it was.
                             val kept = File(dir, "$id.orig.$extension")
-                            val original = if (temp.length() > 0 && runCatching { temp.copyTo(kept, overwrite = true) }.isSuccess) kept.name else ""
+                            val original = if (temp.length() > 0 && runCatching { temp.copyTo(kept, overwrite = true) }.logged("attachments").isSuccess) kept.name else ""
                             return@withContext Attachment(id, AttachmentKind.Text, name, "text/plain", out.name, out.length(), original = original)
                         }
                     }
@@ -288,7 +294,7 @@ class AttachmentStore(private val context: Context) {
             if (!copyLimited(uri, out, MAX_FILE)) return@withContext null
             Attachment(id, AttachmentKind.File, name, mime.ifBlank { "application/octet-stream" }, out.name, out.length())
         } catch (e: Exception) {
-            android.util.Log.w("DevxImport", "could not import $uri", e)
+            Log.w("DevxImport", "could not import $uri", e)
             null
         }
     }
@@ -325,11 +331,11 @@ class AttachmentStore(private val context: Context) {
                     val table = tables.getString(0)
                     val quoted = "\"" + table.replace("\"", "\"\"") + "\""
                     out.append("\n-- ").append(table)
-                    runCatching {
+                    attempt("attachments") {
                         db.rawQuery("SELECT COUNT(*) FROM $quoted", null).use { if (it.moveToFirst()) out.append(" (").append(it.getLong(0)).append(" rows)") }
                     }
                     out.append("\n").append(tables.getString(1) ?: "").append(";\n")
-                    runCatching {
+                    attempt("attachments") {
                         db.rawQuery("SELECT * FROM $quoted LIMIT 5", null).use { rows ->
                             out.append(rows.columnNames.joinToString(" | ")).append("\n")
                             while (rows.moveToNext()) {
@@ -345,13 +351,13 @@ class AttachmentStore(private val context: Context) {
             }
             out.toString().take(MAX_TEXT)
         }
-    }.getOrNull()
+    }.logged("attachments").getOrNull()
 
     private fun displayName(uri: Uri): String? = runCatching {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0) else null
         }
-    }.getOrNull() ?: uri.lastPathSegment
+    }.logged("attachments").getOrNull() ?: uri.lastPathSegment
 
     private companion object {
         const val MAX_TEXT = 400_000

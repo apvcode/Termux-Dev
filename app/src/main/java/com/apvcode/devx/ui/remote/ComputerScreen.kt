@@ -1,5 +1,6 @@
 package com.apvcode.devx.ui.remote
 
+import com.apvcode.devx.data.logged
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -66,6 +67,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import androidx.compose.ui.graphics.Color
+import com.apvcode.devx.remote.MAX_TRIES
 
 /** One saved chat on the computer, as the list shows it. */
 class RemoteChatInfo(val id: String, val title: String, val cwd: String?, val updatedAt: Long, val messages: Int, val open: Boolean, val running: Boolean, val snippet: String, val status: String? = null, val terminal: Boolean = false)
@@ -135,13 +138,13 @@ fun ComputerScreen(hostId: String, onBack: () -> Unit, onOpenSession: (String) -
                             Text(stringResource(R.string.remote_reaching_computer), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = TextAlign.Center)
                             // Which of the two tries this is.
                             Text(
-                                stringResource(R.string.remote_attempt, (conn.attempts + 1).coerceAtMost(com.apvcode.devx.remote.MAX_TRIES), com.apvcode.devx.remote.MAX_TRIES),
+                                stringResource(R.string.remote_attempt, (conn.attempts + 1).coerceAtMost(MAX_TRIES), MAX_TRIES),
                                 style = DevxType.Caption, color = DevxColors.TextDisabled, textAlign = TextAlign.Center,
                             )
                         } else {
                             Text(stringResource(R.string.remote_offline_title), style = DevxType.Title, color = DevxColors.TextPrimary)
                             Text(stringResource(R.string.remote_offline_seen_long, relativeTime(conn.computer.lastSeen)), style = DevxType.Body, color = DevxColors.TextPrimary, textAlign = TextAlign.Center)
-                            Text(stringResource(R.string.remote_offline_body, conn.computer.name, com.apvcode.devx.remote.MAX_TRIES), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = TextAlign.Center)
+                            Text(stringResource(R.string.remote_offline_body, conn.computer.name, MAX_TRIES), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = TextAlign.Center)
                             if (conn.revoked) Text(stringResource(R.string.remote_err_removed), style = DevxType.Caption, color = DevxColors.Danger, textAlign = TextAlign.Center)
                             PillButton(stringResource(R.string.remote_try_now), onClick = { conn.nudge() })
                         }
@@ -193,8 +196,8 @@ fun ComputerScreen(hostId: String, onBack: () -> Unit, onOpenSession: (String) -
                 Text(stringResource(R.string.remote_delete_body, s.title), style = DevxType.Body, color = DevxColors.TextSecondary)
                 PillButton(stringResource(R.string.menu_delete), onClick = {
                     deleting = null
-                    scope.launch { runCatching { withContext(Dispatchers.IO) { conn.call("session.delete", JSONObject().put("id", s.id)) } }; refresh() }
-                }, container = DevxColors.Danger, content = androidx.compose.ui.graphics.Color.White)
+                    scope.launch { runCatching { withContext(Dispatchers.IO) { conn.call("session.delete", JSONObject().put("id", s.id)) } }.logged("computerscreen"); refresh() }
+                }, container = DevxColors.Danger, content = Color.White)
                 PillButton(stringResource(R.string.dialog_cancel), onClick = { deleting = null }, filled = false)
             }
         }

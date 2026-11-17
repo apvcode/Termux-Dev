@@ -81,6 +81,8 @@ import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
+import android.os.SystemClock
+import androidx.compose.ui.graphics.RectangleShape
 
 /**
  * Listening, in the pill of the composer. The card has one fixed height whatever is said, so that nothing around it moves:
@@ -120,7 +122,7 @@ private fun VoiceStatus(voice: VoiceInput) {
     var seconds by remember { mutableLongStateOf(0L) }
     LaunchedEffect(voice.startedAt) {
         while (true) {
-            seconds = ((android.os.SystemClock.elapsedRealtime() - voice.startedAt) / 1000).coerceAtLeast(0)
+            seconds = ((SystemClock.elapsedRealtime() - voice.startedAt) / 1000).coerceAtLeast(0)
             delay(500)
         }
     }
@@ -168,7 +170,7 @@ private fun VoiceWords(voice: VoiceInput) {
         Modifier
             .fillMaxWidth()
             .height(112.dp)
-            .clip(androidx.compose.ui.graphics.RectangleShape)
+            .clip(RectangleShape)
             .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithContent {
                 drawContent()

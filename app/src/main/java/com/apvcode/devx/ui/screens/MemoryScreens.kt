@@ -65,6 +65,20 @@ import androidx.compose.ui.graphics.Color
 import com.apvcode.devx.ui.components.glass
 import com.apvcode.devx.ui.components.pressable
 import dev.chrisbanes.haze.hazeSource
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import com.apvcode.devx.ui.chat.ModelPicker
+import com.apvcode.devx.ui.components.LocalGlass
+import com.apvcode.devx.ui.components.TextEditorSheet
 
 /** Settings, Memory: the switch, the overview, and the saved notes. */
 @Composable
@@ -144,7 +158,7 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
     var editing by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     if (picking) SummaryModelPicker(vm, onDismiss = { picking = false })
-    androidx.activity.compose.BackHandler(enabled = editing) { editing = false }
+    BackHandler(enabled = editing) { editing = false }
     LaunchedEffect(Unit) {
         if (vm.memorySummaryStale(project)) vm.refreshMemorySummary(project)
     }
@@ -197,14 +211,15 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
         if (editing) {
             // The text of the overview itself (Markdown), as it is kept.
             Column(Modifier.weight(1f).imePadding().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                androidx.compose.foundation.layout.Box(Modifier.weight(1f).fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp)).background(DevxColors.Card).padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    androidx.compose.foundation.text.BasicTextField(
+                Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(DevxColors.Card).padding(horizontal = 18.dp, vertical = 14.dp)) {
+                    BasicTextField(
                         value = draft, onValueChange = { draft = it },
                         textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(DevxColors.Accent),
+                        cursorBrush = SolidColor(DevxColors.Accent),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                         decorationBox = { inner ->
-                            androidx.compose.foundation.layout.Box {
+                            Box {
                                 if (draft.isEmpty()) Text(stringResource(R.string.memory_edit_hint), style = DevxType.Body, color = DevxColors.TextDisabled)
                                 inner()
                             }
@@ -217,7 +232,7 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
             }
         } else {
         val haze = dev.chrisbanes.haze.rememberHazeState()
-        androidx.compose.runtime.CompositionLocalProvider(com.apvcode.devx.ui.components.LocalGlass provides haze) {
+        CompositionLocalProvider(LocalGlass provides haze) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         Column(
             Modifier.fillMaxSize().hazeSource(haze).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = if (memory.summary.isNotEmpty()) 96.dp else 8.dp),
@@ -227,13 +242,13 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
                 Text(stringResource(R.string.memory_edited_hint), style = DevxType.Caption, color = DevxColors.TextSecondary)
             }
             val fresh = memory.changes()
-            androidx.compose.animation.AnimatedVisibility(
+            AnimatedVisibility(
                 visible = fresh.isNotEmpty() && memory.summary.isNotEmpty(),
                 enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
                 exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
             ) {
                 Column(
-                    Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
                         .background(DevxColors.Accent.copy(alpha = 0.12f)).padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -276,7 +291,7 @@ fun MemorySummaryScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? 
 @Composable
 private fun AskDevxBar(busy: Boolean, onSend: (String) -> Unit, modifier: Modifier = Modifier) {
     var text by remember { mutableStateOf("") }
-    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val focus = LocalFocusManager.current
     val ready = text.isNotBlank() && !busy
     fun send() {
         if (!ready) return
@@ -289,15 +304,15 @@ private fun AskDevxBar(busy: Boolean, onSend: (String) -> Unit, modifier: Modifi
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        androidx.compose.foundation.text.BasicTextField(
+        BasicTextField(
             value = text,
             onValueChange = { text = it },
             enabled = !busy,
             textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
-            cursorBrush = androidx.compose.ui.graphics.SolidColor(DevxColors.Accent),
+            cursorBrush = SolidColor(DevxColors.Accent),
             maxLines = 4,
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Send),
-            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { send() }),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { send() }),
             modifier = Modifier.weight(1f).padding(vertical = 12.dp),
             decorationBox = { inner ->
                 Box {
@@ -376,7 +391,7 @@ fun MemoryNotesScreen(vm: ChatViewModel, onBack: () -> Unit, project: String? = 
 
 @Composable
 private fun NoteDialog(note: MemoryNote?, onDismiss: () -> Unit, onSave: (String) -> Unit, onDelete: (() -> Unit)?) {
-    com.apvcode.devx.ui.components.TextEditorSheet(
+    TextEditorSheet(
         title = stringResource(if (note == null) R.string.memory_add else R.string.memory_note),
         hint = stringResource(R.string.memory_note_hint),
         initial = note?.text.orEmpty(),
@@ -402,7 +417,7 @@ private fun updatedText(at: Long): String {
 /** Which model writes the summary: any model of any provider, or "same as the chat". */
 @Composable
 private fun SummaryModelPicker(vm: ChatViewModel, onDismiss: () -> Unit) {
-    com.apvcode.devx.ui.chat.ModelPicker(
+    ModelPicker(
         vm = vm,
         onDismiss = onDismiss,
         onOpenProviders = onDismiss,

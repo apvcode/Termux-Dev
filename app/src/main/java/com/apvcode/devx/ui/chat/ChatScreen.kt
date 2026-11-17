@@ -81,6 +81,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import com.apvcode.devx.ui.components.GlassIconButton
 import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.components.LocalGlass
+import kotlinx.coroutines.flow.collectLatest
 import com.apvcode.devx.ui.components.glass
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -140,6 +141,58 @@ import com.apvcode.devx.ui.components.DevxIcons
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.launch
+import android.app.Activity
+import android.app.KeyguardManager
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.SystemClock
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.content.ReceiveContentListener
+import androidx.compose.foundation.content.TransferableContent
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.OutputTransformation
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.apvcode.devx.assist.VoiceWarm
+import com.apvcode.devx.data.AppLock
+import com.apvcode.devx.data.Artifact
+import com.apvcode.devx.data.ChatExport
+import com.apvcode.devx.data.PendingAsk
+import com.apvcode.devx.data.Prefs
+import com.apvcode.devx.data.VoiceInput
+import com.apvcode.devx.ui.components.ProvideAskToolbar
+import com.apvcode.devx.ui.lock.ChatLockCover
+import kotlinx.coroutines.Dispatchers
 
 @Composable
 fun ChatScreen(
@@ -152,7 +205,7 @@ fun ChatScreen(
     onShowThinking: (Msg) -> Unit,
     onShowUploaded: (String) -> Unit,
     onShowSources: (Msg) -> Unit,
-    onOpenFile: (com.apvcode.devx.data.Artifact) -> Unit,
+    onOpenFile: (Artifact) -> Unit,
     onShowSteps: (Msg) -> Unit,
     modifier: Modifier = Modifier,
     onOpenProject: (String) -> Unit = {},
@@ -187,59 +240,59 @@ fun ChatScreen(
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.attachFiles(it) }
 
     // Speaking instead of typing: our own listening bar (see VoiceBar); what is heard goes into the field when the person is done.
-    val voice = remember { com.apvcode.devx.data.VoiceInput(context) }
-    androidx.compose.runtime.DisposableEffect(voice) { onDispose { voice.release() } }
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { voice.cancel() }
+    val voice = remember { VoiceInput(context) }
+    DisposableEffect(voice) { onDispose { voice.release() } }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { voice.cancel() }
     val startVoice = {
         if (!voice.available()) {
-            android.widget.Toast.makeText(context, R.string.voice_missing, android.widget.Toast.LENGTH_LONG).show()
+            Toast.makeText(context, R.string.voice_missing, Toast.LENGTH_LONG).show()
         } else {
-            voice.start(com.apvcode.devx.data.VoiceInput.currentTag())
+            voice.start(VoiceInput.currentTag())
         }
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startVoice() else android.widget.Toast.makeText(context, R.string.voice_err_permission, android.widget.Toast.LENGTH_LONG).show()
+        if (granted) startVoice() else Toast.makeText(context, R.string.voice_err_permission, Toast.LENGTH_LONG).show()
     }
     // Opened from the widget's microphone: the chat is up, so listening starts.
-    LaunchedEffect(com.apvcode.devx.data.PendingAsk.voice) {
-        if (!com.apvcode.devx.data.PendingAsk.voice) return@LaunchedEffect
+    LaunchedEffect(PendingAsk.voice) {
+        if (!PendingAsk.voice) return@LaunchedEffect
         kotlinx.coroutines.delay(450)
-        com.apvcode.devx.data.PendingAsk.voice = false
-        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) startVoice()
+        PendingAsk.voice = false
+        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoice()
         else micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
     }
     // A picture in the phone's clipboard (copied from the gallery, a browser, a screenshot tool) is offered for pasting.
-    val clipboardManager = remember { context.getSystemService(android.content.ClipboardManager::class.java) }
+    val clipboardManager = remember { context.getSystemService(ClipboardManager::class.java) }
     var clipImageAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     var clipDismissedAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     fun checkClipboard() {
         val d = runCatching { clipboardManager?.primaryClipDescription }.getOrNull()
         clipImageAt = if (d != null && d.hasMimeType("image/*")) d.timestamp else 0L
     }
-    androidx.compose.runtime.DisposableEffect(clipboardManager) {
-        val listener = android.content.ClipboardManager.OnPrimaryClipChangedListener { checkClipboard() }
+    DisposableEffect(clipboardManager) {
+        val listener = ClipboardManager.OnPrimaryClipChangedListener { checkClipboard() }
         checkClipboard()
         clipboardManager?.addPrimaryClipChangedListener(listener)
         onDispose { clipboardManager?.removePrimaryClipChangedListener(listener) }
     }
-    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { checkClipboard(); onPauseOrDispose { } }
+    LifecycleResumeEffect(Unit) { checkClipboard(); onPauseOrDispose { } }
     val pasteImages = {
         val clip = runCatching { clipboardManager?.primaryClip }.getOrNull()
         val uris = buildList { if (clip != null) for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { add(it) } }
-        if (uris.isNotEmpty()) vm.attachFiles(uris) else android.widget.Toast.makeText(context, R.string.paste_image_failed, android.widget.Toast.LENGTH_SHORT).show()
+        if (uris.isNotEmpty()) vm.attachFiles(uris) else Toast.makeText(context, R.string.paste_image_failed, Toast.LENGTH_SHORT).show()
         clipDismissedAt = clipImageAt
     }
     var attachOpen by remember { mutableStateOf(false) }
     var cameraOpen by remember { mutableStateOf(false) }
-    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
     val openCamera = {
         keyboard?.hide()
         focus.clearFocus()
         cameraOpen = true
     }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) openCamera() else android.widget.Toast.makeText(context, R.string.camera_denied, android.widget.Toast.LENGTH_LONG).show()
+        if (granted) openCamera() else Toast.makeText(context, R.string.camera_denied, Toast.LENGTH_LONG).show()
     }
 
     // ----- the chat menu: find in chat, lock, shortcut, delete -----
@@ -247,9 +300,9 @@ fun ChatScreen(
     // The first message asks (once) to be allowed to show notifications: they keep you informed when an
     // answer is written in the background.
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    val keyguard = remember { context.getSystemService(android.app.KeyguardManager::class.java) }
+    val keyguard = remember { context.getSystemService(KeyguardManager::class.java) }
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) vm.current?.let { vm.unlock(it.id) }
+        if (result.resultCode == Activity.RESULT_OK) vm.current?.let { vm.unlock(it.id) }
     }
     val unlockNow = {
         val intent = keyguard?.createConfirmDeviceCredentialIntent(
@@ -270,7 +323,7 @@ fun ChatScreen(
         androidx.compose.runtime.snapshotFlow { vm.generating }.collect { now ->
             if (was && !now && vm.autoListen) {
                 vm.autoListen = false
-                vm.path.lastOrNull { it.role == com.apvcode.devx.model.Role.Assistant && it.text.isNotBlank() }?.let { com.apvcode.devx.assist.VoiceWarm.speaker(context).read(it.text) }
+                vm.path.lastOrNull { it.role == Role.Assistant && it.text.isNotBlank() }?.let { VoiceWarm.speaker(context).read(it.text) }
             }
             was = now
         }
@@ -279,29 +332,29 @@ fun ChatScreen(
     val exportMarkdown = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         val chat = vm.current
         if (uri != null && chat != null) scope.launch {
-            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 runCatching {
-                    val text = com.apvcode.devx.data.ChatExport.markdown(
-                        chat, com.apvcode.devx.data.Prefs.nickname.ifBlank { context.getString(R.string.export_me) }, "Devx",
-                        com.apvcode.devx.data.ChatExport.dateLabel(chat.updatedAt),
+                    val text = ChatExport.markdown(
+                        chat, Prefs.nickname.ifBlank { context.getString(R.string.export_me) }, "Devx",
+                        ChatExport.dateLabel(chat.updatedAt),
                     )
                     context.contentResolver.openOutputStream(uri)!!.use { it.write(text.toByteArray(Charsets.UTF_8)) }
                 }.isSuccess
             }
-            android.widget.Toast.makeText(context, if (ok) R.string.export_saved else R.string.export_failed, android.widget.Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, if (ok) R.string.export_saved else R.string.export_failed, Toast.LENGTH_SHORT).show()
         }
     }
     val exportPdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val chat = vm.current
         if (uri != null && chat != null) scope.launch {
-            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.openOutputStream(uri)!!.use {
-                        com.apvcode.devx.data.ChatExport.pdf(chat, com.apvcode.devx.data.Prefs.nickname.ifBlank { context.getString(R.string.export_me) }, "Devx", it)
+                        ChatExport.pdf(chat, Prefs.nickname.ifBlank { context.getString(R.string.export_me) }, "Devx", it)
                     }
                 }.isSuccess
             }
-            android.widget.Toast.makeText(context, if (ok) R.string.export_saved else R.string.export_failed, android.widget.Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, if (ok) R.string.export_saved else R.string.export_failed, Toast.LENGTH_SHORT).show()
         }
     }
     val menuActions = ChatMenuActions(
@@ -310,19 +363,19 @@ fun ChatScreen(
             val chat = vm.current
             if (chat != null) {
                 if (chat.locked) vm.setLocked(chat.id, false)
-                else if (com.apvcode.devx.data.AppLock.locksChats) vm.setLocked(chat.id, true)
-                else android.widget.Toast.makeText(context, if (com.apvcode.devx.data.AppLock.enabled) R.string.lock_need_chats else R.string.lock_need_screen_lock, android.widget.Toast.LENGTH_LONG).show()
+                else if (AppLock.locksChats) vm.setLocked(chat.id, true)
+                else Toast.makeText(context, if (AppLock.enabled) R.string.lock_need_chats else R.string.lock_need_screen_lock, Toast.LENGTH_LONG).show()
             }
         },
         onUploaded = { vm.current?.let { onShowUploaded(it.id) } },
         onFind = { findOpen = true },
-        onExportMarkdown = { vm.current?.let { exportMarkdown.launch(com.apvcode.devx.data.ChatExport.fileName(it.title, "md")) } },
-        onExportPdf = { vm.current?.let { exportPdf.launch(com.apvcode.devx.data.ChatExport.fileName(it.title, "pdf")) } },
+        onExportMarkdown = { vm.current?.let { exportMarkdown.launch(ChatExport.fileName(it.title, "md")) } },
+        onExportPdf = { vm.current?.let { exportPdf.launch(ChatExport.fileName(it.title, "pdf")) } },
         onShorten = {
             val chat = vm.current
             // A good result is shown in the chat itself (the card with the notes); only a failure needs words.
             if (chat != null) vm.startCompaction(chat.id) {
-                android.widget.Toast.makeText(context, R.string.shorten_failed, android.widget.Toast.LENGTH_LONG).show()
+                Toast.makeText(context, R.string.shorten_failed, Toast.LENGTH_LONG).show()
             }
         },
         onAddToHome = { vm.current?.let { addChatToHome(context, it) } },
@@ -381,7 +434,7 @@ fun ChatScreen(
     // How far the pinned message sits above the top edge: with pictures, the words stay at the top and the
     // pictures peek out above them, instead of the pictures taking the whole top of the screen.
     var pinOffsetPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    val pinDensity = androidx.compose.ui.platform.LocalDensity.current
+    val pinDensity = LocalDensity.current
     // Another chat opened: jump to its end at once (unless it is the very chat being started right now).
     LaunchedEffect(vm.currentId) {
         if (pinNext) return@LaunchedEffect
@@ -422,7 +475,7 @@ fun ChatScreen(
     }
     // The free space under the pinned message: exactly as much as makes it reachable at the top.
     // It shrinks as the answer grows, so the answer fills the screen without anything jumping.
-    val gapPx = with(androidx.compose.ui.platform.LocalDensity.current) { 20.dp.roundToPx() }
+    val gapPx = with(LocalDensity.current) { 20.dp.roundToPx() }
     LaunchedEffect(pinId) {
         val id = pinId ?: return@LaunchedEffect
         androidx.compose.runtime.snapshotFlow {
@@ -439,10 +492,10 @@ fun ChatScreen(
     // The follow itself: every frame the list moves a fraction of the way to the bottom, so that growing text, a step appearing
     // or the sign of work folding away are all taken in one smooth glide instead of jumps. It also finishes the last stretch after the answer.
     var settleUntil by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
-    LaunchedEffect(vm.generating) { if (!vm.generating) settleUntil = android.os.SystemClock.uptimeMillis() + 1400 }
+    LaunchedEffect(vm.generating) { if (!vm.generating) settleUntil = SystemClock.uptimeMillis() + 1400 }
     LaunchedEffect(following, vm.generating, settleUntil) {
         if (!following) return@LaunchedEffect
-        while (vm.generating || android.os.SystemClock.uptimeMillis() < settleUntil) {
+        while (vm.generating || SystemClock.uptimeMillis() < settleUntil) {
             androidx.compose.runtime.withFrameNanos { }
             val d = distanceToBottom(listState)
             if (d > 0.5f) listState.scrollBy(if (d == Float.MAX_VALUE) 900f else (d * 0.2f).coerceIn(1.5f, 1400f))
@@ -513,24 +566,24 @@ fun ChatScreen(
         }
     }
     // A pull upwards at the very end of the chat brings the keyboard up (and the finger does not have to go to the field).
-    val pullThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
+    val pullThreshold = with(LocalDensity.current) { 56.dp.toPx() }
     val pullConnection = remember(listState) {
-        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+        object : NestedScrollConnection {
             var pulled = 0f
-            override fun onPostScroll(consumed: Offset, available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset {
-                if (source != androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) return Offset.Zero
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
                 if (available.y < 0f && !listState.canScrollForward) {
                     pulled -= available.y
                     if (pulled > pullThreshold) {
                         pulled = 0f
-                        com.apvcode.devx.data.PendingAsk.keyboard = true
+                        PendingAsk.keyboard = true
                     }
                 } else if (available.y > 0f || consumed.y != 0f) pulled = 0f
                 return Offset.Zero
             }
-            override suspend fun onPostFling(consumed: androidx.compose.ui.unit.Velocity, available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
                 pulled = 0f
-                return androidx.compose.ui.unit.Velocity.Zero
+                return Velocity.Zero
             }
         }
     }
@@ -538,7 +591,7 @@ fun ChatScreen(
     val haze = rememberHazeState()
     val sendOrigin = remember { SendOrigin() }
     var composerHeight by remember { mutableStateOf(0.dp) }
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    val density = LocalDensity.current
 
     // While the words of an answer are coming, the glass is plain (no blur behind it). The blur is drawn again with every frame
     // the text moves, several times over (the header, the buttons, the field), and on a 120 Hz screen the graphics chip of the
@@ -547,8 +600,8 @@ fun ChatScreen(
     val lightGlass by remember { androidx.compose.runtime.derivedStateOf { vm.generating && vm.path.lastOrNull()?.let { it.role == Role.Assistant && it.text.isNotEmpty() } == true } }
     // While the words are coming the screen is held at 60 Hz, so that frames come at an even pace (see SteadyFrames).
     LaunchedEffect(lightGlass) { com.apvcode.devx.data.SteadyFrames.hold(context, lightGlass) }
-    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { com.apvcode.devx.data.SteadyFrames.hold(context, false) } }
-    androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides haze, LocalSendOrigin provides sendOrigin) {
+    DisposableEffect(Unit) { onDispose { com.apvcode.devx.data.SteadyFrames.hold(context, false) } }
+    CompositionLocalProvider(LocalGlass provides haze, LocalSendOrigin provides sendOrigin) {
         Box(
             modifier
                 .fillMaxSize()
@@ -561,10 +614,10 @@ fun ChatScreen(
             Box(Modifier.fillMaxSize().then(if (shut) Modifier.clearAndSetSemantics { } else Modifier)) {
             // While the answer is awaited the screen glows (until the first words arrive).
             val awaiting by remember { androidx.compose.runtime.derivedStateOf { vm.path.lastOrNull()?.let { it.role == Role.Assistant && it.text.isEmpty() && it.error == null } == true } }
-            GenerationGlow(active = (com.apvcode.devx.data.Prefs.thinkingGlow && vm.generating && awaiting) || WelcomeCeremony.glow)
+            GenerationGlow(active = (Prefs.thinkingGlow && vm.generating && awaiting) || WelcomeCeremony.glow)
 
             if (path.isNotEmpty()) {
-                com.apvcode.devx.ui.components.ProvideAskToolbar(onAsk = vm::attachSnippet) {
+                ProvideAskToolbar(onAsk = vm::attachSnippet) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().nestedScroll(pullConnection).hazeSource(haze),
@@ -587,12 +640,12 @@ fun ChatScreen(
                                 }
                             },
                         ) {
-                            androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                 MessageItem(msg, vm, animate, host)
                                 // Under the last shortened message: a line that says what comes before it is told short now.
                                 val shortened = vm.current
                                 // While the context is compressed the card is here, where the result will stay.
-                                androidx.compose.animation.AnimatedVisibility(
+                                AnimatedVisibility(
                                     visible = vm.compacting != null && vm.compacting == vm.currentId && vm.compressAfter == msg.id,
                                     enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 380f)) + androidx.compose.animation.fadeIn(tween(240)),
                                     exit = androidx.compose.animation.shrinkVertically(tween(260)) + androidx.compose.animation.fadeOut(tween(160)),
@@ -614,7 +667,7 @@ fun ChatScreen(
                     }
                     if (pinId != null) {
                         item(key = "pin-space") {
-                            androidx.compose.foundation.layout.Spacer(Modifier.height(with(density) { spacerPx.toDp() }))
+                            Spacer(Modifier.height(with(density) { spacerPx.toDp() }))
                         }
                     }
                 }
@@ -624,7 +677,7 @@ fun ChatScreen(
             }
 
             // The empty chat greets you by name.
-            val hello = com.apvcode.devx.data.Prefs.nickname
+            val hello = Prefs.nickname
             AnimatedVisibility(
                 visible = path.isEmpty() && !vm.isTemporary && hello.isNotBlank(),
                 modifier = Modifier.align(Alignment.Center).padding(bottom = 96.dp),
@@ -634,12 +687,12 @@ fun ChatScreen(
                     androidx.compose.animation.scaleOut(tween(620, easing = FastOutSlowInEasing), targetScale = 0.94f),
             ) {
                 val dissolve by transition.animateFloat(transitionSpec = { tween(620, easing = FastOutSlowInEasing) }, label = "dissolve") { state ->
-                    if (state == androidx.compose.animation.EnterExitState.Visible) 0f else 1f
+                    if (state == EnterExitState.Visible) 0f else 1f
                 }
                 Box(
                     Modifier.graphicsLayer {
                         val blurPx = 22.dp.toPx() * dissolve
-                        if (android.os.Build.VERSION.SDK_INT >= 31 && blurPx > 0.5f) renderEffect = androidx.compose.ui.graphics.BlurEffect(blurPx, blurPx, androidx.compose.ui.graphics.TileMode.Decal)
+                        if (Build.VERSION.SDK_INT >= 31 && blurPx > 0.5f) renderEffect = BlurEffect(blurPx, blurPx, TileMode.Decal)
                         clip = false
                     },
                 ) { RotatingGreeting(hello) }
@@ -663,7 +716,7 @@ fun ChatScreen(
                         stringResource(R.string.temp_body),
                         style = DevxType.Body,
                         color = DevxColors.TextSecondary,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
@@ -697,7 +750,7 @@ fun ChatScreen(
                     onClose = { findOpen = false; findQuery = "" },
                 )
             }
-            androidx.activity.compose.BackHandler(enabled = findOpen) { findOpen = false; findQuery = "" }
+            BackHandler(enabled = findOpen) { findOpen = false; findQuery = "" }
 
             AnimatedVisibility(
                 visible = showDown && path.isNotEmpty(),
@@ -738,10 +791,10 @@ fun ChatScreen(
                 onSend = {
                     // Remember where the text stands: the new bubble flies out of this very spot.
                     sendOrigin.mark()
-                    if (android.os.Build.VERSION.SDK_INT >= 33 && !com.apvcode.devx.data.Prefs.askedNotifications) {
-                        com.apvcode.devx.data.Prefs.askedNotifications = true
-                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) !=
-                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (Build.VERSION.SDK_INT >= 33 && !Prefs.askedNotifications) {
+                        Prefs.askedNotifications = true
+                        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) !=
+                            PackageManager.PERMISSION_GRANTED
                         ) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                     }
                     pinNext = true
@@ -760,7 +813,7 @@ fun ChatScreen(
                 onMic = {
                     keyboard?.hide()
                     focus.clearFocus()
-                    if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) startVoice()
+                    if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoice()
                     else micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
                 },
                 voice = voice,
@@ -771,7 +824,7 @@ fun ChatScreen(
                 },
                 onVoiceCancel = { voice.cancel() },
                 onVoiceLanguage = { tag ->
-                    com.apvcode.devx.data.Prefs.saveVoiceLanguage(tag)
+                    Prefs.saveVoiceLanguage(tag)
                     voice.switchLanguage(tag)
                 },
             )
@@ -786,7 +839,7 @@ fun ChatScreen(
                 },
                 onPhotos = {
                     attachOpen = false
-                    imagePicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                    imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                 },
                 onFiles = {
                     attachOpen = false
@@ -810,10 +863,10 @@ fun ChatScreen(
             LaunchedEffect(shut) { if (shut) { keyboard?.hide(); focus.clearFocus() } }
             // One cover per chat: opening a locked chat has it in place from the first frame, only locking the open chat animates it in.
             androidx.compose.runtime.key(vm.current?.id) {
-                androidx.compose.animation.AnimatedVisibility(visible = shut, enter = fadeIn(tween(200)) + scaleIn(tween(320, easing = FastOutSlowInEasing), initialScale = 1.05f), exit = fadeOut(tween(420)) + scaleOut(tween(460, easing = FastOutSlowInEasing), targetScale = 1.1f)) {
-                    if (com.apvcode.devx.data.AppLock.locksChats) {
+                AnimatedVisibility(visible = shut, enter = fadeIn(tween(200)) + scaleIn(tween(320, easing = FastOutSlowInEasing), initialScale = 1.05f), exit = fadeOut(tween(420)) + scaleOut(tween(460, easing = FastOutSlowInEasing), targetScale = 1.1f)) {
+                    if (AppLock.locksChats) {
                         // The app's own code (or the fingerprint): the padlock opens and the chat shows.
-                        com.apvcode.devx.ui.lock.ChatLockCover(onUnlocked = { vm.current?.let { vm.unlock(it.id) } }, onMenu = onOpenDrawer)
+                        ChatLockCover(onUnlocked = { vm.current?.let { vm.unlock(it.id) } }, onMenu = onOpenDrawer)
                     } else {
                         LaunchedEffect(vm.currentId) { unlockNow() }
                         LockedCover(onUnlock = { unlockNow() })
@@ -838,7 +891,7 @@ fun ChatScreen(
 }
 
 /** How far the end of the list is below the screen, in pixels (Float.MAX_VALUE when the last item is not even in view). */
-internal fun distanceToBottom(state: androidx.compose.foundation.lazy.LazyListState): Float {
+internal fun distanceToBottom(state: LazyListState): Float {
     val info = state.layoutInfo
     val last = info.visibleItemsInfo.lastOrNull() ?: return 0f
     if (last.index < info.totalItemsCount - 1) return Float.MAX_VALUE
@@ -861,7 +914,7 @@ private fun TopBar(vm: ChatViewModel, onOpenDrawer: () -> Unit, onPickModel: () 
             Row(
                 Modifier
                     .height(42.dp)
-                    .widthIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * 0.66f).dp)
+                    .widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.66f).dp)
                     .pressable(scaleTo = 0.93f, onClick = onPickModel)
                     // The glass is OUTSIDE the size animation: the shape itself grows and shrinks. (The other way
                     // round, a finished pill is cut by a moving edge, and that is a wall.)
@@ -960,7 +1013,7 @@ private fun BarIcon(icon: ImageVector, description: String, onClick: () -> Unit)
 @Composable
 private fun Composer(
     modifier: Modifier,
-    onHeight: (androidx.compose.ui.unit.Dp) -> Unit,
+    onHeight: (Dp) -> Unit,
     value: String,
     generating: Boolean,
     attachments: List<Attachment>,
@@ -976,13 +1029,13 @@ private fun Composer(
     attachOpen: Boolean,
     onToggleAttach: () -> Unit,
     onMic: () -> Unit,
-    voice: com.apvcode.devx.data.VoiceInput,
+    voice: VoiceInput,
     onVoiceDone: () -> Unit,
     onVoiceCancel: () -> Unit,
     onVoiceLanguage: (String) -> Unit,
     clipImage: Boolean = false,
     onPasteImage: () -> Unit = {},
-    onPasteUris: (List<android.net.Uri>) -> Unit = {},
+    onPasteUris: (List<Uri>) -> Unit = {},
     onDismissClip: () -> Unit = {},
 ) {
     val origin = LocalSendOrigin.current
@@ -1003,19 +1056,19 @@ private fun Composer(
     var editorOpen by remember { mutableStateOf(false) }
     val edge by animateFloatAsState(if (focused) 1f else 0f, tween(220), label = "focus")
     // Asked from the tile or the widget: the field takes the focus and the keyboard comes up.
-    val fieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-    val fieldKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    LaunchedEffect(com.apvcode.devx.data.PendingAsk.focus) {
-        if (!com.apvcode.devx.data.PendingAsk.focus) return@LaunchedEffect
+    val fieldFocus = remember { FocusRequester() }
+    val fieldKeyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(PendingAsk.focus) {
+        if (!PendingAsk.focus) return@LaunchedEffect
         kotlinx.coroutines.delay(380)
         runCatching { fieldFocus.requestFocus() }
         fieldKeyboard?.show()
-        com.apvcode.devx.data.PendingAsk.focus = false
+        PendingAsk.focus = false
     }
     // A pull upwards at the end of the chat: the keyboard comes up at once.
-    LaunchedEffect(com.apvcode.devx.data.PendingAsk.keyboard) {
-        if (!com.apvcode.devx.data.PendingAsk.keyboard) return@LaunchedEffect
-        com.apvcode.devx.data.PendingAsk.keyboard = false
+    LaunchedEffect(PendingAsk.keyboard) {
+        if (!PendingAsk.keyboard) return@LaunchedEffect
+        PendingAsk.keyboard = false
         runCatching { fieldFocus.requestFocus() }
         fieldKeyboard?.show()
     }
@@ -1034,15 +1087,15 @@ private fun Composer(
         mentionItems.filter { it.attachment == null }.associate { it.title to (it.info?.let { i -> Color(i.color) } ?: it.kind.tint) }
     }
     val mentionStyle = remember(mentionTints) {
-        androidx.compose.foundation.text.input.OutputTransformation {
+        OutputTransformation {
             val text = asCharSequence().toString()
             mentionSpans(text, mentionTints.keys).forEach { sp ->
-                addStyle(androidx.compose.ui.text.SpanStyle(color = mentionTints.getValue(sp.name), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), sp.start, sp.end)
+                addStyle(SpanStyle(color = mentionTints.getValue(sp.name), fontWeight = FontWeight.SemiBold), sp.start, sp.end)
             }
         }
     }
     var fieldHeight by remember { mutableStateOf(0.dp) }
-    val composerDensity = androidx.compose.ui.platform.LocalDensity.current
+    val composerDensity = LocalDensity.current
     // The card with the notebooks sits in this box above the field; the chat is told only the height of the field itself, so that it does not move.
     Box(modifier) {
     MentionPicker(
@@ -1053,7 +1106,7 @@ private fun Composer(
         onKind = { k ->
             kindPick = k
             // The letters typed after the @ were only for finding the kind: they are cleared, the @ stays for the next search.
-            token?.let { t -> fieldState.edit { replace(t.start, t.end, "@"); selection = androidx.compose.ui.text.TextRange(t.start + 1) } }
+            token?.let { t -> fieldState.edit { replace(t.start, t.end, "@"); selection = TextRange(t.start + 1) } }
         },
         onPick = { item ->
             token?.let { t ->
@@ -1067,7 +1120,7 @@ private fun Composer(
                         // A notebook or a project becomes part of the sentence: "@Name ", and the cursor goes after it.
                         val spaceAfter = t.end < length && asCharSequence()[t.end] == ' '
                         replace(t.start, t.end, "@" + item.title + if (spaceAfter) "" else " ")
-                        selection = androidx.compose.ui.text.TextRange(t.start + 1 + item.title.length + 1)
+                        selection = TextRange(t.start + 1 + item.title.length + 1)
                     }
                 }
             }
@@ -1098,7 +1151,7 @@ private fun Composer(
                 Icon(DevxIcons.Photo, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(20.dp))
                 Text(stringResource(R.string.paste_image), style = DevxType.Body.copy(fontSize = 15.sp), color = DevxColors.TextPrimary, modifier = Modifier.padding(vertical = 9.dp))
                 Box(Modifier.size(36.dp).pressable(onClick = onDismissClip), contentAlignment = Alignment.Center) {
-                    Icon(androidx.compose.material.icons.Icons.Outlined.Close, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Close, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -1131,7 +1184,7 @@ private fun Composer(
                     .border(1.dp, DevxColors.TextPrimary.copy(alpha = 0.16f * edge), RoundedCornerShape(radius))
                     // A new line of text makes the pill taller. It grows quickly and without a bounce, anchored at the bottom where the
                     // text sits: a soft bouncing spring anchored at the top made the line being typed jump up and down.
-                    .animateContentSize(tween(110, easing = androidx.compose.animation.core.FastOutSlowInEasing), alignment = Alignment.BottomStart),
+                    .animateContentSize(tween(110, easing = FastOutSlowInEasing), alignment = Alignment.BottomStart),
             ) {
             AnimatedVisibility(
                 visible = hasMedia,
@@ -1140,7 +1193,7 @@ private fun Composer(
             ) {
                 ComposerAttachments(attachments, importing, fileOf, onRemoveAttachment, onOpen = onOpenAttachment)
             }
-            androidx.compose.animation.Crossfade(targetState = voice.state != com.apvcode.devx.data.VoiceInput.State.Idle, animationSpec = tween(220), label = "composer-voice") { listening ->
+            Crossfade(targetState = voice.state != VoiceInput.State.Idle, animationSpec = tween(220), label = "composer-voice") { listening ->
                 if (listening) {
                     VoiceBar(voice, onDone = onVoiceDone, onCancel = onVoiceCancel, onLanguage = onVoiceLanguage)
                 } else {
@@ -1184,13 +1237,14 @@ private fun Composer(
                         BasicTextField(
                             state = fieldState,
                             outputTransformation = mentionStyle,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                             textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
                             cursorBrush = SolidColor(DevxColors.Accent),
-                            lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.MultiLine(minHeightInLines = 1, maxHeightInLines = 6),
+                            lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 1, maxHeightInLines = 6),
                             onTextLayout = { layout -> lines = layout()?.lineCount ?: 1 },
                             modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).focusRequester(fieldFocus).onFocusChanged { focused = it.isFocused }
                                 .pasteFiles(onPasteUris, onPasteImage),
-                            decorator = androidx.compose.foundation.text.input.TextFieldDecorator { inner ->
+                            decorator = TextFieldDecorator { inner ->
                                 Box(contentAlignment = Alignment.CenterStart) {
                                     if (fieldState.text.isEmpty()) {
                                         Text(stringResource(R.string.chat_placeholder), style = DevxType.Body, color = DevxColors.TextSecondary, maxLines = 1)
@@ -1207,7 +1261,7 @@ private fun Composer(
                         modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 6.dp),
                         enter = fadeIn(tween(160)) + scaleIn(spring(dampingRatio = 0.6f, stiffness = 420f), initialScale = 0.5f),
                         // When the pill gets lower it goes away at once: a button that fades out up there slides under the send button.
-                        exit = androidx.compose.animation.ExitTransition.None,
+                        exit = ExitTransition.None,
                     ) {
                         Box(Modifier.size(34.dp).clip(CircleShape).pressable(scaleTo = 0.88f, onClick = { editorOpen = true }), contentAlignment = Alignment.Center) {
                             Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_arrows_diagonal), stringResource(R.string.editor_expand), tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
@@ -1215,7 +1269,7 @@ private fun Composer(
                     }
                     // Send (or stop) in the corner; while there is nothing to send, the microphone takes its place.
                     Box(Modifier.align(Alignment.BottomEnd).padding(end = 3.dp).size(42.dp), contentAlignment = Alignment.Center) {
-                        androidx.compose.animation.AnimatedContent(
+                        AnimatedContent(
                             targetState = showSend,
                             transitionSpec = { (fadeIn(tween(180)) + scaleIn(spring(dampingRatio = 0.6f, stiffness = 420f), initialScale = 0.5f)) togetherWith (fadeOut(tween(120)) + androidx.compose.animation.scaleOut(tween(140), targetScale = 0.5f)) },
                             label = "send-or-mic",
@@ -1344,16 +1398,16 @@ internal fun SendButton(canSend: Boolean, generating: Boolean, onSend: () -> Uni
  * Those join the message as attachments, as if they had been picked. The menu over the field also offers "Paste" when the
  * clipboard holds something that is not text, since the system's own Paste is only for words.
  */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Modifier.pasteFiles(onUris: (List<android.net.Uri>) -> Unit, onPasteClipboard: () -> Unit): Modifier {
-    val context = androidx.compose.ui.platform.LocalContext.current
+private fun Modifier.pasteFiles(onUris: (List<Uri>) -> Unit, onPasteClipboard: () -> Unit): Modifier {
+    val context = LocalContext.current
     val pasteLabel = remember { context.getString(android.R.string.paste) }
     val latestUris = androidx.compose.runtime.rememberUpdatedState(onUris)
     val latestPaste = androidx.compose.runtime.rememberUpdatedState(onPasteClipboard)
     return this
-        .contentReceiver(object : androidx.compose.foundation.content.ReceiveContentListener {
-            override fun onReceive(transferableContent: androidx.compose.foundation.content.TransferableContent): androidx.compose.foundation.content.TransferableContent? {
+        .contentReceiver(object : ReceiveContentListener {
+            override fun onReceive(transferableContent: TransferableContent): TransferableContent? {
                 val clip = transferableContent.clipEntry.clipData
                 val items = (0 until clip.itemCount).map { clip.getItemAt(it) }
                 // Only what is no words (a picture, a file) is taken as an attachment; words are pasted as they are.
@@ -1364,7 +1418,7 @@ private fun Modifier.pasteFiles(onUris: (List<android.net.Uri>) -> Unit, onPaste
             }
         })
         .appendTextContextMenuComponents {
-            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+            val clipboard = context.getSystemService(ClipboardManager::class.java)
             val d = runCatching { clipboard?.primaryClipDescription }.getOrNull()
             val holdsFile = d != null && (0 until d.mimeTypeCount).any { !d.getMimeType(it).startsWith("text/") }
             if (holdsFile) item(key = "devx-paste-files", label = pasteLabel) { latestPaste.value(); close() }

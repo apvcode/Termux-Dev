@@ -10,6 +10,7 @@ import java.io.File
 import java.io.InputStream
 import java.util.UUID
 import java.util.zip.ZipInputStream
+import java.io.ByteArrayOutputStream
 
 /** A skill: a folder with a SKILL.md (what it is for, how to do the work) and whatever it refers to. */
 class Skill(val name: String, val description: String, val builtin: Boolean)
@@ -63,7 +64,7 @@ class SkillStore(context: Context) {
     private val app = context.applicationContext
     private val assets = app.assets
     private val userDir = File(app.filesDir, "skills").apply { mkdirs() }
-    private val prefs = app.getSharedPreferences("skills", Context.MODE_PRIVATE)
+    private val prefs = app.getSharedPreferences(PrefFiles.SKILLS, Context.MODE_PRIVATE)
 
     val skills = mutableStateListOf<Skill>()
     private val off = mutableStateMapOf<String, Boolean>().also { m -> prefs.getStringSet("off", emptySet())?.forEach { m[it] = true } }
@@ -85,14 +86,14 @@ class SkillStore(context: Context) {
 
     private fun scan(): List<Skill> {
         val byName = LinkedHashMap<String, Skill>()
-        runCatching {
+        attempt("skills") {
             assets.list(ASSETS)?.sorted()?.forEach { dir ->
-                val header = runCatching { assets.open("$ASSETS/$dir/SKILL.md").use { it.readBytes().toString(Charsets.UTF_8) } }.getOrNull()?.let(::parseSkillHeader)
+                val header = runCatching { assets.open("$ASSETS/$dir/SKILL.md").use { it.readBytes().toString(Charsets.UTF_8) } }.logged("skills").getOrNull()?.let(::parseSkillHeader)
                 if (header != null) byName[header.first] = Skill(header.first, header.second, builtin = true)
             }
         }
         userDir.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }?.forEach { dir ->
-            val header = runCatching { File(dir, "SKILL.md").readText() }.getOrNull()?.let(::parseSkillHeader)
+            val header = runCatching { File(dir, "SKILL.md").readText() }.logged("skills").getOrNull()?.let(::parseSkillHeader)
             if (header != null) byName[header.first] = Skill(header.first, header.second, builtin = false)
         }
         return byName.values.sortedBy { it.name }
@@ -108,7 +109,7 @@ class SkillStore(context: Context) {
 
     private fun assetFolder(skill: Skill): String? {
         val dir = assets.list(ASSETS)?.firstOrNull { d ->
-            runCatching { assets.open("$ASSETS/$d/SKILL.md").use { parseSkillHeader(it.readBytes().toString(Charsets.UTF_8))?.first } }.getOrNull() == skill.name
+            runCatching { assets.open("$ASSETS/$d/SKILL.md").use { parseSkillHeader(it.readBytes().toString(Charsets.UTF_8))?.first } }.logged("skills").getOrNull() == skill.name
         }
         return dir?.let { "$ASSETS/$it" }
     }
@@ -144,7 +145,7 @@ class SkillStore(context: Context) {
         }
         val root = assetFolder(skill) ?: return null
         if (relative.split('/').any { it == ".." }) return null
-        return runCatching { assets.open("$root/$relative").use { it.readBytes() } }.getOrNull()
+        return runCatching { assets.open("$root/$relative").use { it.readBytes() } }.logged("skills").getOrNull()
     }
 
     /** Copies a whole skill into [target] (so that scripts in it can be run). False if there is no such skill. */
@@ -202,7 +203,7 @@ class SkillStore(context: Context) {
     private class TooBig : Exception()
 
     private fun readLimited(input: InputStream): ByteArray {
-        val out = java.io.ByteArrayOutputStream()
+        val out = ByteArrayOutputStream()
         val buffer = ByteArray(64 * 1024)
         while (true) {
             val n = input.read(buffer)

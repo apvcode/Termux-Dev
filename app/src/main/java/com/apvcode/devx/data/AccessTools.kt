@@ -98,7 +98,7 @@ class AccessTools(private val context: Context, private val openPage: suspend (I
         val fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
         val rows = withContext(Dispatchers.IO) {
             val out = ArrayList<String>()
-            runCatching {
+            attempt("accesstools") {
                 context.contentResolver.query(
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection,
                     selection.takeIf { it.isNotEmpty() }?.joinToString(" AND "), selArgs.takeIf { it.isNotEmpty() }?.toTypedArray(),
@@ -135,7 +135,7 @@ class AccessTools(private val context: Context, private val openPage: suspend (I
                     val shown = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1), true) else bitmap
                     val bytes = ByteArrayOutputStream().also { shown.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
                     WireImage("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP))
-                }.getOrNull()
+                }.logged("accesstools").getOrNull()
             }
         }
         if (images.isEmpty()) return ToolOutcome("Those photos could not be opened.")

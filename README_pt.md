@@ -64,7 +64,7 @@ A chave de API fica criptografada no celular (Android Keystore) e vai apenas par
 - Digite `@` no campo: um menu do que você pode apontar (um caderno, um projeto, um arquivo da biblioteca, uma tarefa agendada). Um caderno ou projeto vira parte da frase, na sua cor, e o assistente recebe o que há nele. Por voz, basta dizer o nome.
 - Uma única busca em conversas, cadernos, projetos, arquivos e fontes, inclusive pelo que está escrito dentro de documentos, PDFs e notas.
 - Cole imagens e arquivos direto no campo da mensagem (da área de transferência ou do teclado). «Perguntar ao devx» sobre um texto selecionado não mexe na sua área de transferência.
-- Backup e restauração de conversas, cadernos, memória, habilidades e configurações num só arquivo; uma cópia semanal automática numa pasta à sua escolha (as quatro últimas ficam).
+- Cópia e restauração de tudo num só arquivo: conversas, cadernos e projetos, memória, habilidades, personalidade, anexos e configurações. As chaves de API e os tokens só entram se você definir uma senha (eles são cifrados com ela). Antes de restaurar, o app mostra o que há no arquivo e o que ele vai substituir. Uma cópia semanal é feita sozinha numa pasta que você escolhe e, se quiser, também é enviada para uma pasta WebDAV (Nextcloud, um NAS); as quatro últimas ficam.
 - Fixar e arquivar conversas, trancar uma conversa específica, adicionar uma conversa à tela inicial. «Perguntar ao devx» sobre um texto selecionado cita o trecho como um cartão na sua próxima mensagem.
 - O assistente trabalha com arquivos numa pasta própria: cria e lê arquivos, faz e descompacta pacotes, lê um PDF página por página e olha suas imagens, edita imagens e descompacta, altera, reempacota e assina APKs. As aprovações podem ser dadas na própria notificação (Permitir / Negar).
 - Quatro widgets (uma barra para perguntar, botões rápidos, as últimas conversas, os cartões para revisar) e dois blocos de configurações rápidas (perguntar, voz).
@@ -78,14 +78,16 @@ A chave de API fica criptografada no celular (Android Keystore) e vai apenas par
 - O assistente pode alterar um caderno ou projeto (nome, ícone, cor, descrição, instruções, meta) e, depois de conversarem, propor um novo caderno ou projeto: você confirma num cartão.
 - Compartilhe um link, um texto, um PDF ou uma imagem de qualquer app: o devx oferece uma nova conversa ou um dos seus cadernos, onde vira uma fonte (um link é lido e guardado).
 - Estatísticas de estudo na página: dias seguidos, os últimos sete dias em barras; um widget da tela inicial mostra quantos cartões estão para revisar e inicia a revisão. Os cartões e o resumo do caderno podem ser ouvidos (um *resumo em áudio* é escrito para ser ouvido e depois lido em voz alta), e um caderno é exportado como um arquivo Markdown.
+- Os cartões podem ter uma imagem e ser respondidos em voz alta. Chegam do Anki (`.apkg` ou texto) e de CSV, e saem como pacote do Anki com imagens, texto do Anki ou CSV. Um *mapa de conceitos* mostra as ideias do caderno e como se ligam, coloridas conforme o quanto você as conhece, com *Explique* e *Me teste*. Um caderno pode ser arquivado ou copiado para recomeçar (as fontes e as lições, não as conversas).
 - A biblioteca guarda todo arquivo que você anexou ou que o assistente criou: busca, filtros, onde foi usado, anexar a uma nova conversa, apagar em todo lugar. PDF, Word, slides, planilhas, texto, imagens e sites abrem no visualizador integrado; os originais do Office são mantidos.
 
 ### Aparência, personalidade e segurança
 
-- Aparência: a do sistema, preta, cinza-escuro ou clara.
+- A aparência tem página própria: três escolhas rápidas (sistema, preto, claro) e uma tela com outros temas (cinza escuro, Meia-noite, Floresta, Crepúsculo, Brasa, Oceano, Papel, Sakura, Menta). O tema pode mudar sozinho conforme a hora do dia (um de dia e um de noite), e a troca é animada. O vidro desfocado pode ser desligado: os botões ficam então opacos.
 - Personalidade: escolha um jeito (calmo, sem enrolação, detalhado, amigável, profissional, direto, mentor), ajuste o tom, dê um nome ao assistente e escreva suas próprias instruções. Um toque redefine tudo.
 - Bloqueio do app com o bloqueio de tela, um código ou biometria; conversas isoladas também podem ser trancadas, e a lista de apps recentes esconde a imagem enquanto há um bloqueio ativo.
 - Fotos por mensagem, notificações de respostas e aprovações, e se um computador pode funcionar no modo «tudo» ficam nas configurações.
+- Dados e segurança têm página própria: o bloqueio, as cópias e a lixeira. Conversas, projetos e cadernos apagados ficam 30 dias na lixeira e podem ser restaurados (logo após apagar, uma mensagem oferece «Desfazer»). Um arquivo de conversa que não pode ser lido é posto de lado em vez de perdido, e você é avisado. O que o app recuperou aparece em **Sobre → Diagnóstico**.
 
 ### Assistente de voz
 
@@ -95,6 +97,7 @@ A chave de API fica criptografada no celular (Android Keystore) e vai apenas par
 - Olha sua galeria, lê as notificações na tela, trabalha numa pasta que você escolhe, mas só quando você pede e só se você permitiu.
 - Tarefas agendadas: «toda manhã me envie as notícias sobre IA». Elas rodam sozinhas e chegam como conversa e notificação.
 - A velocidade da fala, a voz e um modelo rápido separado para conversar estão em **Configurações → Assistente de voz**.
+- Uma voz natural do seu provedor (fala no formato OpenAI ou Gemini) pode substituir a voz robótica do telefone: escolha o provedor, o modelo de voz (da lista dele ou digitando um nome) e a voz, e ouça uma amostra. Se falhar, o motivo é mostrado e, enquanto isso, a voz do telefone lê.
 - Toque na pílula para escrever em vez de falar; segure-a e deslize para cima para abrir o app com a mesma conversa (uma dica acima da pílula sempre mostra como). O microfone tem seus próprios sons suaves em vez do bipe do serviço de fala.
 - «Continuar ouvindo após uma resposta» (mãos livres) e o idioma em que você fala, escolhido à parte do idioma do app.
 - As tarefas agendadas têm uma tela própria: um horário, os dias, o modelo de cada uma, «executar agora».

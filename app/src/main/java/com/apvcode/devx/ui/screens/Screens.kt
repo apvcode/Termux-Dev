@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
@@ -59,6 +61,35 @@ import com.apvcode.devx.ui.components.SettingsRow
 import com.apvcode.devx.ui.components.SettingsSwitchRow
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import com.apvcode.devx.assist.AssistantStatus
+import com.apvcode.devx.data.AppLock
+import com.apvcode.devx.data.AutoBackup
+import com.apvcode.devx.data.ErrorLog
+import com.apvcode.devx.data.MapTools
+import com.apvcode.devx.data.Persona
+import com.apvcode.devx.data.SearchApi
+import com.apvcode.devx.data.Secrets
+import com.apvcode.devx.data.VoiceInput
+import com.apvcode.devx.ui.chat.ChatViewModel
+import com.apvcode.devx.ui.components.DevxIcons
+import java.io.File
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 
 @Composable
 internal fun EmptyNote(text: String) {
@@ -72,38 +103,9 @@ internal fun EmptyNote(text: String) {
 }
 
 @Composable
-fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit, onProviders: () -> Unit, onNotifications: () -> Unit, onAbout: () -> Unit, onMemory: () -> Unit, onSkills: () -> Unit, onAssistant: () -> Unit, onVoiceAssistant: () -> Unit = {}, onAppLock: () -> Unit = {}, onPersona: () -> Unit = {}) {
+fun SettingsScreen(vm: ChatViewModel, onBack: () -> Unit, onProviders: () -> Unit, onNotifications: () -> Unit, onAbout: () -> Unit, onMemory: () -> Unit, onSkills: () -> Unit, onAssistant: () -> Unit, onVoiceAssistant: () -> Unit = {}, onPersona: () -> Unit = {}, onData: () -> Unit = {}, onAppearance: () -> Unit = {}) {
     var dialog by remember { mutableStateOf<String?>(null) }
-    // Backup: everything of the person's in one file, and back (keys and tokens stay behind: they belong to this phone).
-    val appContext = androidx.compose.ui.platform.LocalContext.current
-    val backupScope = androidx.compose.runtime.rememberCoroutineScope()
-    var restoreFrom by remember { mutableStateOf<android.net.Uri?>(null) }
-    var restoring by remember { mutableStateOf(false) }
-    fun say(res: Int) = android.widget.Toast.makeText(appContext, res, android.widget.Toast.LENGTH_LONG).show()
-    val makeBackup = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        if (uri != null) backupScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val ok = runCatching {
-                val version = appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: ""
-                appContext.contentResolver.openOutputStream(uri)!!.use { out -> com.apvcode.devx.data.Backup.export(appContext.filesDir, java.io.File(appContext.applicationInfo.dataDir, "shared_prefs"), out, version) }
-            }.isSuccess
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { say(if (ok) R.string.backup_done else R.string.backup_failed) }
-        }
-    }
-    val pickBackup = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri -> restoreFrom = uri }
-    // The weekly copy by itself: a folder is chosen once, the first copy is made at once.
-    var autoOn by remember { mutableStateOf(com.apvcode.devx.data.AutoBackup.enabled(appContext)) }
-    var autoTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    val pickFolder = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            com.apvcode.devx.data.AutoBackup.setFolder(appContext, uri)
-            autoOn = true
-            backupScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val ok = com.apvcode.devx.data.AutoBackup.backupNow(appContext)
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { autoTick++; say(if (ok) R.string.backup_done else R.string.backup_failed) }
-            }
-        }
-    }
-    val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+    val activity = LocalContext.current as? Activity
     val languageNames = mapOf(
         AppLanguage.System to stringResource(R.string.lang_system),
         AppLanguage.English to stringResource(R.string.lang_en),
@@ -116,37 +118,6 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
         AppLanguage.Ukrainian to stringResource(R.string.lang_uk),
         AppLanguage.Chinese to stringResource(R.string.lang_zh),
     )
-    val themeNames = mapOf(
-        ThemeMode.System to stringResource(R.string.theme_system),
-        ThemeMode.Black to stringResource(R.string.theme_black),
-        ThemeMode.Gray to stringResource(R.string.theme_gray),
-        ThemeMode.Light to stringResource(R.string.theme_light),
-    )
-    restoreFrom?.let { uri ->
-        DevxDialog(stringResource(R.string.backup_restore), onDismiss = { if (!restoring) restoreFrom = null }) {
-            androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
-                Text(stringResource(R.string.backup_restore_ask), style = com.apvcode.devx.ui.theme.DevxType.Body, color = com.apvcode.devx.ui.theme.DevxColors.TextSecondary)
-                PillButton(stringResource(R.string.backup_restore), enabled = !restoring, onClick = {
-                    restoring = true
-                    backupScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        val result = runCatching { appContext.contentResolver.openInputStream(uri)!!.use { com.apvcode.devx.data.Backup.restore(appContext.filesDir, java.io.File(appContext.applicationInfo.dataDir, "shared_prefs"), it) } }
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            restoring = false
-                            restoreFrom = null
-                            if (result.isSuccess) {
-                                say(R.string.backup_restored)
-                                // The app starts again so that it reads what was restored.
-                                val launch = appContext.packageManager.getLaunchIntentForPackage(appContext.packageName)?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                                launch?.let { appContext.startActivity(it) }
-                                Runtime.getRuntime().exit(0)
-                            } else say(R.string.backup_bad)
-                        }
-                    }
-                })
-                PillButton(stringResource(R.string.settings_cancel), filled = false, enabled = !restoring, onClick = { restoreFrom = null })
-            }
-        }
-    }
     when (dialog) {
         "language" -> ChoiceDialog(
             stringResource(R.string.settings_language_title),
@@ -166,7 +137,7 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
             val auto = stringResource(R.string.voice_lang_auto)
             ChoiceDialog(
                 stringResource(R.string.settings_voice_title),
-                listOf("" to app, com.apvcode.devx.data.VoiceInput.AUTO to auto) + com.apvcode.devx.data.VoiceInput.LANGUAGES,
+                listOf("" to app, VoiceInput.AUTO to auto) + VoiceInput.LANGUAGES,
                 Prefs.voiceLanguage,
                 onPick = {
                     Prefs.saveVoiceLanguage(it)
@@ -175,16 +146,6 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                 onDismiss = { dialog = null },
             )
         }
-        "theme" -> ChoiceDialog(
-            stringResource(R.string.settings_theme_title),
-            ThemeMode.values().map { it to themeNames.getValue(it) },
-            Prefs.theme,
-            onPick = {
-                Prefs.saveTheme(it)
-                dialog = null
-            },
-            onDismiss = { dialog = null },
-        )
         "name" -> NameDialog(onDismiss = { dialog = null })
     }
     ScreenScaffold(stringResource(R.string.settings_title), onBack) {
@@ -204,15 +165,15 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
             SettingsGroup {
                 SettingsRow(
                     title = stringResource(R.string.settings_character),
-                    icon = androidx.compose.ui.graphics.vector.ImageVector.vectorResource(R.drawable.ic_c_mood_smile),
-                    value = com.apvcode.devx.data.Persona.current()?.let { stringResource(it.title) } ?: stringResource(R.string.persona_style_custom),
+                    icon = ImageVector.vectorResource(R.drawable.ic_c_mood_smile),
+                    value = Persona.current()?.let { stringResource(it.title) } ?: stringResource(R.string.persona_style_custom),
                     showChevron = true,
                     onClick = onPersona,
                 )
                 SettingsDivider()
                 SettingsRow(
                     title = stringResource(R.string.settings_memory),
-                    icon = com.apvcode.devx.ui.components.DevxIcons.Notebook,
+                    icon = DevxIcons.Notebook,
                     value = if (Prefs.memory) null else stringResource(R.string.settings_pin_value),
                     showChevron = true,
                     onClick = onMemory,
@@ -239,19 +200,19 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                 SettingsDivider()
                 SettingsRow(
                     title = stringResource(R.string.settings_abilities),
-                    icon = com.apvcode.devx.ui.components.DevxIcons.Brain,
+                    icon = DevxIcons.Brain,
                     showChevron = true,
                     onClick = onAssistant,
                 )
                 SettingsDivider()
                 var voiceTick by remember { mutableStateOf(0) }
-                androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { voiceTick++ }
-                val voiceContext = androidx.compose.ui.platform.LocalContext.current
+                LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { voiceTick++ }
+                val voiceContext = LocalContext.current
                 @Suppress("UNUSED_EXPRESSION") voiceTick
                 SettingsRow(
                     title = stringResource(R.string.settings_voice_assistant),
                     icon = Icons.Outlined.Mic,
-                    value = stringResource(if (com.apvcode.devx.assist.AssistantStatus.isDefault(voiceContext)) R.string.settings_voice_assistant_on else R.string.settings_voice_assistant_off),
+                    value = stringResource(if (AssistantStatus.isDefault(voiceContext)) R.string.settings_voice_assistant_on else R.string.settings_voice_assistant_off),
                     showChevron = true,
                     onClick = onVoiceAssistant,
                 )
@@ -271,15 +232,15 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
                 SettingsRow(
                     title = stringResource(R.string.settings_appearance),
                     icon = Icons.Outlined.Palette,
-                    value = themeNames.getValue(Prefs.theme),
+                    value = themeLabel(Prefs.theme),
                     showChevron = true,
-                    onClick = { dialog = "theme" },
+                    onClick = onAppearance,
                 )
                 SettingsDivider()
                 SettingsRow(
                     title = stringResource(R.string.settings_voice),
                     icon = Icons.Outlined.Mic,
-                    value = com.apvcode.devx.data.VoiceInput.nameOf(Prefs.voiceLanguage, stringResource(R.string.voice_lang_app), stringResource(R.string.voice_lang_auto)),
+                    value = VoiceInput.nameOf(Prefs.voiceLanguage, stringResource(R.string.voice_lang_app), stringResource(R.string.voice_lang_auto)),
                     showChevron = true,
                     onClick = { dialog = "voice" },
                 )
@@ -296,36 +257,11 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
         item {
             SettingsGroup {
                 SettingsRow(
-                    title = stringResource(R.string.settings_pin),
+                    title = stringResource(R.string.data_security),
                     icon = Icons.Outlined.Lock,
-                    value = stringResource(if (com.apvcode.devx.data.AppLock.enabled) R.string.settings_pin_on else R.string.settings_pin_value),
+                    value = if (AppLock.enabled) stringResource(R.string.settings_pin_on) else null,
                     showChevron = true,
-                    onClick = onAppLock,
-                )
-                SettingsDivider()
-                SettingsSwitchRow(
-                    title = stringResource(R.string.autobackup_title),
-                    subtitle = if (autoOn) {
-                        val folder = com.apvcode.devx.data.AutoBackup.folder(appContext)?.let { com.apvcode.devx.data.AutoBackup.label(it) }.orEmpty()
-                        val at = remember(autoTick, autoOn) { com.apvcode.devx.data.AutoBackup.lastAt(appContext) }
-                        stringResource(R.string.autobackup_on, folder, if (at == 0L) stringResource(R.string.autobackup_never) else java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(at)))
-                    } else stringResource(R.string.autobackup_off),
-                    checked = autoOn,
-                    onCheckedChange = { on -> if (on) pickFolder.launch(null) else { com.apvcode.devx.data.AutoBackup.disable(appContext); autoOn = false } },
-                )
-                SettingsDivider()
-                SettingsRow(
-                    title = stringResource(R.string.backup_create),
-                    subtitle = stringResource(R.string.backup_create_hint),
-                    icon = com.apvcode.devx.ui.components.DevxIcons.FilePlus,
-                    onClick = { makeBackup.launch("devx-backup-" + java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) + ".zip") },
-                )
-                SettingsDivider()
-                SettingsRow(
-                    title = stringResource(R.string.backup_restore),
-                    subtitle = stringResource(R.string.backup_restore_hint),
-                    icon = com.apvcode.devx.ui.components.DevxIcons.Undo,
-                    onClick = { pickBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
+                    onClick = onData,
                 )
             }
         }
@@ -344,7 +280,7 @@ fun SettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Uni
 
 /** What the assistant may do and how it looks while it works: search, files, the terminal, the glow, photos. */
 @Composable
-fun AssistantScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit) {
+fun AssistantScreen(vm: ChatViewModel, onBack: () -> Unit) {
     ScreenScaffold(stringResource(R.string.settings_assistant), onBack) {
         item {
             SettingsGroup {
@@ -391,8 +327,8 @@ fun AssistantScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Un
                 )
                 SettingsDivider()
                 var twoGisKeyDialog by remember { mutableStateOf(false) }
-                val twoGisContext = androidx.compose.ui.platform.LocalContext.current
-                var twoGisHasKey by remember { mutableStateOf(!com.apvcode.devx.data.Secrets(twoGisContext).get(com.apvcode.devx.data.MapTools.KEY_ID).isNullOrBlank()) }
+                val twoGisContext = LocalContext.current
+                var twoGisHasKey by remember { mutableStateOf(!Secrets(twoGisContext).get(MapTools.KEY_ID).isNullOrBlank()) }
                 SettingsRow(
                     title = stringResource(R.string.settings_twogis_key),
                     value = stringResource(if (twoGisHasKey) R.string.settings_twogis_key_set else R.string.settings_twogis_key_none),
@@ -401,16 +337,16 @@ fun AssistantScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Un
                 )
                 if (twoGisKeyDialog) {
                     var text by remember { mutableStateOf("") }
-                    com.apvcode.devx.ui.components.DevxDialog(stringResource(R.string.settings_twogis_key), onDismiss = { twoGisKeyDialog = false }) {
-                        androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
-                            com.apvcode.devx.ui.components.DevxTextField(stringResource(R.string.settings_twogis_key_hint), text, { text = it }, password = true)
-                            com.apvcode.devx.ui.components.PillButton(stringResource(R.string.task_save), enabled = text.isNotBlank(), onClick = {
-                                com.apvcode.devx.data.Secrets(twoGisContext).put(com.apvcode.devx.data.MapTools.KEY_ID, text.trim())
+                    DevxDialog(stringResource(R.string.settings_twogis_key), onDismiss = { twoGisKeyDialog = false }) {
+                        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            DevxTextField(stringResource(R.string.settings_twogis_key_hint), text, { text = it }, password = true)
+                            PillButton(stringResource(R.string.task_save), enabled = text.isNotBlank(), onClick = {
+                                Secrets(twoGisContext).put(MapTools.KEY_ID, text.trim())
                                 twoGisHasKey = true
                                 twoGisKeyDialog = false
                             })
-                            if (twoGisHasKey) com.apvcode.devx.ui.components.PillButton(stringResource(R.string.menu_delete), filled = false, onClick = {
-                                com.apvcode.devx.data.Secrets(twoGisContext).remove(com.apvcode.devx.data.MapTools.KEY_ID)
+                            if (twoGisHasKey) PillButton(stringResource(R.string.menu_delete), filled = false, onClick = {
+                                Secrets(twoGisContext).remove(MapTools.KEY_ID)
                                 twoGisHasKey = false
                                 twoGisKeyDialog = false
                             })
@@ -419,7 +355,7 @@ fun AssistantScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Un
                 }
                 SettingsDivider()
                 var searchKeyDialog by remember { mutableStateOf(false) }
-                var searchHasKey by remember { mutableStateOf(!com.apvcode.devx.data.Secrets(twoGisContext).get(com.apvcode.devx.data.SearchApi.KEY_ID).isNullOrBlank()) }
+                var searchHasKey by remember { mutableStateOf(!Secrets(twoGisContext).get(SearchApi.KEY_ID).isNullOrBlank()) }
                 SettingsRow(
                     title = stringResource(R.string.settings_search_key),
                     subtitle = stringResource(R.string.settings_search_key_hint),
@@ -429,19 +365,19 @@ fun AssistantScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Un
                 )
                 if (searchKeyDialog) {
                     var text by remember { mutableStateOf("") }
-                    val valid = com.apvcode.devx.data.SearchApi.kindOf(text.trim()) != null
-                    com.apvcode.devx.ui.components.DevxDialog(stringResource(R.string.settings_search_key), onDismiss = { searchKeyDialog = false }) {
-                        androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
-                            androidx.compose.material3.Text(stringResource(R.string.settings_search_key_about), style = com.apvcode.devx.ui.theme.DevxType.Caption, color = com.apvcode.devx.ui.theme.DevxColors.TextSecondary)
-                            com.apvcode.devx.ui.components.DevxTextField("tvly-… / BSA…", text, { text = it }, password = true)
-                            if (text.isNotBlank() && !valid) androidx.compose.material3.Text(stringResource(R.string.settings_search_key_bad), style = com.apvcode.devx.ui.theme.DevxType.Caption, color = com.apvcode.devx.ui.theme.DevxColors.Warning)
-                            com.apvcode.devx.ui.components.PillButton(stringResource(R.string.task_save), enabled = valid, onClick = {
-                                com.apvcode.devx.data.Secrets(twoGisContext).put(com.apvcode.devx.data.SearchApi.KEY_ID, text.trim())
+                    val valid = SearchApi.kindOf(text.trim()) != null
+                    DevxDialog(stringResource(R.string.settings_search_key), onDismiss = { searchKeyDialog = false }) {
+                        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Text(stringResource(R.string.settings_search_key_about), style = DevxType.Caption, color = DevxColors.TextSecondary)
+                            DevxTextField("tvly-… / BSA…", text, { text = it }, password = true)
+                            if (text.isNotBlank() && !valid) Text(stringResource(R.string.settings_search_key_bad), style = DevxType.Caption, color = DevxColors.Warning)
+                            PillButton(stringResource(R.string.task_save), enabled = valid, onClick = {
+                                Secrets(twoGisContext).put(SearchApi.KEY_ID, text.trim())
                                 searchHasKey = true
                                 searchKeyDialog = false
                             })
-                            if (searchHasKey) com.apvcode.devx.ui.components.PillButton(stringResource(R.string.menu_delete), filled = false, onClick = {
-                                com.apvcode.devx.data.Secrets(twoGisContext).remove(com.apvcode.devx.data.SearchApi.KEY_ID)
+                            if (searchHasKey) PillButton(stringResource(R.string.menu_delete), filled = false, onClick = {
+                                Secrets(twoGisContext).remove(SearchApi.KEY_ID)
                                 searchHasKey = false
                                 searchKeyDialog = false
                             })
@@ -484,28 +420,61 @@ fun NotificationsScreen(onBack: () -> Unit) {
 
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
+    var diagnostics by remember { mutableStateOf(false) }
+    if (diagnostics) DiagnosticsDialog { diagnostics = false }
     ScreenScaffold(stringResource(R.string.settings_about), onBack) {
         item {
             SettingsGroup {
                 SettingsRow(
                     title = stringResource(R.string.about_version),
-                    icon = com.apvcode.devx.ui.components.DevxIcons.Eye,
+                    icon = DevxIcons.Eye,
                     value = com.apvcode.devx.BuildConfig.VERSION_NAME,
                 )
                 SettingsDivider()
-                val context = androidx.compose.ui.platform.LocalContext.current
+                val context = LocalContext.current
                 SettingsRow(
                     title = stringResource(R.string.about_github),
-                    icon = com.apvcode.devx.ui.components.DevxIcons.BrandGithub,
+                    icon = DevxIcons.BrandGithub,
                     value = "termux-dev",
                     showChevron = true,
                     onClick = {
                         runCatching {
-                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/apvcode/Termux-Dev")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/apvcode/Termux-Dev")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         }
                     },
                 )
+                SettingsDivider()
+                SettingsRow(
+                    title = stringResource(R.string.about_diagnostics),
+                    icon = DevxIcons.FileText,
+                    value = ErrorLog.count.takeIf { it > 0 }?.toString(),
+                    showChevron = true,
+                    onClick = { diagnostics = true },
+                )
             }
+        }
+    }
+}
+
+/** What went wrong inside the app and was recovered from (see [com.apvcode.devx.data.ErrorLog]): to read, copy to send, or clear. */
+@Composable
+private fun DiagnosticsDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var lines by remember { mutableStateOf(ErrorLog.recent()) }
+    DevxDialog(stringResource(R.string.about_diagnostics), onDismiss) {
+        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (lines.isEmpty()) Text(stringResource(R.string.about_diagnostics_none), style = DevxType.Body, color = DevxColors.TextSecondary)
+            else Column(Modifier.heightIn(max = 280.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                lines.forEach { Text(it, style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(bottom = 6.dp)) }
+            }
+            if (lines.isNotEmpty()) {
+                PillButton(stringResource(R.string.msg_copy), onClick = {
+                    (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                        .setPrimaryClip(ClipData.newPlainText("devx", lines.joinToString("\n")))
+                })
+                PillButton(stringResource(R.string.about_diagnostics_clear), filled = false, onClick = { ErrorLog.clear(); lines = emptyList() })
+            }
+            PillButton(stringResource(R.string.cd_close), filled = false, onClick = onDismiss)
         }
     }
 }
@@ -544,7 +513,7 @@ private fun StepButton(label: String, enabled: Boolean, onClick: () -> Unit) {
 private fun NameDialog(onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(Prefs.nickname) }
     DevxDialog(stringResource(R.string.settings_name), onDismiss) {
-        androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             DevxTextField(
                 stringResource(R.string.settings_name_hint),
                 text,

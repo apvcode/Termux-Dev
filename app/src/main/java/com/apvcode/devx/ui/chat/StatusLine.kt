@@ -61,6 +61,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import android.os.SystemClock
+import androidx.compose.animation.AnimatedContentTransitionScope
 
 /** Every step is shown at least this long, however quickly the work itself was done. */
 private const val MIN_STEP_MS = 1400L
@@ -86,9 +88,9 @@ private fun rememberHeldStep(msg: Msg): ToolActivity? {
             val current = shown
             val same = current != null && current.kind == next.kind && current.detail == next.detail
             if (!same) {
-                val wait = MIN_STEP_MS - (android.os.SystemClock.elapsedRealtime() - since)
+                val wait = MIN_STEP_MS - (SystemClock.elapsedRealtime() - since)
                 if (current != null && wait > 0) delay(wait)
-                since = android.os.SystemClock.elapsedRealtime()
+                since = SystemClock.elapsedRealtime()
             }
             shown = next
         }
@@ -98,7 +100,7 @@ private fun rememberHeldStep(msg: Msg): ToolActivity? {
     LaunchedEffect(msg.id, over, shown) {
         if (!over || shown == null) return@LaunchedEffect
         val endedWith = msg.reasoning.length
-        val left = MIN_STEP_MS - (android.os.SystemClock.elapsedRealtime() - since)
+        val left = MIN_STEP_MS - (SystemClock.elapsedRealtime() - since)
         if (left > 0) delay(left)
         withTimeoutOrNull(HOLD_CAP_MS) {
             snapshotFlow { msg.reasoning.length > endedWith + MOVE_ON_CHARS || msg.text.isNotEmpty() || msg.activity != null }.first { it }
@@ -117,7 +119,7 @@ private fun <T> wordsChange(): AnimatedContentTransitionScopeSpec<T> = {
     )
 }
 
-private typealias AnimatedContentTransitionScopeSpec<T> = androidx.compose.animation.AnimatedContentTransitionScope<T>.() -> ContentTransform
+private typealias AnimatedContentTransitionScopeSpec<T> = AnimatedContentTransitionScope<T>.() -> ContentTransform
 
 /**
  * The line above an answer that is being made: what the assistant is doing this moment, as one thing that moves. The mark in front

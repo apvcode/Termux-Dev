@@ -16,6 +16,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.apvcode.devx.R
 import java.util.Locale
+import android.os.Build
+import android.os.SystemClock
+import androidx.annotation.RequiresApi
 
 /**
  * Speaking instead of typing, with our own screen. The listening is done by the phone's speech recognition (there is no
@@ -134,7 +137,7 @@ class VoiceInput(private val context: Context, private val keepWarm: Boolean = f
         done(text)
     }
 
-    private fun now() = android.os.SystemClock.elapsedRealtime()
+    private fun now() = SystemClock.elapsedRealtime()
 
     private fun intent(): Intent {
         val auto = tag == AUTO
@@ -152,7 +155,7 @@ class VoiceInput(private val context: Context, private val keepWarm: Boolean = f
         if (auto) {
             val others = autoLanguages().filter { it != main }
             intent.putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", others.toTypedArray())
-            if (android.os.Build.VERSION.SDK_INT >= 33) {
+            if (Build.VERSION.SDK_INT >= 33) {
                 intent.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
                 intent.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, ArrayList(autoLanguages()))
                 intent.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, RecognizerIntent.LANGUAGE_SWITCH_BALANCED)
@@ -267,7 +270,7 @@ class VoiceInput(private val context: Context, private val keepWarm: Boolean = f
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
         // Android 13 and later: the recogniser says which language it hears (only when it was asked to find out).
-        @androidx.annotation.RequiresApi(33)
+        @RequiresApi(33)
         override fun onLanguageDetection(results: Bundle) {
             val found = results.getString(SpeechRecognizer.DETECTED_LANGUAGE).orEmpty()
             if (found.isNotBlank()) detected = found

@@ -1,6 +1,7 @@
 package com.apvcode.devx.data
 
 import org.json.JSONObject
+import java.util.UUID
 
 /**
  * Some models (Gemini behind some gateways) do not make a tool call but write it out in their text, as
@@ -27,7 +28,7 @@ object TextToolCalls {
                 val integer = properties.optJSONObject(name)?.optString("type") == "integer"
                 args.put(name, if (integer) value.toIntOrNull() ?: value else value)
             }
-            Piece.ToolCall("text_" + java.util.UUID.randomUUID().toString().take(12), tool.name, args.toString())
+            Piece.ToolCall("text_" + UUID.randomUUID().toString().take(12), tool.name, args.toString())
         }.toList()
     }
 

@@ -1,12 +1,36 @@
 package com.apvcode.devx.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -29,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import androidx.compose.runtime.CompositionLocalProvider
 
 
 /**
@@ -73,18 +98,98 @@ internal fun PressState.menuOffset(): DpOffset {
     }
 }
 
+/**
+ * How far the opening of the menu has got (0 closed, 1 open), shared with its rows: each row rises a little after the one above it.
+ * [next] hands out the place of a row in the line (a row asks once, when it first appears).
+ */
+internal class MenuReveal(val progress: () -> Float) {
+    var next = 0
+}
+
+internal val LocalMenuReveal = compositionLocalOf<MenuReveal?> { null }
+
+/**
+ * The menu: a card that grows out of the thing that was pressed (it keeps its corner there), with its rows following one after another;
+ * on closing it folds back the same way. It is a window of its own, so the size of what is inside may change without moving it.
+ */
 @Composable
 internal fun PopupMenu(expanded: Boolean, onDismiss: () -> Unit, offset: DpOffset, content: @Composable () -> Unit) {
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss,
-        offset = offset,
-        containerColor = DevxColors.Card,
-        shape = RoundedCornerShape(26.dp),
-        tonalElevation = 0.dp,
-        shadowElevation = 12.dp,
-        modifier = Modifier.widthIn(min = 250.dp),
-    ) { content() }
+    // A list holds many of these (one for every chat), and almost none is ever opened: nothing is made for a menu until it is.
+    var opened by remember { mutableStateOf(false) }
+    if (expanded) opened = true
+    if (opened) OpenedPopupMenu(expanded, onDismiss, offset, content)
+}
+
+@Composable
+private fun OpenedPopupMenu(expanded: Boolean, onDismiss: () -> Unit, offset: DpOffset, content: @Composable () -> Unit) {
+    val progress = remember { Animatable(0f) }
+    var present by remember { mutableStateOf(false) }
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            present = true
+            progress.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 340f))
+        } else if (present) {
+            progress.animateTo(0f, tween(190, easing = FastOutLinearInEasing))
+            present = false
+        }
+    }
+    if (!present) return
+    val density = LocalDensity.current
+    val margin = with(density) { 8.dp.roundToPx() }
+    val offsetPx = with(density) { IntOffset(offset.x.roundToPx(), offset.y.roundToPx()) }
+    // Where the card ends up is known only when it is placed; the animation reads it as it draws.
+    val origin = remember { floatArrayOf(0.5f, 0f) }
+    val position = remember(offsetPx, margin) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+                val maxX = (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin)
+                val x = (anchorBounds.left + offsetPx.x).coerceIn(margin, maxX)
+                val below = anchorBounds.bottom + offsetPx.y
+                val above = anchorBounds.top - popupContentSize.height - offsetPx.y
+                val fitsBelow = below + popupContentSize.height <= windowSize.height - margin
+                val y = when {
+                    fitsBelow -> below
+                    above >= margin -> above
+                    else -> (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin)
+                }
+                val anchorX = ((anchorBounds.left + anchorBounds.right) / 2f - x) / popupContentSize.width.coerceAtLeast(1)
+                origin[0] = anchorX.coerceIn(0f, 1f)
+                origin[1] = if (y >= anchorBounds.top) 0f else 1f
+                return IntOffset(x, y)
+            }
+        }
+    }
+    val maxHeight = (LocalConfiguration.current.screenHeightDp - 32).dp
+    val reveal = remember { MenuReveal { progress.value } }
+    Popup(popupPositionProvider = position, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
+        Surface(
+            modifier = Modifier
+                .padding(8.dp) // room for the shadow
+                .graphicsLayer {
+                    val p = progress.value
+                    val scale = 0.7f + 0.3f * p
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = (p * 1.8f).coerceIn(0f, 1f)
+                    transformOrigin = TransformOrigin(origin[0], origin[1])
+                },
+            shape = RoundedCornerShape(26.dp),
+            color = DevxColors.Card,
+            tonalElevation = 0.dp,
+            shadowElevation = 12.dp,
+        ) {
+            CompositionLocalProvider(LocalMenuReveal provides reveal) {
+                Column(
+                    Modifier
+                        .widthIn(min = 250.dp, max = 300.dp)
+                        .width(IntrinsicSize.Max)
+                        .heightIn(max = maxHeight)
+                        .verticalScroll(rememberScrollState())
+                        .padding(vertical = 8.dp),
+                ) { content() }
+            }
+        }
+    }
 }
 
 @Composable
@@ -101,7 +206,14 @@ internal fun MenuRow(
         danger -> DevxColors.Danger
         else -> DevxColors.TextPrimary
     }
+    val reveal = LocalMenuReveal.current
+    val place = remember { reveal?.let { it.next++ } ?: 0 }
     DropdownMenuItem(
+        modifier = Modifier.graphicsLayer {
+            val p = reveal?.let { ((it.progress() - minOf(place, 9) * 0.045f) / 0.55f).coerceIn(0f, 1f) } ?: 1f
+            alpha = p
+            translationY = (1f - p) * 10.dp.toPx()
+        },
         text = { Text(label, style = DevxType.Body.copy(fontSize = 17.sp), color = color) },
         leadingIcon = { Icon(icon, null, tint = color, modifier = Modifier.size(24.dp)) },
         trailingIcon = trailing?.let { { Icon(it, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp)) } },

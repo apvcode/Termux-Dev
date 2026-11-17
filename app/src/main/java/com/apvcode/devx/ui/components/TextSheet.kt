@@ -46,6 +46,8 @@ import androidx.compose.ui.unit.sp
 import com.apvcode.devx.R
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 
 /**
  * Writing a longer text (a note of the knowledge base, the instructions): a tall sheet from below with a roomy page to write on,
@@ -87,6 +89,7 @@ fun TextEditorSheet(
                     onValueChange = { if (it.length <= maxChars) text = it },
                     textStyle = DevxType.Body.copy(fontSize = 17.sp, lineHeight = 26.sp, color = DevxColors.TextPrimary),
                     cursorBrush = SolidColor(DevxColors.Accent),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp).focusRequester(focus),
                     decorationBox = { inner ->
                         Box {

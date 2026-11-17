@@ -6,6 +6,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.delay
+import com.apvcode.devx.data.ThemeSchedule
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.apvcode.devx.data.Prefs
@@ -49,6 +53,78 @@ class Palette(
             accent = Color(0xFF000000), onAccent = Color(0xFFFFFFFF),
             success = Color(0xFF1F8A37), warning = Color(0xFFB77900), danger = Color(0xFFD13B38), light = true,
         )
+        /** Deep navy with a soft blue accent. */
+        val Midnight = Palette(
+            bg = Color(0xFF0B1020), drawer = Color(0xFF121A30), card = Color(0xFF1B2644), cardInner = Color(0xFF0F1630), outline = Color(0xFF2B3A63),
+            text = Color(0xFFE8EEFF), textSecondary = Color(0xFF93A2C7), textDisabled = Color(0xFF55638A),
+            accent = Color(0xFF8AB4FF), onAccent = Color(0xFF0B1020),
+            success = Color(0xFF3FB950), warning = Color(0xFFE3A008), danger = Color(0xFFF0524F), light = false,
+        )
+        /** Dark pine with a mint accent. */
+        val Forest = Palette(
+            bg = Color(0xFF0A1410), drawer = Color(0xFF111F19), card = Color(0xFF1A2E24), cardInner = Color(0xFF0E1A14), outline = Color(0xFF2A4538),
+            text = Color(0xFFE6F4EC), textSecondary = Color(0xFF8FB09F), textDisabled = Color(0xFF4F6E5E),
+            accent = Color(0xFF7AD9A0), onAccent = Color(0xFF08140E),
+            success = Color(0xFF3FB950), warning = Color(0xFFE3A008), danger = Color(0xFFF0524F), light = false,
+        )
+        /** Dusk: aubergine with a lilac accent. */
+        val Dusk = Palette(
+            bg = Color(0xFF120C1C), drawer = Color(0xFF1B1329), card = Color(0xFF2A1E40), cardInner = Color(0xFF170F24), outline = Color(0xFF41305F),
+            text = Color(0xFFF0E8FF), textSecondary = Color(0xFFA899C7), textDisabled = Color(0xFF65577F),
+            accent = Color(0xFFC4A1FF), onAccent = Color(0xFF140A22),
+            success = Color(0xFF3FB950), warning = Color(0xFFE3A008), danger = Color(0xFFF0524F), light = false,
+        )
+        /** Embers: warm brown with an amber accent. */
+        val Ember = Palette(
+            bg = Color(0xFF140E0A), drawer = Color(0xFF1E1511), card = Color(0xFF2E2019), cardInner = Color(0xFF19110D), outline = Color(0xFF4A3428),
+            text = Color(0xFFF7EBE0), textSecondary = Color(0xFFBBA08C), textDisabled = Color(0xFF6F5A4B),
+            accent = Color(0xFFFFB86B), onAccent = Color(0xFF1A0E05),
+            success = Color(0xFF3FB950), warning = Color(0xFFE3A008), danger = Color(0xFFF0524F), light = false,
+        )
+        /** Deep sea: dark teal with an aqua accent. */
+        val Ocean = Palette(
+            bg = Color(0xFF061417), drawer = Color(0xFF0D2125), card = Color(0xFF15333A), cardInner = Color(0xFF0A1C20), outline = Color(0xFF22505A),
+            text = Color(0xFFE3F6F8), textSecondary = Color(0xFF88B4BA), textDisabled = Color(0xFF4A7279),
+            accent = Color(0xFF5CE1E6), onAccent = Color(0xFF04181A),
+            success = Color(0xFF3FB950), warning = Color(0xFFE3A008), danger = Color(0xFFF0524F), light = false,
+        )
+        /** Warm paper: sand ground, brown ink. */
+        val Paper = Palette(
+            bg = Color(0xFFFAF6EE), drawer = Color(0xFFF1EBDD), card = Color(0xFFE9E1CF), cardInner = Color(0xFFF5EFE2), outline = Color(0xFFD9CFB8),
+            text = Color(0xFF2A2418), textSecondary = Color(0xFF7A6F58), textDisabled = Color(0xFFB3A98F),
+            accent = Color(0xFF5A3A12), onAccent = Color(0xFFFFF8EA),
+            success = Color(0xFF1F8A37), warning = Color(0xFFB77900), danger = Color(0xFFD13B38), light = true,
+        )
+        /** Blossom: pale pink with a raspberry accent. */
+        val Sakura = Palette(
+            bg = Color(0xFFFFF7F9), drawer = Color(0xFFFCEAF0), card = Color(0xFFF7DCE6), cardInner = Color(0xFFFDF0F4), outline = Color(0xFFEBC4D3),
+            text = Color(0xFF2B1620), textSecondary = Color(0xFF85596B), textDisabled = Color(0xFFC4A0B0),
+            accent = Color(0xFFC2185B), onAccent = Color(0xFFFFFFFF),
+            success = Color(0xFF1F8A37), warning = Color(0xFFB77900), danger = Color(0xFFD13B38), light = true,
+        )
+        /** Fresh mint: light green with a deep green accent. */
+        val Mint = Palette(
+            bg = Color(0xFFF4FBF7), drawer = Color(0xFFE6F4EC), card = Color(0xFFD6EBDF), cardInner = Color(0xFFEEF8F2), outline = Color(0xFFBBD9C8),
+            text = Color(0xFF10241A), textSecondary = Color(0xFF4F7562), textDisabled = Color(0xFF9BBBA9),
+            accent = Color(0xFF1B7A4B), onAccent = Color(0xFFFFFFFF),
+            success = Color(0xFF1F8A37), warning = Color(0xFFB77900), danger = Color(0xFFD13B38), light = true,
+        )
+
+        /** The palette of a theme; [systemDark] only matters for [ThemeMode.System]. */
+        fun of(mode: ThemeMode, systemDark: Boolean): Palette = when (mode) {
+            ThemeMode.Black -> Black
+            ThemeMode.Gray -> Gray
+            ThemeMode.Light -> Light
+            ThemeMode.Midnight -> Midnight
+            ThemeMode.Forest -> Forest
+            ThemeMode.Dusk -> Dusk
+            ThemeMode.Ember -> Ember
+            ThemeMode.Ocean -> Ocean
+            ThemeMode.Paper -> Paper
+            ThemeMode.Sakura -> Sakura
+            ThemeMode.Mint -> Mint
+            ThemeMode.System -> if (systemDark) Black else Light
+        }
     }
 }
 
@@ -145,20 +221,25 @@ private fun schemeFor(p: Palette) = (if (p.light) lightColorScheme() else darkCo
     error = p.danger,
 )
 
+private fun minuteOfDay(): Int = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+
 @Composable
 fun DevxTheme(content: @Composable () -> Unit) {
-    val mode = Prefs.theme
-    val systemDark = isSystemInDarkTheme()
-    val palette = when (mode) {
-        ThemeMode.Black -> Palette.Black
-        ThemeMode.Gray -> Palette.Gray
-        ThemeMode.Light -> Palette.Light
-        ThemeMode.System -> if (systemDark) Palette.Black else Palette.Light
+    // By the clock: looked at again every half minute (a state that does not change does not redraw anything).
+    var scheduled by remember { mutableStateOf(ThemeSchedule.modeAt(minuteOfDay(), Prefs.nightFrom, Prefs.nightTo, Prefs.dayTheme, Prefs.nightTheme)) }
+    if (Prefs.themeSchedule) LaunchedEffect(Prefs.nightFrom, Prefs.nightTo, Prefs.dayTheme, Prefs.nightTheme) {
+        while (true) {
+            scheduled = ThemeSchedule.modeAt(minuteOfDay(), Prefs.nightFrom, Prefs.nightTo, Prefs.dayTheme, Prefs.nightTheme)
+            delay(30_000)
+        }
     }
+    val mode = if (Prefs.themeSchedule) scheduled else Prefs.theme
+    val systemDark = isSystemInDarkTheme()
+    val palette = Palette.of(mode, systemDark)
     DevxColors.palette = palette
     MaterialTheme(
         colorScheme = schemeFor(palette),
         typography = DevxTypography,
-        content = content,
+        content = { ThemeRevealHost(content) },
     )
 }

@@ -51,6 +51,8 @@ import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.launch
 import java.io.File
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
 
 /** A picture the agent looked at, or a file it sent, in the chat: a picture opens full screen and zooms, a file can be opened, saved or shared. */
 @Composable
@@ -131,7 +133,7 @@ private fun FileCard(session: RemoteSession, m: RItem.Media, animate: Boolean) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(Modifier.size(44.dp).clip(CircleShape).background(DevxColors.CardInner), contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(DevxIcons.FileText, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp))
+            Icon(DevxIcons.FileText, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(22.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(m.name, style = DevxType.BodyStrong, color = DevxColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -144,9 +146,9 @@ private fun FileCard(session: RemoteSession, m: RItem.Media, animate: Boolean) {
 }
 
 @Composable
-private fun SmallAction(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun SmallAction(icon: ImageVector, onClick: () -> Unit) {
     Box(Modifier.size(38.dp).pressable(scaleTo = 0.9f, onClick = onClick), contentAlignment = Alignment.Center) {
-        androidx.compose.material3.Icon(icon, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
+        Icon(icon, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
     }
 }
 

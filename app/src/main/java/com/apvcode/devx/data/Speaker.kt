@@ -39,7 +39,19 @@ class Speaker(private val context: Context) {
     var engineReady by mutableStateOf(false)
         private set
 
+    /** Why the cloud voice was given up for the phone's own (the provider's words), or null; shown in the voice settings. */
+    var cloudError by mutableStateOf<String?>(null)
+        private set
+
     private val handler = Handler(Looper.getMainLooper())
+    /** When the cloud voice last failed: for a minute after that the phone's voice is used, then the cloud one is tried again. */
+    private var cloudFailedAt = 0L
+    private val cloud = CloudPlayer(context.applicationContext, object : CloudPlayer.Host {
+        override fun speaking(on: Boolean) { handler.post { speaking = on || active.isNotEmpty() } }
+        override fun wordNow() { lastWordAt = SystemClock.elapsedRealtime() }
+        override fun focus(take: Boolean) { if (take) takeFocus() else giveFocus() }
+        override fun fallback(text: String, reason: String) { handler.post { cloudFailedAt = SystemClock.elapsedRealtime(); cloudError = reason; speakWithPhone(text) } }
+    })
     private var tts: TextToSpeech? = null
     private var ready = false
     private var firstQueued = true
@@ -69,7 +81,7 @@ class Speaker(private val context: Context) {
                         override fun onStop(utteranceId: String?, interrupted: Boolean) { finished(utteranceId) }
                         override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) { lastWordAt = SystemClock.elapsedRealtime() }
                     })
-                }
+                }.logged("speaker")
                 ready = true
                 engineReady = true
                 VoiceTrace.mark("speech engine ready")
@@ -83,7 +95,18 @@ class Speaker(private val context: Context) {
     /** Adds a piece of text to what is being said. */
     fun speak(text: String) {
         val piece = text.trim()
-        if (piece.isEmpty() || unavailable) return
+        if (piece.isEmpty()) return
+        // A neural voice from the provider the person chose, while it works; the phone's own voice otherwise.
+        if (SystemClock.elapsedRealtime() - cloudFailedAt > 60_000 || cloudFailedAt == 0L) {
+            cloud.setup()?.let { cloud.enqueue(piece, it); return }
+            // The natural voice is switched on but cannot be used: the phone's voice speaks, and the settings say why (never silently).
+            cloud.problem()?.let { cloudError = context.getString(it) }
+        }
+        speakWithPhone(piece)
+    }
+
+    private fun speakWithPhone(piece: String) {
+        if (unavailable) return
         val id = "u${counter++}"
         if (firstQueued) { firstQueued = false; VoiceTrace.mark("first words to the voice") }
         active += id
@@ -118,6 +141,8 @@ class Speaker(private val context: Context) {
 
     /** The speed or the voice was changed in the settings: it counts from the next words. */
     fun refresh() {
+        cloudFailedAt = 0L
+        cloudError = null
         languageTag = ""
         runCatching { tts?.setSpeechRate(Prefs.voiceRate) }
     }
@@ -130,6 +155,7 @@ class Speaker(private val context: Context) {
 
     /** Cuts the voice off at once and forgets what was waiting. */
     fun stop() {
+        cloud.stop()
         waiting.clear()
         active.clear()
         runCatching { tts?.stop() }
@@ -139,6 +165,7 @@ class Speaker(private val context: Context) {
 
     fun shutdown() {
         stop()
+        cloud.shutdown()
         runCatching { tts?.shutdown() }
         tts = null
         ready = false

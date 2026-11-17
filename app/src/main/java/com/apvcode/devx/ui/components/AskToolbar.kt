@@ -30,6 +30,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import android.os.Build
+import androidx.compose.ui.text.AnnotatedString
 
 /**
  * Puts "Ask Devx" into the menu that floats over selected text (next to Copy and Select all) for all the
@@ -41,11 +43,12 @@ import kotlinx.coroutines.withTimeoutOrNull
  * person presses themself goes to the real clipboard as always.
  */
 @Composable
-fun ProvideAskToolbar(onAsk: (String) -> Unit, content: @Composable () -> Unit) {
+fun ProvideAskToolbar(onAsk: (String) -> Unit, extraLabel: String? = null, onExtra: (String) -> Unit = {}, content: @Composable () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val label = stringResource(R.string.ask_devx)
     val latest = rememberUpdatedState(onAsk)
+    val latestExtra = rememberUpdatedState(onExtra)
     val focus = LocalFocusManager.current
     // The menu's own Copy, noticed as the menu is built, so that "Ask Devx" can press it.
     val copy = remember { arrayOfNulls<(TextContextMenuSession) -> Unit>(1) }
@@ -62,10 +65,11 @@ fun ProvideAskToolbar(onAsk: (String) -> Unit, content: @Composable () -> Unit) 
             if (component.key == TextContextMenuKeys.CopyKey && component is TextContextMenuItem) copy[0] = component.onClick
             // Only what a message needs: Copy, Select all and ours. The system's extras ("Read aloud" and the like) are left out.
             component.key == TextContextMenuKeys.CopyKey || component.key == TextContextMenuKeys.SelectAllKey ||
-                component.key == ASK_KEY || component is TextContextMenuSeparator
+                component.key == ASK_KEY || component.key == EXTRA_KEY || component is TextContextMenuSeparator
         }
         .appendTextContextMenuComponents {
-            item(key = ASK_KEY, label = label) {
+            // The words that were picked go to [deliver]; see the note above on how they are caught.
+            fun TextContextMenuSession.pick(deliver: (String) -> Unit) {
                 val session = this
                 val wanted = CompletableDeferred<String?>()
                 catcher.waiting = wanted
@@ -76,13 +80,15 @@ fun ProvideAskToolbar(onAsk: (String) -> Unit, content: @Composable () -> Unit) 
                     // The selection copied some other way than through the stand-in: the clipboard is read, and put back as it was.
                     if (text == null) text = grab(context, { copy[0]?.invoke(session) })
                     text?.takeIf { it.isNotBlank() }?.let {
-                        latest.value(it)
+                        deliver(it)
                         // Letting go of the focus is what makes the text let go of its selection and its menu.
                         focus.clearFocus(force = true)
                     }
                 }
                 close()
             }
+            item(key = ASK_KEY, label = label) { pick { latest.value(it) } }
+            if (extraLabel != null) item(key = EXTRA_KEY, label = extraLabel) { pick { latestExtra.value(it) } }
         }
     @Suppress("DEPRECATION")
     CompositionLocalProvider(LocalClipboard provides clipboard, LocalClipboardManager provides manager) {
@@ -91,6 +97,7 @@ fun ProvideAskToolbar(onAsk: (String) -> Unit, content: @Composable () -> Unit) 
 }
 
 private const val ASK_KEY = "devx-ask"
+private const val EXTRA_KEY = "devx-extra"
 
 /** Where the words of "Ask Devx" are caught; null when nothing is waiting for them. */
 private class Catcher {
@@ -119,11 +126,11 @@ private class CatchingClipboard(private val real: Clipboard, private val catcher
 /** The same, for the older way a selection copies (the clipboard manager). */
 @Suppress("DEPRECATION")
 private class CatchingManager(private val real: ClipboardManagerCompose, private val catcher: Catcher) : ClipboardManagerCompose {
-    override fun setText(annotatedString: androidx.compose.ui.text.AnnotatedString) {
+    override fun setText(annotatedString: AnnotatedString) {
         if (!catcher.take(annotatedString.text)) real.setText(annotatedString)
     }
 
-    override fun getText(): androidx.compose.ui.text.AnnotatedString? = real.getText()
+    override fun getText(): AnnotatedString? = real.getText()
 
     override fun getClip(): ClipEntry? = real.getClip()
 
@@ -154,7 +161,7 @@ private suspend fun grab(context: Context, copy: () -> Unit): String? {
     }
     runCatching {
         if (before != null) clipboard.setPrimaryClip(before)
-        else if (android.os.Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
+        else if (Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
     }
     return text
 }

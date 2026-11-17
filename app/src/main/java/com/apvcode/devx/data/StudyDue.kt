@@ -24,5 +24,5 @@ object StudyDue {
     }
 
     fun read(context: Context, now: Long = System.currentTimeMillis()): Map<String, Int> =
-        runCatching { counts(File(context.filesDir, "projects_meta.json").takeIf { it.exists() }?.readText().orEmpty(), now) }.getOrDefault(emptyMap())
+        runCatching { counts(File(context.filesDir, "projects_meta.json").takeIf { it.exists() }?.readText().orEmpty(), now) }.logged("studydue").getOrDefault(emptyMap())
 }

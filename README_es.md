@@ -64,7 +64,7 @@ La clave de API se guarda cifrada en el teléfono (Android Keystore) y va solo a
 - Escribe `@` en el campo: un menú de lo que puedes señalar (un cuaderno, un proyecto, un archivo de la biblioteca, una tarea programada). Un cuaderno o proyecto pasa a ser parte de la frase, con su color, y el asistente recibe lo que contiene. Por voz basta decir su nombre.
 - Una sola búsqueda en chats, cuadernos, proyectos, archivos y fuentes, también por lo que está escrito dentro de documentos, PDF y notas.
 - Pega imágenes y archivos directamente en el campo del mensaje (desde el portapapeles o el teclado). «Preguntar a devx» sobre un texto seleccionado no toca tu portapapeles.
-- Copia de seguridad y restauración de chats, cuadernos, memoria, habilidades y ajustes en un archivo; una copia semanal automática en una carpeta que elijas (se conservan las cuatro últimas).
+- Copia y restauración de todo en un solo archivo: chats, cuadernos y proyectos, memoria, habilidades, carácter, adjuntos y ajustes. Las claves de API y los tokens solo entran si usted pone una contraseña (se cifran con ella). Antes de restaurar, la app muestra lo que hay en el archivo y lo que reemplazará. Una copia semanal se hace sola en una carpeta que usted elige y, si quiere, también se sube a una carpeta WebDAV (Nextcloud, un NAS); se conservan las cuatro últimas.
 - Fijar y archivar chats, bloquear un chat concreto, añadir un chat a la pantalla de inicio. «Preguntar a devx» sobre un texto seleccionado cita el fragmento como tarjeta en tu siguiente mensaje.
 - El asistente trabaja con archivos en una carpeta propia: crea y lee archivos, hace y descomprime paquetes, lee un PDF página a página y mira sus imágenes, edita imágenes y descomprime, modifica, vuelve a empaquetar y firma APK. Las aprobaciones se pueden dar desde la propia notificación (Permitir / Rechazar).
 - Cuatro widgets (una barra para preguntar, botones rápidos, los últimos chats, las tarjetas por repasar) y dos mosaicos de ajustes rápidos (preguntar, voz).
@@ -78,14 +78,16 @@ La clave de API se guarda cifrada en el teléfono (Android Keystore) y va solo a
 - El asistente puede cambiar un cuaderno o un proyecto (nombre, icono, color, descripción, instrucciones, meta) y, tras hablarlo, proponer uno nuevo: confirmas en una tarjeta.
 - Comparte un enlace, un texto, un PDF o una imagen desde cualquier app: devx ofrece un chat nuevo o uno de tus cuadernos, donde pasa a ser una fuente (un enlace se lee y se guarda).
 - Estadísticas de estudio en la página: días seguidos, los últimos siete días en barras; un widget de la pantalla de inicio muestra cuántas tarjetas tocan y empieza el repaso. Las tarjetas y el resumen del cuaderno se pueden escuchar (un *resumen en audio* se escribe para escucharlo y luego se lee en voz alta), y un cuaderno se exporta como un archivo Markdown.
+- Las tarjetas pueden llevar una imagen y se pueden responder en voz alta. Llegan desde Anki (`.apkg` o texto) y desde CSV, y salen como paquete de Anki con imágenes, texto de Anki o CSV. Un *mapa de conceptos* muestra las ideas del cuaderno y cómo se conectan, coloreadas según lo bien que las conoce, con *Explícame* y *Pregúntame*. Un cuaderno se puede archivar o copiar para empezar de nuevo (las fuentes y las lecciones, no los chats).
 - La biblioteca guarda cada archivo que adjuntaste o que creó el asistente: búsqueda, filtros, dónde se usó, adjuntar a un chat nuevo, borrar en todas partes. PDF, Word, diapositivas, hojas de cálculo, texto, imágenes y sitios se abren en el visor integrado; los originales de Office se conservan.
 
 ### Aspecto, carácter y seguridad
 
-- Aspecto: el del sistema, negro, gris oscuro o claro.
+- El aspecto tiene su propia página: tres opciones rápidas (sistema, negro, claro) y una pantalla con otros temas (gris oscuro, Medianoche, Bosque, Crepúsculo, Brasas, Océano, Papel, Sakura, Menta). El tema puede cambiar solo según la hora del día (uno de día y otro de noche) y el cambio está animado. El cristal difuminado se puede desactivar: los botones quedan entonces opacos.
 - Carácter: elige un estilo (tranquilo, sin rodeos, detallado, amable, profesional, directo, mentor), ajusta el tono, ponle nombre al asistente y escribe tus propias instrucciones. Un toque lo restablece todo.
 - Bloqueo de la app con el bloqueo de pantalla, un código o biometría; también se pueden bloquear chats sueltos, y la lista de apps recientes oculta la imagen mientras hay un bloqueo activo.
 - Fotos por mensaje, notificaciones de respuestas y aprobaciones, y si un ordenador puede funcionar en modo «todo», están en los ajustes.
+- Datos y seguridad tienen su propia página: el bloqueo, las copias y la papelera. Los chats, proyectos y cuadernos eliminados quedan 30 días en la papelera y se pueden recuperar (justo tras eliminar, un mensaje ofrece «Deshacer»). Un archivo de chat que no se puede leer se aparta en lugar de perderse, y se le avisa. Lo que la app recuperó se ve en **Acerca de → Diagnóstico**.
 
 ### Asistente de voz
 
@@ -95,6 +97,7 @@ La clave de API se guarda cifrada en el teléfono (Android Keystore) y va solo a
 - Mira tu galería, lee las notificaciones en pantalla, trabaja en una carpeta que elijas, pero solo cuando se lo pides y solo si lo permitiste.
 - Tareas programadas: «cada mañana envíame las noticias sobre IA». Se ejecutan solas y llegan como chat y notificación.
 - La velocidad de habla, la voz y un modelo rápido aparte para hablar están en **Ajustes → Asistente de voz**.
+- Una voz natural de su proveedor (voz en formato OpenAI o Gemini) puede sustituir la voz robótica del teléfono: elija el proveedor, el modelo de voz (de su lista o escribiendo un nombre) y la voz, y escuche una muestra. Si falla, se muestra el motivo y mientras tanto lee la voz del teléfono.
 - Toca la píldora para escribir en vez de hablar; mantenla y desliza hacia arriba para abrir la app con el mismo chat (una pista sobre la píldora muestra siempre cómo). El micrófono tiene sus propios sonidos suaves en vez del pitido del servicio de voz.
 - «Seguir escuchando tras una respuesta» (manos libres) y el idioma en que hablas, elegido aparte del de la app.
 - Las tareas programadas tienen una pantalla propia: una hora, los días, el modelo de cada una, «ejecutar ahora».

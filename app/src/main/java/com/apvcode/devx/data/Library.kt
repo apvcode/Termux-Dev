@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
+import com.apvcode.devx.model.Role
 
 /** What a file is, as far as the library is concerned (it decides the picture, the filter and how it is opened). */
 enum class LibKind { Image, Pdf, Word, Sheet, Slides, Text, Code, Video, Site, Other }
@@ -69,7 +70,7 @@ class LibraryMeta(context: Context) {
     private val firstSeen = HashMap<String, Long>()
 
     init {
-        runCatching {
+        attempt("library") {
             val root = JSONObject(file.takeIf { it.exists() }?.readText() ?: "{}")
             root.keys().forEach { id ->
                 val o = root.getJSONObject(id)
@@ -98,13 +99,7 @@ class LibraryMeta(context: Context) {
         val json = JSONObject().also { root ->
             (summaries.keys + firstSeen.keys).toSet().forEach { id -> root.put(id, JSONObject().put("summary", summaries[id].orEmpty()).put("at", firstSeen[id] ?: 0L)) }
         }.toString()
-        writer.execute {
-            runCatching {
-                val tmp = File(file.parentFile, file.name + ".tmp")
-                tmp.writeText(json)
-                if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
-            }
-        }
+        writer.execute { AtomicFile.writeQuietly("library", file, json) }
     }
 }
 
@@ -130,7 +125,7 @@ object Library {
         for (chat in chats) {
             if (chat.temporary || chat.locked) continue
             for (m in chat.messages) {
-                if (m.role == com.apvcode.devx.model.Role.User) {
+                if (m.role == Role.User) {
                     for (a in m.attachments) {
                         if (a.isQuote) continue
                         val d = drafts.getOrPut(a.id) { Draft(a.id, a.name, a.mime, a.size, LibOrigin.Sent, m.createdAt, a, null, a.url) }

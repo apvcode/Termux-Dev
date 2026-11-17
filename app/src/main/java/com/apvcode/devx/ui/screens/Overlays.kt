@@ -59,6 +59,26 @@ import com.apvcode.devx.ui.components.CircleIconButton
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
+import android.view.Gravity
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.MediaController
+import android.widget.VideoView
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.viewinterop.AndroidView
+import com.apvcode.devx.data.Msg
+import com.apvcode.devx.data.ToolActivity
+import com.apvcode.devx.ui.chat.StepIcon
+import com.apvcode.devx.ui.chat.ThinkingSparkle
+import com.apvcode.devx.ui.markdown.MarkdownText
+import java.io.File
 
 /**
  * Edit one of my messages. Sending starts a new branch of the conversation from this message;
@@ -123,6 +143,7 @@ fun EditMessageScreen(initial: String, onClose: () -> Unit, onSend: (String) -> 
                 maxLines = 8,
                 textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
                 cursorBrush = SolidColor(DevxColors.Accent),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier.weight(1f).focusRequester(focus).padding(vertical = 11.dp),
             )
             Box(
@@ -209,28 +230,28 @@ fun PhotoViewer(file: Any, onClose: () -> Unit, modifier: Modifier = Modifier) {
 
 /** A video played at full size, with the usual play, pause and seek controls. */
 @Composable
-fun VideoViewer(file: java.io.File, onClose: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
-        androidx.compose.ui.viewinterop.AndroidView(
+fun VideoViewer(file: File, onClose: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize().background(Color.Black)) {
+        AndroidView(
             factory = { context ->
-                val frame = android.widget.FrameLayout(context)
-                val video = android.widget.VideoView(context)
+                val frame = FrameLayout(context)
+                val video = VideoView(context)
                 frame.addView(
                     video,
-                    android.widget.FrameLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.Gravity.CENTER,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        Gravity.CENTER,
                     ),
                 )
-                val controller = android.widget.MediaController(context)
+                val controller = MediaController(context)
                 controller.setAnchorView(frame)
                 video.setMediaController(controller)
                 video.setVideoPath(file.absolutePath)
                 video.setOnPreparedListener { it.start() }
                 frame
             },
-            onRelease = { frame -> (frame.getChildAt(0) as? android.widget.VideoView)?.stopPlayback() },
+            onRelease = { frame -> (frame.getChildAt(0) as? VideoView)?.stopPlayback() },
             modifier = Modifier.fillMaxSize(),
         )
         CircleIconButton(
@@ -247,10 +268,10 @@ fun VideoViewer(file: java.io.File, onClose: () -> Unit, modifier: Modifier = Mo
  * still thinking the text keeps coming, and the page follows the end unless you scrolled up.
  */
 @Composable
-fun ThinkingScreen(msg: com.apvcode.devx.data.Msg, streaming: Boolean, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun ThinkingScreen(msg: Msg, streaming: Boolean, onClose: () -> Unit, modifier: Modifier = Modifier) {
     // The keyboard of the chat goes away as the page opens.
-    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
     LaunchedEffect(Unit) {
         focus.clearFocus()
         keyboard?.hide()
@@ -303,22 +324,22 @@ fun ThinkingScreen(msg: com.apvcode.devx.data.Msg, streaming: Boolean, onClose: 
             Text(stringResource(R.string.thinking_title), style = DevxType.Title, color = DevxColors.TextPrimary)
         }
         SelectionContainer(Modifier.weight(1f)) {
-            androidx.compose.foundation.lazy.LazyColumn(
+            LazyColumn(
                 state = list,
                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = shown },
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 item(key = "head") {
                     if (streaming) {
-                        com.apvcode.devx.ui.chat.ThinkingSparkle()
+                        ThinkingSparkle()
                     } else if (msg.thoughtSeconds > 0) {
                         Text(stringResource(R.string.thought_for, msg.thoughtSeconds), style = DevxType.Caption, color = DevxColors.TextSecondary)
                     }
                 }
                 items(items.size, key = { it }) { i ->
                     when (val item = items[i]) {
-                        is ThinkingItem.Words -> com.apvcode.devx.ui.markdown.MarkdownText(item.text)
+                        is ThinkingItem.Words -> MarkdownText(item.text)
                         is ThinkingItem.Step -> StepRow(item.step, active = activeLast && i == items.lastIndex)
                     }
                 }
@@ -330,10 +351,10 @@ fun ThinkingScreen(msg: com.apvcode.devx.data.Msg, streaming: Boolean, onClose: 
 /** One thing on the thinking page: a piece of the thoughts, or a step the assistant took. */
 internal sealed interface ThinkingItem {
     data class Words(val text: String) : ThinkingItem
-    data class Step(val step: com.apvcode.devx.data.ToolActivity) : ThinkingItem
+    data class Step(val step: ToolActivity) : ThinkingItem
 }
 
-internal fun thinkingItems(text: String, steps: List<com.apvcode.devx.data.ToolActivity>): List<ThinkingItem> {
+internal fun thinkingItems(text: String, steps: List<ToolActivity>): List<ThinkingItem> {
     val out = ArrayList<ThinkingItem>()
     var from = 0
     steps.forEach { step ->
@@ -373,13 +394,13 @@ internal fun reasoningChunks(text: String, soft: Int = 700, hard: Int = 3_000): 
 
 /** One thing the assistant did: what, on what, and what came of it. */
 @Composable
-private fun StepRow(step: com.apvcode.devx.data.ToolActivity, active: Boolean) {
+private fun StepRow(step: ToolActivity, active: Boolean) {
     val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "step")
     val pulse by transition.animateFloat(
         0.5f, 1f,
         androidx.compose.animation.core.infiniteRepeatable(
-            androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            androidx.compose.animation.core.RepeatMode.Reverse,
+            androidx.compose.animation.core.tween(900, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse,
         ),
         label = "pulse",
     )
@@ -388,7 +409,7 @@ private fun StepRow(step: com.apvcode.devx.data.ToolActivity, active: Boolean) {
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) { com.apvcode.devx.ui.chat.StepIcon(step.kind) }
+        Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) { StepIcon(step.kind) }
         Column(Modifier.weight(1f)) {
             Text(com.apvcode.devx.ui.chat.stepLabel(step.kind), style = DevxType.Body, color = DevxColors.TextPrimary)
             if (step.detail.isNotBlank()) Text(step.detail, style = DevxType.Caption, color = DevxColors.TextSecondary)

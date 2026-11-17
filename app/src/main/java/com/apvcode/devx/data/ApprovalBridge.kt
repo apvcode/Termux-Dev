@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import java.util.concurrent.ConcurrentHashMap
+import androidx.core.app.NotificationManagerCompat
 
 /** The questions that wait for a "yes" (per chat), so that a notification can answer them while the app is not on screen. */
 object ApprovalBridge {
@@ -20,7 +21,7 @@ class ApprovalReceiver : BroadcastReceiver() {
         val chatId = intent.getStringExtra(EXTRA_CHAT) ?: return
         val decision = runCatching { ApprovalDecision.valueOf(intent.getStringExtra(EXTRA_DECISION) ?: "") }.getOrNull() ?: return
         ApprovalBridge.answer(chatId, decision)
-        androidx.core.app.NotificationManagerCompat.from(context).cancel(notificationId(chatId))
+        NotificationManagerCompat.from(context).cancel(notificationId(chatId))
     }
 
     companion object {

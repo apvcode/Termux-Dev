@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import com.apvcode.devx.model.Role
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URI
 
 enum class ProviderKind { OpenAI, Anthropic }
 
@@ -63,7 +64,7 @@ fun attachmentFromJson(o: JSONObject): Attachment? = runCatching {
 
 /** A page the assistant found while searching, or opened and read. */
 data class Source(val url: String, val title: String, val opened: Boolean = false) {
-    val host: String get() = runCatching { java.net.URI(url).host.orEmpty().removePrefix("www.") }.getOrDefault("")
+    val host: String get() = runCatching { URI(url).host.orEmpty().removePrefix("www.") }.getOrDefault("")
 }
 
 enum class ToolKind { Search, Read, File, Memory, History, Skill, Mcp, Phone }
@@ -147,6 +148,9 @@ class Msg(
 class Chat(val id: String, title: String, project: String?, val createdAt: Long) {
     var title by mutableStateOf(title)
     var project by mutableStateOf(project)
+
+    /** The id of that project (set when the chat is saved): a rename that was cut short by a crash leaves chats with the old name, and this finds them again. */
+    var projectId: String? = null
     var pinned by mutableStateOf(false)
     var archived by mutableStateOf(false)
     var updatedAt by mutableLongStateOf(createdAt)
@@ -229,7 +233,7 @@ fun providerFromJson(o: JSONObject): Provider = Provider(
 )
 
 fun Chat.toJson(): JSONObject = JSONObject()
-    .put("id", id).put("title", title).put("project", project).put("createdAt", createdAt)
+    .put("id", id).put("title", title).put("project", project).put("projectId", projectId).put("createdAt", createdAt)
     .put("pinned", pinned).put("archived", archived).put("updatedAt", updatedAt).put("titleFinal", titleFinal).put("locked", locked).put("summary", summary).put("summaryUpTo", summaryUpTo).put("summaryBefore", summaryBefore).put("summaryAfter", summaryAfter).put("summaryCount", summaryCount).put("summarySeconds", summarySeconds)
     .put("model", model?.let { JSONObject().put("providerId", it.providerId).put("model", it.model) })
     .put("libraryFiles", JSONArray().also { a -> libraryFiles.forEach { a.put(it.toJson()) } })
@@ -256,6 +260,7 @@ fun Chat.toJson(): JSONObject = JSONObject()
 
 fun chatFromJson(o: JSONObject): Chat {
     val chat = Chat(o.getString("id"), o.getString("title"), o.optString("project").takeIf { it.isNotEmpty() && it != "null" }, o.optLong("createdAt"))
+    chat.projectId = o.optString("projectId").takeIf { it.isNotEmpty() && it != "null" }
     chat.pinned = o.optBoolean("pinned")
     chat.archived = o.optBoolean("archived")
     chat.updatedAt = o.optLong("updatedAt", chat.createdAt)
@@ -267,7 +272,7 @@ fun chatFromJson(o: JSONObject): Chat {
     chat.summaryCount = o.optInt("summaryCount")
     chat.summarySeconds = o.optInt("summarySeconds")
     chat.summaryUpTo = o.optString("summaryUpTo").takeIf { it.isNotEmpty() && it != "null" }
-    chat.model = o.optJSONObject("model")?.let { runCatching { ModelRef(it.getString("providerId"), it.getString("model")) }.getOrNull() }
+    chat.model = o.optJSONObject("model")?.let { runCatching { ModelRef(it.getString("providerId"), it.getString("model")) }.logged("domain").getOrNull() }
     o.optJSONArray("libraryFiles")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let(::attachmentFromJson)?.let { chat.libraryFiles += it } }
     o.optJSONObject("selected")?.let { s -> s.keys().forEach { k -> chat.selected[k] = s.getString(k) } }
     val arr = o.optJSONArray("messages") ?: JSONArray()

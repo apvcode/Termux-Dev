@@ -89,7 +89,7 @@ object AppLock {
 
     fun init(context: Context) {
         if (prefs != null) return
-        val p = context.applicationContext.getSharedPreferences("applock", Context.MODE_PRIVATE)
+        val p = context.applicationContext.getSharedPreferences(PrefFiles.APP_LOCK, Context.MODE_PRIVATE)
         prefs = p
         secrets = Secrets(context.applicationContext)
         // The code lives in the keystore: a copy of the settings on another phone (or after a reinstall) has no code, so no lock.

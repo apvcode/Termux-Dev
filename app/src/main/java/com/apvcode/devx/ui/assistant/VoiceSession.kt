@@ -22,6 +22,10 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import android.os.VibrationEffect
+import android.os.Vibrator
+import com.apvcode.devx.assist.VoiceWarm
+import com.apvcode.devx.data.VoiceTrace
 
 enum class VoicePhase { Idle, Listening, Thinking, Speaking }
 
@@ -37,7 +41,7 @@ class VoiceSession(private val context: Context, private val vmSource: () -> Cha
     private suspend fun awaitModel(): ChatViewModel = androidx.compose.runtime.snapshotFlow { vmSource() }.filterNotNull().first()
 
     val voice = VoiceInput(context, keepWarm = true)
-    val speaker = com.apvcode.devx.assist.VoiceWarm.speaker(context).also { it.refresh() }
+    val speaker = VoiceWarm.speaker(context).also { it.refresh() }
 
     /** The person switched the voice of the answers off: they are only shown. */
     var muted by mutableStateOf(Prefs.assistantMuted)
@@ -121,7 +125,7 @@ class VoiceSession(private val context: Context, private val vmSource: () -> Cha
 
     /** A small tap in the hand when the microphone opens: it says \"speak now\" with no delay (a sound would be picked up by the microphone). */
     private fun tick() {
-        runCatching { context.getSystemService(android.os.Vibrator::class.java)?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_TICK)) }
+        runCatching { context.getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)) }
     }
 
     /** The orb was touched: what that means depends on what is going on. */
@@ -137,7 +141,7 @@ class VoiceSession(private val context: Context, private val vmSource: () -> Cha
     fun submit(text: String, byVoice: Boolean) {
         val t = text.trim()
         if (t.isEmpty() || busy || closed) return
-        com.apvcode.devx.data.VoiceTrace.mark("question sent")
+        VoiceTrace.mark("question sent")
         // Opened from cold: the chat model and the saved data may still be coming in. The question is shown at once and sent when they are.
         val model = vmSource()
         if (model == null || !model.loaded) {
@@ -193,7 +197,7 @@ class VoiceSession(private val context: Context, private val vmSource: () -> Cha
         reply = msg
         var firstWords = true
         while (vm.generating) {
-            if (firstWords && msg.text.isNotEmpty()) { firstWords = false; com.apvcode.devx.data.VoiceTrace.mark("answer begins") }
+            if (firstWords && msg.text.isNotEmpty()) { firstWords = false; VoiceTrace.mark("answer begins") }
             if (spokenTurn) feed(msg, final = false)
             delay(100)
         }

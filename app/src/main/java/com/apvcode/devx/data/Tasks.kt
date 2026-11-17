@@ -25,6 +25,9 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.Instant
+import java.time.format.TextStyle
+import java.util.Locale
 
 /**
  * A job the assistant does by itself at a set time ("every morning find the news about AI"): a prompt, a time, the days,
@@ -84,7 +87,7 @@ object Tasks {
                 project = o.optString("project").takeIf { it.isNotEmpty() },
             )
         }
-    }.getOrDefault(emptyList())
+    }.logged("tasks").getOrDefault(emptyList())
 
     private fun write(context: Context, list: List<ScheduledTask>) {
         val array = JSONArray()
@@ -96,7 +99,7 @@ object Tasks {
             t.project?.let { o.put("project", it) }
             array.put(o)
         }
-        file(context).writeText(array.toString())
+        AtomicFile.writeQuietly("tasks", file(context), array.toString())
     }
 
     /** Saves a new task (its id is made here) and sets its alarm. */
@@ -139,7 +142,7 @@ object Tasks {
     /** The next moment this task is due after [after]; null when it has no day. */
     fun nextRun(task: ScheduledTask, after: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): Long? {
         if (task.days and ScheduledTask.ALL == 0) return null
-        val start = java.time.Instant.ofEpochMilli(after).atZone(zone).toLocalDate()
+        val start = Instant.ofEpochMilli(after).atZone(zone).toLocalDate()
         for (offset in 0..7) {
             val day = start.plusDays(offset.toLong())
             if (task.days and (1 shl (day.dayOfWeek.value - 1)) == 0) continue
@@ -169,7 +172,7 @@ object Tasks {
     }
 
     private fun unschedule(context: Context, id: Int) {
-        runCatching { context.getSystemService(AlarmManager::class.java).cancel(pending(context, id)) }
+        attempt("tasks") { context.getSystemService(AlarmManager::class.java).cancel(pending(context, id)) }
     }
 
     /** After a restart or an update the alarms are gone: every enabled task gets its next one. */
@@ -252,7 +255,7 @@ object Tasks {
         days and ScheduledTask.ALL == ScheduledTask.ALL -> "every day"
         days and ScheduledTask.ALL == 0b0011111 -> "on weekdays"
         days and ScheduledTask.ALL == 0b1100000 -> "on weekends"
-        else -> "on " + DAY_NAMES.indices.filter { days and (1 shl it) != 0 }.joinToString(", ") { DayOfWeek.of(it + 1).getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH) }
+        else -> "on " + DAY_NAMES.indices.filter { days and (1 shl it) != 0 }.joinToString(", ") { DayOfWeek.of(it + 1).getDisplayName(TextStyle.SHORT, Locale.ENGLISH) }
     }
 }
 

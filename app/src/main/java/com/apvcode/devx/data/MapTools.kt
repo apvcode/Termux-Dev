@@ -19,6 +19,7 @@ import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
+import android.os.CancellationSignal
 
 /**
  * Where the person is, and the places and routes of 2GIS (the map of the CIS countries; Google Maps comes through its MCP
@@ -117,7 +118,7 @@ class MapTools(private val context: Context) {
         val granted = PermissionBridge.ensure(context, Manifest.permission.ACCESS_FINE_LOCATION) || PermissionBridge.has(context, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (!granted) return ToolOutcome("The location permission is not given. Ask the person to allow it (Devx must be on the screen for the phone to ask), or to say where they are.")
         val loc = currentLocation() ?: return ToolOutcome("The phone could not tell where it is (location may be switched off, or there is no signal). Ask the person to turn location on, or to say where they are.")
-        val place = withContext(Dispatchers.IO) { runCatching { Geocoder(context, Locale.getDefault()).getFromLocation(loc.latitude, loc.longitude, 1)?.firstOrNull() }.getOrNull() }
+        val place = withContext(Dispatchers.IO) { runCatching { Geocoder(context, Locale.getDefault()).getFromLocation(loc.latitude, loc.longitude, 1)?.firstOrNull() }.logged("maptools").getOrNull() }
         val country = place?.countryCode.orEmpty()
         val service = if (country in TWO_GIS_COUNTRIES) "2GIS (twogis_search, twogis_route)" else "Google Maps (its MCP tools)"
         val address = place?.let { listOfNotNull(it.thoroughfare, it.subThoroughfare, it.locality, it.countryName).joinToString(", ") }.orEmpty()
@@ -138,9 +139,9 @@ class MapTools(private val context: Context) {
                 val fresh = withContext(Dispatchers.Main) {
                     kotlinx.coroutines.withTimeoutOrNull(9_000) {
                         suspendCancellableCoroutine<Location?> { cont ->
-                            val cancel = android.os.CancellationSignal()
+                            val cancel = CancellationSignal()
                             cont.invokeOnCancellation { cancel.cancel() }
-                            runCatching { lm.getCurrentLocation(provider, cancel, context.mainExecutor) { cont.resume(it) } }.onFailure { if (cont.isActive) cont.resume(null) }
+                            runCatching { lm.getCurrentLocation(provider, cancel, context.mainExecutor) { cont.resume(it) } }.logged("maptools").onFailure { if (cont.isActive) cont.resume(null) }
                         }
                     }
                 }
@@ -164,7 +165,7 @@ class MapTools(private val context: Context) {
         runCatching {
             val request = Request.Builder().url(url).header("User-Agent", "Devx-Android/1.0 (personal assistant app)").build()
             http.newCall(request).execute().use { r -> r.body?.string().orEmpty().let { if (it.trimStart().startsWith("[")) JSONArray(it) else JSONObject(it) } }
-        }.getOrNull()
+        }.logged("maptools").getOrNull()
     }
 
     private suspend fun findPlaces(args: JSONObject, act: (String) -> Unit): ToolOutcome {
@@ -300,7 +301,7 @@ class MapTools(private val context: Context) {
             runCatching {
                 val req = Request.Builder().url("https://routing.api.2gis.com/routing/7.0.0/global?key=$key").post(payload.toString().toRequestBody("application/json".toMediaType())).build()
                 http.newCall(req).execute().use { JSONObject(it.body?.string().orEmpty()) }
-            }.getOrNull()
+            }.logged("maptools").getOrNull()
         } ?: return ToolOutcome("2GIS did not answer. Check the key and the connection.")
         val result = body.optJSONArray("result")?.optJSONObject(0)
             ?: return ToolOutcome("2GIS found no route (" + (body.optString("message").ifBlank { body.optJSONObject("error")?.optString("message").orEmpty() }.ifBlank { "unknown reason" }) + ").")
@@ -310,7 +311,7 @@ class MapTools(private val context: Context) {
     }
 
     private suspend fun get(url: okhttp3.HttpUrl): JSONObject? = withContext(Dispatchers.IO) {
-        runCatching { http.newCall(Request.Builder().url(url).build()).execute().use { JSONObject(it.body?.string().orEmpty()) } }.getOrNull()
+        runCatching { http.newCall(Request.Builder().url(url).build()).execute().use { JSONObject(it.body?.string().orEmpty()) } }.logged("maptools").getOrNull()
     }
 
     companion object {

@@ -1,5 +1,6 @@
 package com.apvcode.devx.remote
 
+import com.apvcode.devx.data.attempt
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -113,7 +114,7 @@ class MqttConn(private val ws: WsConn, private val onPublish: (topic: String, pa
 
     fun close() {
         if (closed) return
-        runCatching { ws.send(DISCONNECT) }
+        attempt("mqtt") { ws.send(DISCONNECT) }
         ws.close()
     }
 }

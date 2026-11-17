@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.DrawerValue
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -56,23 +57,93 @@ import com.apvcode.devx.ui.screens.SettingsScreen
 import com.apvcode.devx.ui.screens.TasksScreen
 import com.apvcode.devx.ui.screens.ThinkingScreen
 import com.apvcode.devx.ui.theme.DevxColors
+import androidx.compose.foundation.layout.padding
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import com.apvcode.devx.data.Artifact
+import com.apvcode.devx.data.ArtifactStore
+import com.apvcode.devx.data.AttachmentKind
+import com.apvcode.devx.data.PendingAsk
+import com.apvcode.devx.data.PendingShare
+import com.apvcode.devx.data.PendingStudy
+import com.apvcode.devx.remote.PendingPairing
+import com.apvcode.devx.remote.PendingRemoteChat
+import com.apvcode.devx.remote.RemoteHub
+import com.apvcode.devx.remote.RemoteLink
+import com.apvcode.devx.ui.assistant.VoiceSettingsScreen
+import com.apvcode.devx.ui.chat.ArtifactViewer
+import com.apvcode.devx.ui.chat.ChatGoneOverlay
+import com.apvcode.devx.ui.chat.UploadedFilesScreen
+import com.apvcode.devx.ui.components.ProvideAskToolbar
+import com.apvcode.devx.ui.components.ShareTargetSheet
+import com.apvcode.devx.ui.lock.AppLockOverlay
+import com.apvcode.devx.ui.lock.AppLockScreen
+import com.apvcode.devx.ui.markdown.Citations
+import com.apvcode.devx.ui.screens.AssistantScreen
+import com.apvcode.devx.ui.screens.CardsScreen
+import com.apvcode.devx.ui.screens.DocumentViewer
+import com.apvcode.devx.ui.screens.LibraryScreen
+import com.apvcode.devx.ui.screens.MemoryNotesScreen
+import com.apvcode.devx.ui.screens.MemoryScreen
+import com.apvcode.devx.ui.screens.MemorySummaryScreen
+import com.apvcode.devx.ui.screens.NewCardDialog
+import com.apvcode.devx.ui.screens.NotebookNewScreen
+import com.apvcode.devx.ui.screens.NotebookPage
+import com.apvcode.devx.ui.screens.NotebookSettingsScreen
+import com.apvcode.devx.ui.screens.PersonaScreen
+import com.apvcode.devx.ui.screens.ProjectEditScreen
+import com.apvcode.devx.ui.screens.RemindersScreen
+import com.apvcode.devx.ui.screens.SkillEditScreen
+import com.apvcode.devx.ui.screens.SkillsScreen
+import com.apvcode.devx.ui.screens.TaskEditScreen
+import com.apvcode.devx.ui.screens.TrashScreen
+import com.apvcode.devx.ui.screens.UndoBar
+import com.apvcode.devx.ui.screens.VideoViewer
 
-enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, NotebookNew, Sources, NotebookSettings, Library, Skills, SkillEdit, Assistant, VoiceAssistant, TaskEdit, AppLock, Persona, Cards }
+enum class Screen { Chat, Tasks, Computers, AddConnection, Computer, RemoteChat, Mcp, Settings, Providers, ProviderEdit, Notifications, About, Memory, MemorySummary, MemoryNotes, Project, ProjectEdit, ProjectKnowledge, ProjectSummary, NotebookNew, Sources, NotebookSettings, Library, Skills, SkillEdit, Assistant, VoiceAssistant, TaskEdit, Reminders, AppLock, Persona, Cards, Trash, Appearance, Themes, Data, Graph }
 
 private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.AddConnection, Screen.Computer -> Screen.Computers
-    Screen.TaskEdit -> Screen.Tasks
+    Screen.TaskEdit, Screen.Reminders -> Screen.Tasks
     Screen.RemoteChat -> Screen.Computer
     Screen.ProviderEdit -> Screen.Providers
-    Screen.Providers, Screen.Notifications, Screen.About, Screen.Memory, Screen.Skills, Screen.Assistant, Screen.VoiceAssistant, Screen.AppLock, Screen.Persona -> Screen.Settings
+    Screen.Providers, Screen.Notifications, Screen.About, Screen.Memory, Screen.Skills, Screen.Assistant, Screen.VoiceAssistant, Screen.Persona, Screen.Appearance, Screen.Data -> Screen.Settings
+    Screen.AppLock, Screen.Trash -> Screen.Data
+    Screen.Themes -> Screen.Appearance
     Screen.MemorySummary, Screen.MemoryNotes -> Screen.Memory
-    Screen.ProjectEdit, Screen.ProjectKnowledge, Screen.ProjectSummary, Screen.Sources, Screen.NotebookSettings -> Screen.Project
+    Screen.ProjectEdit, Screen.ProjectKnowledge, Screen.ProjectSummary, Screen.Sources, Screen.NotebookSettings, Screen.Cards, Screen.Graph -> Screen.Project
     Screen.SkillEdit -> Screen.Skills
     else -> Screen.Chat
+}
+
+/** Where the system "back" leads: [screen] (null: the app is left), and whether a new chat is opened on the way. */
+internal class BackStep(val screen: Screen?, val newChat: Boolean = false)
+
+/**
+ * The system "back" from [screen]. [inSpace]: the open chat belongs to a notebook or a project, so it is reached from that page and
+ * "back" returns there (it used to close the app). Leaving the page opens a new chat: otherwise "back" would go from the page to
+ * the chat and from the chat to the page, without end. [creatingProject]: the page for a new project, which has no page to return to.
+ */
+internal fun backStep(screen: Screen, inSpace: Boolean, creatingProject: Boolean = false): BackStep = when {
+    screen == Screen.Chat -> if (inSpace) BackStep(Screen.Project) else BackStep(null)
+    screen == Screen.ProjectEdit && creatingProject -> BackStep(Screen.Chat)
+    screen == Screen.Project -> BackStep(Screen.Chat, newChat = inSpace)
+    else -> BackStep(parentOf(screen))
 }
 
 /** A full-screen page that slides over the chat. */
@@ -84,7 +155,7 @@ private sealed interface Overlay {
     data class Uploaded(val chatId: String) : Overlay
     data class Sources(val message: Msg) : Overlay
     data class Steps(val message: Msg) : Overlay
-    data class File(val artifact: com.apvcode.devx.data.Artifact) : Overlay
+    data class File(val artifact: Artifact) : Overlay
     data class Viewer(val file: java.io.File, val name: String, val mime: String, val url: String = "", val page: Int = 0) : Overlay
 }
 
@@ -128,7 +199,7 @@ fun DevxApp(vm: ChatViewModel, requestedChat: String? = null, onChatHandled: () 
                                 scaleX = scale
                                 scaleY = scale
                                 val blur = (1f - e) * 26.dp.toPx()
-                                if (blur > 0.5f) renderEffect = androidx.compose.ui.graphics.BlurEffect(blur, blur, androidx.compose.ui.graphics.TileMode.Decal)
+                                if (blur > 0.5f) renderEffect = BlurEffect(blur, blur, TileMode.Decal)
                             }
                         },
                     ) { MainApp(vm, requestedChat, onChatHandled) }
@@ -153,8 +224,10 @@ fun DevxApp(vm: ChatViewModel, requestedChat: String? = null, onChatHandled: () 
             }
         }
     }
+    vm.cardDraft?.let { (book, text) -> NewCardDialog(book, text, vm, onDismiss = { vm.cardDraft = null }) }
+    UndoBar(vm, Modifier.align(Alignment.BottomCenter).padding(bottom = 88.dp))
     // The lock of the app covers everything, even the opening animation.
-    com.apvcode.devx.ui.lock.AppLockOverlay(ready = !splash)
+    AppLockOverlay(ready = !splash)
     }
 }
 
@@ -175,8 +248,8 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
     if (overlay != null) lastOverlay = overlay
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     // The list of chats opening takes the keyboard away: from the moment the panel starts to slide out (a swipe or the button).
-    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     LaunchedEffect(drawerState) {
         var closedAt: Float? = null
         androidx.compose.runtime.snapshotFlow { drawerState.currentOffset to (drawerState.targetValue != DrawerValue.Closed) }.collect { (offset, opening) ->
@@ -186,20 +259,19 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
         }
     }
     val scope = rememberCoroutineScope()
-
     // A home-screen icon or a notification asked for a chat: open it, or say that it is gone.
     var chatGone by remember { mutableStateOf(false) }
-    var shareChoice by remember { mutableStateOf<com.apvcode.devx.data.PendingShare.Item?>(null) }
+    var shareChoice by remember { mutableStateOf<PendingShare.Item?>(null) }
     // "Share" from another app: a new chat opens with what was shared.
-    LaunchedEffect(com.apvcode.devx.data.PendingShare.item) {
-        val shared = com.apvcode.devx.data.PendingShare.item ?: return@LaunchedEffect
-        com.apvcode.devx.data.PendingShare.item = null
+    LaunchedEffect(PendingShare.item) {
+        val shared = PendingShare.item ?: return@LaunchedEffect
+        PendingShare.item = null
         // With notebooks the person chooses where it goes; without any it is a new chat, as it always was.
         if (vm.projectInfo.values.any { it.isNotebook }) { shareChoice = shared; overlay = null; drawerState.close() }
         else { vm.startFromShare(shared.text, shared.uris); screen = Screen.Chat; overlay = null; drawerState.close() }
     }
     shareChoice?.let { shared ->
-        com.apvcode.devx.ui.components.ShareTargetSheet(
+        ShareTargetSheet(
             text = shared.text,
             files = shared.uris.size,
             notebooks = vm.projects.mapNotNull { n -> vm.projectInfo[n]?.takeIf { it.isNotebook }?.let { n to it } },
@@ -213,38 +285,38 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
         )
     }
     // The cards widget: the review starts in the notebook that had cards due.
-    LaunchedEffect(com.apvcode.devx.data.PendingStudy.project) {
-        val name = com.apvcode.devx.data.PendingStudy.project ?: return@LaunchedEffect
-        com.apvcode.devx.data.PendingStudy.project = null
+    LaunchedEffect(PendingStudy.project) {
+        val name = PendingStudy.project ?: return@LaunchedEffect
+        PendingStudy.project = null
         overlay = null; drawerState.close()
         if (name in vm.projectInfo) { projectName = name; screen = Screen.Cards }
     }
     // "Ask devx" from the tile or the widget: a fresh chat, and the keyboard up on it.
-    LaunchedEffect(com.apvcode.devx.data.PendingAsk.request) {
-        if (!com.apvcode.devx.data.PendingAsk.request) return@LaunchedEffect
-        com.apvcode.devx.data.PendingAsk.request = false
+    LaunchedEffect(PendingAsk.request) {
+        if (!PendingAsk.request) return@LaunchedEffect
+        PendingAsk.request = false
         vm.newChat()
         screen = Screen.Chat; overlay = null; drawerState.close()
-        com.apvcode.devx.data.PendingAsk.focus = true
+        PendingAsk.focus = true
     }
     // The same from the widgets: a chat that starts listening, a temporary one, the computers.
-    LaunchedEffect(com.apvcode.devx.data.PendingAsk.voice) {
-        if (!com.apvcode.devx.data.PendingAsk.voice) return@LaunchedEffect
+    LaunchedEffect(PendingAsk.voice) {
+        if (!PendingAsk.voice) return@LaunchedEffect
         vm.newChat()
         screen = Screen.Chat; overlay = null; drawerState.close()
         // The chat screen picks the flag up and opens the microphone once it is on the screen.
     }
-    LaunchedEffect(com.apvcode.devx.data.PendingAsk.temporary) {
-        if (!com.apvcode.devx.data.PendingAsk.temporary) return@LaunchedEffect
-        com.apvcode.devx.data.PendingAsk.temporary = false
+    LaunchedEffect(PendingAsk.temporary) {
+        if (!PendingAsk.temporary) return@LaunchedEffect
+        PendingAsk.temporary = false
         vm.newChat()
         if (!vm.isTemporary) vm.toggleTemporary()
         screen = Screen.Chat; overlay = null; drawerState.close()
-        com.apvcode.devx.data.PendingAsk.focus = true
+        PendingAsk.focus = true
     }
-    LaunchedEffect(com.apvcode.devx.data.PendingAsk.computers) {
-        if (!com.apvcode.devx.data.PendingAsk.computers) return@LaunchedEffect
-        com.apvcode.devx.data.PendingAsk.computers = false
+    LaunchedEffect(PendingAsk.computers) {
+        if (!PendingAsk.computers) return@LaunchedEffect
+        PendingAsk.computers = false
         screen = Screen.Computers; overlay = null; drawerState.close()
     }
     LaunchedEffect(requestedChat) {
@@ -260,60 +332,67 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
         onChatHandled()
     }
     // Locked chats shut again as soon as the app is left.
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { vm.relockAll() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.relockAll() }
     LaunchedEffect(com.apvcode.devx.data.AppLock.panic) { if (com.apvcode.devx.data.AppLock.panic > 0) vm.relockAll() }
     // A notification of the agent (a permission, an answer) asked for its chat.
-    LaunchedEffect(com.apvcode.devx.remote.PendingRemoteChat.target) {
-        val t = com.apvcode.devx.remote.PendingRemoteChat.target ?: return@LaunchedEffect
-        com.apvcode.devx.remote.PendingRemoteChat.target = null
+    LaunchedEffect(PendingRemoteChat.target) {
+        val t = PendingRemoteChat.target ?: return@LaunchedEffect
+        PendingRemoteChat.target = null
         remoteHost = t.first; remoteSession = t.second; remoteDraft = null; screen = Screen.RemoteChat; overlay = null; drawerState.close()
     }
     // A pairing code came as a link: straight to the pairing screen.
-    LaunchedEffect(com.apvcode.devx.remote.PendingPairing.code) {
-        if (com.apvcode.devx.remote.PendingPairing.code != null) { screen = Screen.AddConnection; overlay = null; drawerState.close() }
+    LaunchedEffect(PendingPairing.code) {
+        if (PendingPairing.code != null) { screen = Screen.AddConnection; overlay = null; drawerState.close() }
     }
     // Back in the app: the computers are tried at once, without waiting for the next round.
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
-        com.apvcode.devx.remote.RemoteLink.host?.let { h -> com.apvcode.devx.remote.RemoteHub.connection(h)?.let { it.start(); it.nudge() } }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        RemoteLink.host?.let { h -> RemoteHub.connection(h)?.let { it.start(); it.nudge() } }
     }
     // The connection to a computer (and its notification) exists only while its list of chats or one of its chats is open.
-    val remoteContext = androidx.compose.ui.platform.LocalContext.current
+    val remoteContext = LocalContext.current
     LaunchedEffect(screen, remoteHost) {
         val host = remoteHost
         if ((screen == Screen.Computer || screen == Screen.RemoteChat) && host != null) {
-            com.apvcode.devx.remote.RemoteLink.connect(remoteContext, host)
+            RemoteLink.connect(remoteContext, host)
         } else {
-            com.apvcode.devx.remote.RemoteLink.disconnect(remoteContext)
+            RemoteLink.disconnect(remoteContext)
             // Out of the whole remote section: no computer is tried any more.
-            if (screen != Screen.Computers && screen != Screen.AddConnection) com.apvcode.devx.remote.RemoteHub.stopAll()
+            if (screen != Screen.Computers && screen != Screen.AddConnection) RemoteHub.stopAll()
         }
     }
     // "Disconnect" in the notification pressed while the app is open on the computer: back to the list of computers.
-    LaunchedEffect(com.apvcode.devx.remote.RemoteLink.dropped) {
-        if (com.apvcode.devx.remote.RemoteLink.dropped > 0 && (screen == Screen.Computer || screen == Screen.RemoteChat)) screen = Screen.Computers
+    LaunchedEffect(RemoteLink.dropped) {
+        if (RemoteLink.dropped > 0 && (screen == Screen.Computer || screen == Screen.RemoteChat)) screen = Screen.Computers
     }
 
+    // The notebook or project the open chat belongs to (see backStep).
+    val chatSpace = (vm.current?.takeIf { !it.temporary }?.project ?: vm.draftProject.takeIf { vm.current == null })?.takeIf { vm.projectInfo[it] != null }
+    val leaveSpacePage = { if (chatSpace != null) vm.newChat(); screen = Screen.Chat }
+
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
-    BackHandler(enabled = screen != Screen.Chat && !drawerState.isOpen) {
-        screen = if (screen == Screen.ProjectEdit && editingProject == null) Screen.Chat else parentOf(screen)
+    val back = backStep(screen, chatSpace != null, editingProject == null)
+    BackHandler(enabled = back.screen != null && !drawerState.isOpen) {
+        if (back.newChat) vm.newChat()
+        if (screen == Screen.Chat) projectName = chatSpace
+        screen = back.screen ?: Screen.Chat
     }
     BackHandler(enabled = searchOpen) { searchOpen = false }
     BackHandler(enabled = overlay != null) { overlay = null }
 
     // A citation in an answer ([[file, p. 3]]) opens that source; every other link goes where it always went.
-    val defaultUri = androidx.compose.ui.platform.LocalUriHandler.current
-    val appContext = androidx.compose.ui.platform.LocalContext.current
+    val defaultUri = LocalUriHandler.current
+    val appContext = LocalContext.current
     val citeHandler = remember(defaultUri) {
-        object : androidx.compose.ui.platform.UriHandler {
+        object : UriHandler {
             override fun openUri(uri: String) {
-                val cited = com.apvcode.devx.ui.markdown.Citations.decode(uri) ?: return defaultUri.openUri(uri)
+                val cited = Citations.decode(uri) ?: return defaultUri.openUri(uri)
                 val a = vm.findSource(cited.first)
-                if (a == null) android.widget.Toast.makeText(appContext, appContext.getString(com.apvcode.devx.R.string.cite_missing, cited.first), android.widget.Toast.LENGTH_SHORT).show()
-                else overlay = Overlay.Viewer(vm.attachmentFile(a), a.name, if (a.original.isNotEmpty()) com.apvcode.devx.data.ArtifactStore.mimeOf(a.name) else a.mime, a.url, cited.second)
+                if (a == null) Toast.makeText(appContext, appContext.getString(com.apvcode.devx.R.string.cite_missing, cited.first), Toast.LENGTH_SHORT).show()
+                else overlay = Overlay.Viewer(vm.attachmentFile(a), a.name, if (a.original.isNotEmpty()) ArtifactStore.mimeOf(a.name) else a.mime, a.url, cited.second)
             }
         }
     }
-    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalUriHandler provides citeHandler) {
+    CompositionLocalProvider(LocalUriHandler provides citeHandler) {
     Box(Modifier.fillMaxSize().background(DevxColors.Bg)) {
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -361,13 +440,13 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                 )
             },
         ) {
-            androidx.compose.animation.AnimatedContent(
+            AnimatedContent(
                 targetState = screen,
                 transitionSpec = {
                     // Going deeper the new screen comes up from slightly smaller; going back the old one sinks away. Never a hard cut.
                     val deeper = targetState != Screen.Chat && (initialState == Screen.Chat || parentOf(targetState) == initialState)
-                    (androidx.compose.animation.fadeIn(tween(300, delayMillis = 40)) + androidx.compose.animation.scaleIn(tween(360, easing = androidx.compose.animation.core.FastOutSlowInEasing), initialScale = if (deeper) 0.96f else 1.03f)) togetherWith
-                        (androidx.compose.animation.fadeOut(tween(200)) + androidx.compose.animation.scaleOut(tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing), targetScale = if (deeper) 1.03f else 0.96f))
+                    (androidx.compose.animation.fadeIn(tween(300, delayMillis = 40)) + androidx.compose.animation.scaleIn(tween(360, easing = FastOutSlowInEasing), initialScale = if (deeper) 0.96f else 1.03f)) togetherWith
+                        (androidx.compose.animation.fadeOut(tween(200)) + androidx.compose.animation.scaleOut(tween(300, easing = FastOutSlowInEasing), targetScale = if (deeper) 1.03f else 0.96f))
                 },
                 label = "screen",
                 modifier = Modifier.fillMaxSize().background(DevxColors.Bg),
@@ -387,8 +466,9 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         onShowSteps = { overlay = Overlay.Steps(it) },
                         onOpenProject = { name -> projectName = name; screen = Screen.Project },
                     )
-                    Screen.Tasks -> TasksScreen(vm, onBack = { screen = Screen.Chat }, onEdit = { id -> editingTask = id; screen = Screen.TaskEdit })
-                    Screen.TaskEdit -> com.apvcode.devx.ui.screens.TaskEditScreen(vm, editingTask, onBack = { screen = Screen.Tasks }, onOpenChat = { id -> vm.openChat(id); screen = Screen.Chat })
+                    Screen.Tasks -> TasksScreen(vm, onBack = { screen = Screen.Chat }, onEdit = { id -> editingTask = id; screen = Screen.TaskEdit }, onReminders = { screen = Screen.Reminders })
+                    Screen.Reminders -> RemindersScreen(onBack = { screen = Screen.Tasks })
+                    Screen.TaskEdit -> TaskEditScreen(vm, editingTask, onBack = { screen = Screen.Tasks }, onOpenChat = { id -> vm.openChat(id); screen = Screen.Chat })
                     Screen.Computers -> RemoteHomeScreen(
                         onBack = { screen = Screen.Chat },
                         onOpen = { remoteHost = it; screen = Screen.Computer },
@@ -416,11 +496,16 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         onSkills = { screen = Screen.Skills },
                         onAssistant = { screen = Screen.Assistant },
                         onVoiceAssistant = { screen = Screen.VoiceAssistant },
-                        onAppLock = { screen = Screen.AppLock },
                         onPersona = { screen = Screen.Persona },
+                        onData = { screen = Screen.Data },
+                        onAppearance = { screen = Screen.Appearance },
                     )
-                    Screen.Persona -> com.apvcode.devx.ui.screens.PersonaScreen(onBack = { screen = Screen.Settings })
-                    Screen.AppLock -> com.apvcode.devx.ui.lock.AppLockScreen(onBack = { screen = Screen.Settings })
+                    Screen.Persona -> PersonaScreen(onBack = { screen = Screen.Settings })
+                    Screen.Data -> com.apvcode.devx.ui.screens.DataScreen(vm, onBack = { screen = Screen.Settings }, onAppLock = { screen = Screen.AppLock }, onTrash = { screen = Screen.Trash })
+                    Screen.Appearance -> com.apvcode.devx.ui.screens.AppearanceScreen(onBack = { screen = Screen.Settings }, onOthers = { screen = Screen.Themes })
+                    Screen.Themes -> com.apvcode.devx.ui.screens.ThemesScreen(onBack = { screen = Screen.Appearance })
+                    Screen.Trash -> TrashScreen(vm, onBack = { screen = Screen.Data })
+                    Screen.AppLock -> AppLockScreen(onBack = { screen = Screen.Data })
                     Screen.Providers -> ProvidersScreen(
                         vm,
                         onBack = { screen = Screen.Settings },
@@ -436,15 +521,15 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                     Screen.ProviderEdit -> ProviderEditScreen(vm, editingProvider, onBack = { screen = Screen.Providers })
                     Screen.Notifications -> NotificationsScreen(onBack = { screen = Screen.Settings })
                     Screen.About -> AboutScreen(onBack = { screen = Screen.Settings })
-                    Screen.Memory -> com.apvcode.devx.ui.screens.MemoryScreen(
+                    Screen.Memory -> MemoryScreen(
                         vm,
                         onBack = { screen = Screen.Settings },
                         onSummary = { screen = Screen.MemorySummary },
                         onNotes = { screen = Screen.MemoryNotes },
                     )
-                    Screen.Project -> if (vm.projectInfo[projectName.orEmpty()] != null) com.apvcode.devx.ui.screens.NotebookPage(
+                    Screen.Project -> if (vm.projectInfo[projectName.orEmpty()] != null) NotebookPage(
                         vm, projectName.orEmpty(),
-                        onBack = { screen = Screen.Chat },
+                        onBack = leaveSpacePage,
                         onSources = { screen = Screen.Sources },
                         onSettings = { screen = Screen.NotebookSettings },
                         onKnowledge = { screen = Screen.ProjectKnowledge },
@@ -453,24 +538,30 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         onOpenChat = { id -> vm.openChat(id); screen = Screen.Chat },
                         onNewChat = { vm.newChat(projectName); screen = Screen.Chat },
                         onCards = { screen = Screen.Cards },
+                        onGraph = { screen = Screen.Graph },
                         onAsk = { text -> vm.newChat(projectName); screen = Screen.Chat; vm.send(text) },
                     ) else LaunchedEffect(Unit) { screen = Screen.Chat }
-                    Screen.Cards -> com.apvcode.devx.ui.screens.CardsScreen(
+                    Screen.Graph -> com.apvcode.devx.ui.screens.GraphScreen(
                         vm, projectName.orEmpty(),
                         onClose = { screen = Screen.Project },
                         onAsk = { text -> vm.newChat(projectName); screen = Screen.Chat; vm.send(text) },
                     )
-                    Screen.NotebookNew -> com.apvcode.devx.ui.screens.NotebookNewScreen(
+                    Screen.Cards -> CardsScreen(
+                        vm, projectName.orEmpty(),
+                        onClose = { screen = Screen.Project },
+                        onAsk = { text -> vm.newChat(projectName); screen = Screen.Chat; vm.send(text) },
+                    )
+                    Screen.NotebookNew -> NotebookNewScreen(
                         vm,
                         onClose = { screen = Screen.Chat },
                         onCreated = { name, study -> projectName = name; screen = if (study) Screen.Project else Screen.Project },
                     )
                     Screen.Sources -> com.apvcode.devx.ui.screens.SourcesScreen(
                         vm, projectName.orEmpty(), onBack = { screen = Screen.Project },
-                        onOpen = { a -> overlay = Overlay.Viewer(vm.attachmentFile(a), a.name, if (a.original.isNotEmpty()) com.apvcode.devx.data.ArtifactStore.mimeOf(a.name) else a.mime, a.url) },
+                        onOpen = { a -> overlay = Overlay.Viewer(vm.attachmentFile(a), a.name, if (a.original.isNotEmpty()) ArtifactStore.mimeOf(a.name) else a.mime, a.url) },
                     )
-                    Screen.NotebookSettings -> com.apvcode.devx.ui.screens.NotebookSettingsScreen(vm, projectName.orEmpty(), onBack = { screen = Screen.Project }, onSources = { screen = Screen.Sources })
-                    Screen.Library -> com.apvcode.devx.ui.screens.LibraryScreen(
+                    Screen.NotebookSettings -> NotebookSettingsScreen(vm, projectName.orEmpty(), onBack = { screen = Screen.Project }, onSources = { screen = Screen.Sources })
+                    Screen.Library -> LibraryScreen(
                         vm, onBack = { screen = Screen.Chat },
                         onOpen = { e ->
                             val f = e.attachment?.let { vm.attachmentFile(it) } ?: e.artifact?.let { vm.artifactFile(it) }
@@ -479,20 +570,20 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         onOpenUse = { u -> vm.openChatAt(u.chatId, u.messageId); screen = Screen.Chat },
                         onAttached = { vm.newChat(); screen = Screen.Chat },
                     )
-                    Screen.ProjectEdit -> com.apvcode.devx.ui.screens.ProjectEditScreen(
+                    Screen.ProjectEdit -> ProjectEditScreen(
                         vm,
                         editingProject,
                         onClose = { screen = if (editingProject == null) Screen.Chat else Screen.Project },
                         onDone = { name -> projectName = name; screen = Screen.Project },
                     )
-                    Screen.ProjectKnowledge -> com.apvcode.devx.ui.screens.MemoryNotesScreen(vm, onBack = { screen = Screen.Project }, project = projectName)
-                    Screen.ProjectSummary -> com.apvcode.devx.ui.screens.MemorySummaryScreen(vm, onBack = { screen = Screen.Project }, project = projectName)
-                    Screen.VoiceAssistant -> com.apvcode.devx.ui.assistant.VoiceSettingsScreen(vm, onBack = { screen = Screen.Settings })
-                    Screen.Assistant -> com.apvcode.devx.ui.screens.AssistantScreen(vm, onBack = { screen = Screen.Settings })
-                    Screen.Skills -> com.apvcode.devx.ui.screens.SkillsScreen(vm, onBack = { screen = Screen.Settings }, onWrite = { screen = Screen.SkillEdit })
-                    Screen.SkillEdit -> com.apvcode.devx.ui.screens.SkillEditScreen(vm, onClose = { screen = Screen.Skills }, onDone = { screen = Screen.Skills })
-                    Screen.MemorySummary -> com.apvcode.devx.ui.screens.MemorySummaryScreen(vm, onBack = { screen = Screen.Memory })
-                    Screen.MemoryNotes -> com.apvcode.devx.ui.screens.MemoryNotesScreen(vm, onBack = { screen = Screen.Memory })
+                    Screen.ProjectKnowledge -> MemoryNotesScreen(vm, onBack = { screen = Screen.Project }, project = projectName)
+                    Screen.ProjectSummary -> MemorySummaryScreen(vm, onBack = { screen = Screen.Project }, project = projectName)
+                    Screen.VoiceAssistant -> VoiceSettingsScreen(vm, onBack = { screen = Screen.Settings })
+                    Screen.Assistant -> AssistantScreen(vm, onBack = { screen = Screen.Settings })
+                    Screen.Skills -> SkillsScreen(vm, onBack = { screen = Screen.Settings }, onWrite = { screen = Screen.SkillEdit })
+                    Screen.SkillEdit -> SkillEditScreen(vm, onClose = { screen = Screen.Skills }, onDone = { screen = Screen.Skills })
+                    Screen.MemorySummary -> MemorySummaryScreen(vm, onBack = { screen = Screen.Memory })
+                    Screen.MemoryNotes -> MemoryNotesScreen(vm, onBack = { screen = Screen.Memory })
                 }
             }
         }
@@ -507,8 +598,10 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                 chats = vm.chats,
                 search = vm::search,
                 searchSpaces = vm::searchSpaces,
+                searchInside = vm::searchInside,
                 searchFiles = vm::searchFiles,
                 onOpenSpace = { name -> projectName = name; screen = Screen.Project; searchOpen = false },
+                onOpenMemory = { screen = Screen.Memory; searchOpen = false },
                 onOpenFile = { e ->
                     val f = e.attachment?.let { vm.attachmentFile(it) } ?: e.artifact?.let { vm.artifactFile(it) }
                     if (f != null) { overlay = Overlay.Viewer(f, e.name, e.realMime(), e.url); searchOpen = false }
@@ -528,8 +621,16 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
             exit = fadeOut(tween(180)) + slideOutVertically(tween(260, easing = FastOutSlowInEasing)) { it / 8 },
         ) {
             when (val page = lastOverlay) {
-                is Overlay.SelectText -> com.apvcode.devx.ui.components.ProvideAskToolbar(onAsk = { vm.attachSnippet(it); overlay = null }) {
-                    SelectTextScreen(page.text, onClose = { overlay = null })
+                is Overlay.SelectText -> {
+                    // In a study notebook the picked words can become a card.
+                    val notebook = vm.current?.project?.takeIf { vm.projectInfo[it]?.isStudy == true }
+                    ProvideAskToolbar(
+                        onAsk = { vm.attachSnippet(it); overlay = null },
+                        extraLabel = if (notebook != null) androidx.compose.ui.res.stringResource(com.apvcode.devx.R.string.card_from_selection) else null,
+                        onExtra = { text -> notebook?.let { vm.cardDraft = it to text.trim().take(1200) }; overlay = null },
+                    ) {
+                        SelectTextScreen(page.text, onClose = { overlay = null })
+                    }
                 }
                 is Overlay.Edit -> EditMessageScreen(
                     initial = page.message.text,
@@ -539,42 +640,42 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
                         overlay = null
                     },
                 )
-                is Overlay.Thinking -> com.apvcode.devx.ui.components.ProvideAskToolbar(onAsk = { vm.attachSnippet(it); overlay = null }) {
+                is Overlay.Thinking -> ProvideAskToolbar(onAsk = { vm.attachSnippet(it); overlay = null }) {
                     ThinkingScreen(page.message, streaming = vm.isStreaming(page.message), onClose = { overlay = null })
                 }
-                is Overlay.Uploaded -> com.apvcode.devx.ui.chat.UploadedFilesScreen(
+                is Overlay.Uploaded -> UploadedFilesScreen(
                     files = vm.uploadedFiles(page.chatId),
                     previewOf = vm::previewOf,
                     onOpen = { overlay = Overlay.Photo(it) },
                     onClose = { overlay = null },
                 )
                 is Overlay.Steps -> ThinkingScreen(page.message, streaming = vm.isStreaming(page.message), onClose = { overlay = null })
-                is Overlay.File -> com.apvcode.devx.ui.chat.ArtifactViewer(page.artifact, vm, onClose = { overlay = null })
-                is Overlay.Viewer -> com.apvcode.devx.ui.screens.DocumentViewer(page.file, page.name, page.mime, onClose = { overlay = null }, url = page.url, page = page.page)
+                is Overlay.File -> ArtifactViewer(page.artifact, vm, onClose = { overlay = null })
+                is Overlay.Viewer -> DocumentViewer(page.file, page.name, page.mime, onClose = { overlay = null }, url = page.url, page = page.page)
                 is Overlay.Sources -> com.apvcode.devx.ui.chat.SourcesScreen(
                     sources = page.message.sources.toList(),
                     onClose = { overlay = null },
                 )
                 is Overlay.Photo -> {
                     val a = page.attachment
-                    val file = if (a.kind == com.apvcode.devx.data.AttachmentKind.Image || a.kind == com.apvcode.devx.data.AttachmentKind.Video) vm.fileOf(a) else vm.attachmentFile(a)
+                    val file = if (a.kind == AttachmentKind.Image || a.kind == AttachmentKind.Video) vm.fileOf(a) else vm.attachmentFile(a)
                     when (a.kind) {
-                        com.apvcode.devx.data.AttachmentKind.Video -> com.apvcode.devx.ui.screens.VideoViewer(file, onClose = { overlay = null })
-                        com.apvcode.devx.data.AttachmentKind.Image -> PhotoViewer(file, onClose = { overlay = null })
+                        AttachmentKind.Video -> VideoViewer(file, onClose = { overlay = null })
+                        AttachmentKind.Image -> PhotoViewer(file, onClose = { overlay = null })
                         // Documents (PDF, Word, slides, tables, text, pages from the web) open in the document viewer, with its menu.
-                        else -> com.apvcode.devx.ui.screens.DocumentViewer(file, a.name, if (a.original.isNotEmpty()) com.apvcode.devx.data.ArtifactStore.mimeOf(a.name) else a.mime, onClose = { overlay = null }, url = a.url)
+                        else -> DocumentViewer(file, a.name, if (a.original.isNotEmpty()) ArtifactStore.mimeOf(a.name) else a.mime, onClose = { overlay = null }, url = a.url)
                     }
                 }
                 null -> Unit
             }
         }
 
-        androidx.compose.animation.AnimatedVisibility(
+        AnimatedVisibility(
             visible = chatGone,
             enter = androidx.compose.animation.fadeIn(tween(220)),
             exit = androidx.compose.animation.fadeOut(tween(260)),
         ) {
-            com.apvcode.devx.ui.chat.ChatGoneOverlay(onClose = { chatGone = false })
+            ChatGoneOverlay(onClose = { chatGone = false })
         }
     }
     }

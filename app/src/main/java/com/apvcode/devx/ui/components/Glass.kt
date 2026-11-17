@@ -24,6 +24,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
+import com.apvcode.devx.data.Prefs
 
 /** The blurred backdrop the glass panels look through (set by the screen that owns the content). */
 val LocalGlass = compositionLocalOf<HazeState?> { null }
@@ -48,7 +49,7 @@ private fun rememberGlassStyle(): HazeStyle {
 /** "Liquid glass": whatever is behind shows through, blurred, with a faint light edge. */
 @Composable
 fun Modifier.glass(shape: Shape): Modifier {
-    val state = LocalGlass.current
+    val state = if (Prefs.blur) LocalGlass.current else null
     val style = rememberGlassStyle()
     val edge = Color.White.copy(alpha = 0.14f)
     // Under the blur there is always a quiet ground of its own: when the blur is not drawn for a moment (the page behind it was
@@ -57,7 +58,7 @@ fun Modifier.glass(shape: Shape): Modifier {
     return (if (state != null) base.hazeEffect(state, style) {
         // Blur a shrunken copy of what is behind: it looks the same (it is blurred anyway) and costs a fraction.
         inputScale = HazeInputScale.Fixed(0.12f)
-    } else base.background(DevxColors.Card.copy(alpha = 0.9f)))
+    } else base.background(DevxColors.Card.copy(alpha = if (com.apvcode.devx.data.Prefs.blur) 0.9f else 1f)))
         .border(1.dp, edge, shape)
 }
 

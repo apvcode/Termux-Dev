@@ -1,5 +1,6 @@
 package com.apvcode.devx.assist
 
+import com.apvcode.devx.data.logged
 import android.Manifest
 import android.app.role.RoleManager
 import android.content.Context
@@ -9,6 +10,7 @@ import android.provider.Settings
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import com.apvcode.devx.data.PermissionBridge
+import androidx.core.app.NotificationManagerCompat
 
 /** What the phone says about Devx as its assistant: asked afresh every time the settings come into view. */
 object AssistantStatus {
@@ -17,7 +19,7 @@ object AssistantStatus {
         val own = context.packageName + "/"
         val chosen = runCatching {
             Settings.Secure.getString(context.contentResolver, "assistant") ?: Settings.Secure.getString(context.contentResolver, "voice_interaction_service")
-        }.getOrNull()
+        }.logged("assistantstatus").getOrNull()
         if (chosen != null) return chosen.startsWith(own)
         if (Build.VERSION.SDK_INT >= 29) {
             val roles = context.getSystemService(RoleManager::class.java)
@@ -26,7 +28,7 @@ object AssistantStatus {
         return false
     }
 
-    fun notificationAccess(context: Context) = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+    fun notificationAccess(context: Context) = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
     fun micAllowed(context: Context) = PermissionBridge.has(context, Manifest.permission.RECORD_AUDIO)
 

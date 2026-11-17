@@ -84,6 +84,9 @@ import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import java.util.Date
+import androidx.compose.ui.text.style.TextAlign
+import com.apvcode.devx.data.Library
+import java.io.File
 
 private enum class Filter(val label: Int) { All(R.string.lib_all), Images(R.string.lib_images), Documents(R.string.lib_documents), Sites(R.string.lib_sites), Made(R.string.lib_made) }
 
@@ -115,7 +118,7 @@ fun LibraryScreen(
     var uses by remember { mutableStateOf<LibraryEntry?>(null) }
     var about by remember { mutableStateOf<LibraryEntry?>(null) }
     val all by remember { derivedStateOf { vm.library } }
-    val shown = remember(all, query, filter) { com.apvcode.devx.data.Library.search(all.filter { filter.accepts(it) }, query) }
+    val shown = remember(all, query, filter) { Library.search(all.filter { filter.accepts(it) }, query) }
 
     Column(Modifier.fillMaxSize().background(DevxColors.Bg).statusBarsPadding()) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -149,7 +152,7 @@ fun LibraryScreen(
         if (shown.isEmpty()) {
             Column(Modifier.weight(1f).fillMaxWidth().padding(40.dp), verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.size(64.dp).clip(CircleShape).background(DevxColors.Card), contentAlignment = Alignment.Center) { Icon(DevxIcons.Paperclip, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(28.dp)) }
-                Text(stringResource(if (all.isEmpty()) R.string.library_empty else R.string.library_nothing), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text(stringResource(if (all.isEmpty()) R.string.library_empty else R.string.library_nothing), style = DevxType.Body, color = DevxColors.TextSecondary, textAlign = TextAlign.Center)
             }
         } else {
             LazyVerticalGrid(
@@ -206,7 +209,7 @@ fun LibraryScreen(
     }
 }
 
-private fun fileOf(vm: ChatViewModel, e: LibraryEntry): java.io.File? = e.attachment?.let { vm.attachmentFile(it) } ?: e.artifact?.let { vm.artifactFile(it) }
+private fun fileOf(vm: ChatViewModel, e: LibraryEntry): File? = e.attachment?.let { vm.attachmentFile(it) } ?: e.artifact?.let { vm.artifactFile(it) }
 
 @Composable
 private fun LibraryCard(

@@ -51,6 +51,7 @@ import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.compose.foundation.layout.IntrinsicSize
 
 private fun Attachment.isMedia() = kind == AttachmentKind.Image || kind == AttachmentKind.Video
 
@@ -116,7 +117,7 @@ internal fun QuoteCard(file: File, modifier: Modifier = Modifier, onClick: (() -
             .clip(RoundedCornerShape(16.dp))
             .background(DevxColors.CardInner)
             .padding(start = 12.dp)
-            .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+            .height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(

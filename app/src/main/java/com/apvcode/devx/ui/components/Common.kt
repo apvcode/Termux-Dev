@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.apvcode.devx.R
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import androidx.compose.ui.text.style.TextOverflow
 
 /** Round dark button, used for back / menu / actions in the header. */
 @Composable
@@ -158,7 +159,7 @@ fun SettingsRow(
             Icon(icon, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(24.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = DevxType.Body, color = titleColor, maxLines = titleMaxLines, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(title, style = DevxType.Body, color = titleColor, maxLines = titleMaxLines, overflow = TextOverflow.Ellipsis)
             if (subtitle != null) {
                 Text(subtitle, style = DevxType.Caption, color = DevxColors.TextSecondary)
             }

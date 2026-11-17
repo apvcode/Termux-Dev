@@ -55,6 +55,8 @@ import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxFonts
 import kotlin.math.PI
 import kotlin.math.sin
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 
 enum class LinkVisual { Connecting, Online, Offline }
 
@@ -145,7 +147,7 @@ fun SasDigits(code: String, modifier: Modifier = Modifier) {
                     .clip(RoundedCornerShape(14.dp)).background(DevxColors.Card),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(ch.toString(), style = androidx.compose.ui.text.TextStyle(fontFamily = DevxFonts.Sans, fontSize = 28.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium), color = DevxColors.TextPrimary)
+                Text(ch.toString(), style = TextStyle(fontFamily = DevxFonts.Sans, fontSize = 28.sp, fontWeight = FontWeight.Medium), color = DevxColors.TextPrimary)
             }
         }
     }

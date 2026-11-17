@@ -31,6 +31,11 @@ import java.net.InetAddress
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+import android.annotation.SuppressLint
+import android.os.SystemClock
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import java.net.URI
 
 /**
  * Looking things up on the internet without any API key.
@@ -144,7 +149,7 @@ class WebTools(context: Context) {
         hits.map { h ->
             async(Dispatchers.IO) {
                 val text = withTimeoutOrNull(6_000) {
-                    if (!isPublic(h.url)) null else runCatching { httpFetch(h.url) }.getOrNull()?.text
+                    if (!isPublic(h.url)) null else runCatching { httpFetch(h.url) }.logged("webtools").getOrNull()?.text
                 }
                 h.url to text?.let { SearchText.bestPassage(it, terms) }
             }
@@ -171,7 +176,7 @@ class WebTools(context: Context) {
                 }
             }
             rows.map { Hit(it.title, it.url, it.snippet) }
-        }.getOrDefault(emptyList())
+        }.logged("webtools").getOrDefault(emptyList())
     }
 
     suspend fun findHits(query: String, count: Int = 8): List<Hit> {
@@ -235,8 +240,8 @@ class WebTools(context: Context) {
         )
         // The first two at once: each leans a different way, and together they give a wider, less one-sided list than one of them.
         val (first, second) = coroutineScope {
-            val a = async { runCatching { attempts[0]() }.getOrDefault(emptyList()) }
-            val b = async { runCatching { attempts[1]() }.getOrDefault(emptyList()) }
+            val a = async { runCatching { attempts[0]() }.logged("webtools").getOrDefault(emptyList()) }
+            val b = async { runCatching { attempts[1]() }.logged("webtools").getOrDefault(emptyList()) }
             a.await() to b.await()
         }
         val seen = HashSet<String>()
@@ -246,7 +251,7 @@ class WebTools(context: Context) {
             for (h in listOfNotNull(second.getOrNull(i), first.getOrNull(i))) if (seen.add(h.url.substringBefore('#').trimEnd('/'))) merged += h
         }
         if (merged.isNotEmpty()) return@withContext merged
-        runCatching { attempts[2]() }.getOrDefault(emptyList())
+        runCatching { attempts[2]() }.logged("webtools").getOrDefault(emptyList())
     }
 
     private fun parseHits(raw: String): List<Hit> {
@@ -269,7 +274,7 @@ class WebTools(context: Context) {
     /** Search engines send the result through their own address; this is the real one. */
     private fun cleanLink(raw: String): String {
         val url = raw.trim().let { if (it.startsWith("//")) "https:$it" else it }
-        runCatching {
+        attempt("webtools") {
             val uri = Uri.parse(url)
             val host = uri.host.orEmpty()
             if (host.endsWith("bing.com") && uri.path?.startsWith("/ck/a") == true) {
@@ -313,10 +318,10 @@ class WebTools(context: Context) {
     }
 
     private suspend fun fetch(url: String): Page? = withContext(Dispatchers.IO) {
-        val quick = runCatching { httpFetch(url) }.getOrNull()
+        val quick = runCatching { httpFetch(url) }.logged("webtools").getOrNull()
         if (quick != null && quick.text.length >= 200) return@withContext quick
         // Almost no text: a page that is built by scripts, or one that wants a real browser.
-        val real = runCatching { browserFetch(url) }.getOrNull()
+        val real = runCatching { browserFetch(url) }.logged("webtools").getOrNull()
         if (real != null && real.text.isNotBlank()) real else quick
     }
 
@@ -350,7 +355,7 @@ class WebTools(context: Context) {
             val stripper = PDFTextStripper().apply { sortByPosition = true; endPage = doc.numberOfPages.coerceAtMost(60) }
             Page(url.substringAfterLast('/'), url, stripper.getText(doc))
         }
-    }.getOrNull()
+    }.logged("webtools").getOrNull()
 
     private fun htmlText(doc: org.jsoup.nodes.Document): String {
         doc.select("script,style,noscript,svg,iframe,form,nav,footer,header,aside,[role=navigation],[aria-hidden=true]").remove()
@@ -385,14 +390,14 @@ class WebTools(context: Context) {
                 var loadedAt = 0L
                 web.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, finished: String?) {
-                        if (finished != null && finished != "about:blank" && loadedAt == 0L) loadedAt = android.os.SystemClock.uptimeMillis()
+                        if (finished != null && finished != "about:blank" && loadedAt == 0L) loadedAt = SystemClock.uptimeMillis()
                     }
 
-                    override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                        if (request?.isForMainFrame == true && loadedAt == 0L) loadedAt = android.os.SystemClock.uptimeMillis()
+                    override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                        if (request?.isForMainFrame == true && loadedAt == 0L) loadedAt = SystemClock.uptimeMillis()
                     }
                 }
-                val start = android.os.SystemClock.uptimeMillis()
+                val start = SystemClock.uptimeMillis()
                 var last: String? = null
                 try {
                     web.loadUrl(url)
@@ -407,7 +412,7 @@ class WebTools(context: Context) {
                             last = got
                             if (ready(got)) break
                         }
-                        val now = android.os.SystemClock.uptimeMillis()
+                        val now = SystemClock.uptimeMillis()
                         if (now - start > timeoutMs || (loadedAt != 0L && now - loadedAt > settleMs)) break
                     }
                 } finally {
@@ -419,7 +424,7 @@ class WebTools(context: Context) {
             }
         }
 
-    @android.annotation.SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled")
     private fun ensureBrowser(): WebView =
         browser ?: WebView(app).also { web ->
             web.settings.apply {
@@ -439,7 +444,7 @@ class WebTools(context: Context) {
 
     /** Only public web pages: never the phone's own network, never a local address. */
     private suspend fun isPublic(url: String): Boolean = withContext(Dispatchers.IO) {
-        val parsed = runCatching { java.net.URI(url) }.getOrNull() ?: return@withContext false
+        val parsed = runCatching { URI(url) }.getOrNull() ?: return@withContext false
         if (parsed.scheme != "http" && parsed.scheme != "https") return@withContext false
         val host = parsed.host?.lowercase() ?: return@withContext false
         if (host == "localhost" || host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".localhost")) return@withContext false
@@ -448,10 +453,10 @@ class WebTools(context: Context) {
                 a.isAnyLocalAddress || a.isLoopbackAddress || a.isLinkLocalAddress || a.isSiteLocalAddress || a.isMulticastAddress ||
                     (a.address.size == 16 && (a.address[0].toInt() and 0xfe) == 0xfc)
             }
-        }.getOrDefault(false)
+        }.logged("webtools").getOrDefault(false)
     }
 
-    private fun hostOf(url: String): String = runCatching { java.net.URI(url).host.orEmpty().removePrefix("www.") }.getOrDefault("")
+    private fun hostOf(url: String): String = runCatching { URI(url).host.orEmpty().removePrefix("www.") }.getOrDefault("")
 
     private class Engine(val url: (String) -> String, val script: String, val settleMs: Long = 600)
 

@@ -1,5 +1,6 @@
 package com.apvcode.devx.ui.remote
 
+import com.apvcode.devx.data.logged
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -164,6 +165,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.unit.Dp
+import com.apvcode.devx.remote.MAX_TRIES
+import com.apvcode.devx.remote.RemoteConnection
 
 @Composable
 fun RemoteChatScreen(hostId: String, sessionId: String, draftCwd: String? = null, onBack: () -> Unit, onNewChat: () -> Unit = onBack) {
@@ -186,13 +204,13 @@ fun RemoteChatScreen(hostId: String, sessionId: String, draftCwd: String? = null
     val state = session.state
     val running = state?.running == true
 
-    LaunchedEffect(session, conn.state, session.draft) { if (conn.state == LinkState.Online && !session.draft && commands.isEmpty()) commands = runCatching { session.commands() }.getOrDefault(emptyList()) }
+    LaunchedEffect(session, conn.state, session.draft) { if (conn.state == LinkState.Online && !session.draft && commands.isEmpty()) commands = runCatching { session.commands() }.logged("remotechat").getOrDefault(emptyList()) }
 
     var attachOpen by remember { mutableStateOf(false) }
     var cameraOpen by remember { mutableStateOf(false) }
-    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    fun attach(uris: List<android.net.Uri>, named: Pair<String, String>? = null) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    fun attach(uris: List<Uri>, named: Pair<String, String>? = null) {
         for (uri in uris) {
             val (name, mime) = named ?: Uploads.describe(context, uri)
             val f = PendingFile(name, mime).also { it.uri = uri }
@@ -204,7 +222,7 @@ fun RemoteChatScreen(hostId: String, sessionId: String, draftCwd: String? = null
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { attach(it) }
     val openCamera = { keyboard?.hide(); focus.clearFocus(); cameraOpen = true }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) openCamera() else android.widget.Toast.makeText(context, R.string.camera_denied, android.widget.Toast.LENGTH_LONG).show()
+        if (granted) openCamera() else Toast.makeText(context, R.string.camera_denied, Toast.LENGTH_LONG).show()
     }
 
     fun notice(t: String, error: Boolean = false) = session.notice(t, error)
@@ -270,7 +288,7 @@ fun RemoteChatScreen(hostId: String, sessionId: String, draftCwd: String? = null
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     var composerHeight by remember { mutableStateOf(0.dp) }
     var selecting by remember { mutableStateOf<String?>(null) }
-    androidx.activity.compose.BackHandler(enabled = selecting != null) { selecting = null }
+    BackHandler(enabled = selecting != null) { selecting = null }
 
     // A new chat arrives in one movement: the folder badge draws itself, the bars and the field glide in around it.
     val intro = draftCwd != null
@@ -279,10 +297,10 @@ fun RemoteChatScreen(hostId: String, sessionId: String, draftCwd: String? = null
     LaunchedEffect(Unit) {
         if (intro) {
             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-            timeline.animateTo(1f, tween(1700, easing = androidx.compose.animation.core.LinearEasing))
+            timeline.animateTo(1f, tween(1700, easing = LinearEasing))
         }
     }
-    val stage: (Float, Float) -> Float = { from, to -> androidx.compose.animation.core.FastOutSlowInEasing.transform(((timeline.value - from) / (to - from)).coerceIn(0f, 1f)) }
+    val stage: (Float, Float) -> Float = { from, to -> FastOutSlowInEasing.transform(((timeline.value - from) / (to - from)).coerceIn(0f, 1f)) }
 
     CompositionLocalProvider(LocalGlass provides haze, LocalSendOrigin provides sendOrigin) {
         Box(Modifier.fillMaxSize().background(DevxColors.Bg).imePadding()) {
@@ -292,7 +310,7 @@ fun RemoteChatScreen(hostId: String, sessionId: String, draftCwd: String? = null
             }
             // The bar hangs in the air over the conversation: one rounded glass panel.
             // The conversation goes under the status bar too: the clock and the signal show over it, with a soft shade behind them.
-            Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(statusTop + 24.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(DevxColors.Bg.copy(alpha = 0.7f), Color.Transparent))))
+            Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(statusTop + 24.dp).background(Brush.verticalGradient(listOf(DevxColors.Bg.copy(alpha = 0.7f), Color.Transparent))))
             Column(Modifier.align(Alignment.TopCenter).statusBarsPadding().graphicsLayer { val v = stage(0.12f, 0.5f); alpha = v; translationY = -(1f - v) * 28.dp.toPx() }.onSizeChanged { topHeight = with(density) { it.height.toDp() } }) {
                 ChatTopBar(session, conn.state, onBack = onBack, onControls = { controls = true })
                 if (conn.state != LinkState.Online) OfflineBanner(conn, Modifier.align(Alignment.CenterHorizontally))
@@ -306,10 +324,10 @@ fun RemoteChatScreen(hostId: String, sessionId: String, draftCwd: String? = null
                 exit = fadeOut(tween(160)),
             ) { NewChatHero(session.draftCwd.orEmpty(), conn.computer.name) { stage(it.first, it.second) } }
             Column(Modifier.align(Alignment.BottomCenter).graphicsLayer { val v = stage(0f, 0.55f); alpha = v; translationY = (1f - v) * 72.dp.toPx() }.onSizeChanged { bottomHeight = with(density) { it.height.toDp() } }) {
-                Rising(session.perm) { p -> PermissionCard(p) { answer -> scope.launch { runCatching { session.answerPermission(p.id, answer) } } } }
-                Rising(session.ask) { a -> AskCardView(a) { answers -> scope.launch { runCatching { session.answerQuestions(a.id, answers) } } } }
-                Rising(session.plan) { p -> PlanCardView(p) { choice -> scope.launch { runCatching { session.decidePlan(p.id, choice) } } } }
-                if (state?.trusted == false) TrustBar { scope.launch { runCatching { session.trust() } } }
+                Rising(session.perm) { p -> PermissionCard(p) { answer -> scope.launch { runCatching { session.answerPermission(p.id, answer) }.logged("remotechat") } } }
+                Rising(session.ask) { a -> AskCardView(a) { answers -> scope.launch { runCatching { session.answerQuestions(a.id, answers) }.logged("remotechat") } } }
+                Rising(session.plan) { p -> PlanCardView(p) { choice -> scope.launch { runCatching { session.decidePlan(p.id, choice) }.logged("remotechat") } } }
+                if (state?.trusted == false) TrustBar { scope.launch { runCatching { session.trust() }.logged("remotechat") } }
                 CommandPalette(palette) { cmd ->
                     if (cmd in setOf("/compact", "/new", "/clear", "/plan", "/agent", "/model", "/usage", "/undo", "/tasks", "/mcp", "/mcp import", "/mcp reload")) { text = ""; runCommand(cmd) } else text = "$cmd "
                 }
@@ -317,7 +335,7 @@ fun RemoteChatScreen(hostId: String, sessionId: String, draftCwd: String? = null
                     modifier = Modifier.onSizeChanged { composerHeight = with(density) { it.height.toDp() } },
                     text = text, onText = { text = it }, files = files, running = running,
                     attachOpen = attachOpen, onToggleAttach = { attachOpen = !attachOpen }, onRemoveFile = { files.remove(it) }, onSend = ::send,
-                    onStop = { scope.launch { runCatching { session.stopTurn() } } },
+                    onStop = { scope.launch { runCatching { session.stopTurn() }.logged("remotechat") } },
                     canSend = conn.state == LinkState.Online,
                 )
             }
@@ -326,7 +344,7 @@ fun RemoteChatScreen(hostId: String, sessionId: String, draftCwd: String? = null
                 open = attachOpen,
                 onDismiss = { attachOpen = false },
                 onCamera = { attachOpen = false; if (hasCameraPermission(context)) openCamera() else cameraPermission.launch(android.Manifest.permission.CAMERA) },
-                onPhotos = { attachOpen = false; photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                onPhotos = { attachOpen = false; photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
                 onFiles = { attachOpen = false; filePicker.launch(arrayOf("*/*")) },
                 bottomPadding = composerHeight + 4.dp,
                 modifier = Modifier.fillMaxSize(),
@@ -418,7 +436,7 @@ internal fun ContextRing(used: Int, limit: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun OfflineBanner(conn: com.apvcode.devx.remote.RemoteConnection, modifier: Modifier) {
+private fun OfflineBanner(conn: RemoteConnection, modifier: Modifier) {
     val trying = conn.trying
     Row(
         modifier.padding(top = 2.dp).clip(CircleShape).background(DevxColors.Card).border(1.dp, DevxColors.Outline, CircleShape)
@@ -429,7 +447,7 @@ private fun OfflineBanner(conn: com.apvcode.devx.remote.RemoteConnection, modifi
         StatusDot(if (trying) LinkVisual.Connecting else LinkVisual.Offline)
         if (trying) {
             Text(
-                stringResource(R.string.remote_reconnecting_n, (conn.attempts + 1).coerceAtMost(com.apvcode.devx.remote.MAX_TRIES), com.apvcode.devx.remote.MAX_TRIES),
+                stringResource(R.string.remote_reconnecting_n, (conn.attempts + 1).coerceAtMost(MAX_TRIES), MAX_TRIES),
                 style = DevxType.Caption, color = DevxColors.TextSecondary,
             )
         } else {
@@ -453,7 +471,7 @@ private fun TrustBar(onTrust: () -> Unit) {
 internal class PinState { var next = false }
 
 @Composable
-private fun ChatList(session: RemoteSession, pin: PinState, topPad: androidx.compose.ui.unit.Dp, bottomPad: androidx.compose.ui.unit.Dp, haze: HazeState, onSelect: (String) -> Unit) {
+private fun ChatList(session: RemoteSession, pin: PinState, topPad: Dp, bottomPad: Dp, haze: HazeState, onSelect: (String) -> Unit) {
     val listState = rememberLazyListState()
     val items = session.items
     val scope = rememberCoroutineScope()
@@ -570,9 +588,9 @@ private fun ChatList(session: RemoteSession, pin: PinState, topPad: androidx.com
     }
 }
 
-private fun shareText(context: android.content.Context, text: String) {
-    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, text) }
-    context.startActivity(android.content.Intent.createChooser(send, null).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+private fun shareText(context: Context, text: String) {
+    val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }
+    context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
 /** Copy and the rest of the actions under a finished answer. */
@@ -599,7 +617,7 @@ private fun AssistantActions(text: String, onSelect: (String) -> Unit) {
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UserItem(m: RItem.User, animate: Boolean, onSelect: (String) -> Unit) {
     val context = LocalContext.current
@@ -713,7 +731,7 @@ private fun SummaryItem(s: RItem.Summary) {
 // ───────────────────────── what the agent asks ─────────────────────────
 
 @Composable
-private fun CardFrame(modifier: Modifier = Modifier, danger: Boolean = false, borderColor: Color? = null, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+private fun CardFrame(modifier: Modifier = Modifier, danger: Boolean = false, borderColor: Color? = null, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(26.dp)
     Column(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(shape).background(DevxColors.Card).border(1.dp, borderColor ?: if (danger) DevxColors.Danger.copy(alpha = 0.7f) else DevxColors.Outline, shape).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
 }
@@ -739,14 +757,14 @@ private fun <T : Any> Rising(value: T?, content: @Composable (T) -> Unit) {
 @Composable
 private fun Rise(delayMs: Long, content: @Composable () -> Unit) {
     val a = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { delay(delayMs); a.animateTo(1f, tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    LaunchedEffect(Unit) { delay(delayMs); a.animateTo(1f, tween(380, easing = FastOutSlowInEasing)) }
     Box(Modifier.graphicsLayer { alpha = a.value; translationY = (1f - a.value) * 14.dp.toPx() }) { content() }
 }
 
 @Composable
 private fun PermissionCard(p: Permission, onAnswer: (String) -> Unit) {
     // The edge breathes slowly: the card asks for attention without shouting.
-    val breathe by rememberInfiniteTransition(label = "perm").animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = androidx.compose.animation.core.FastOutSlowInEasing), RepeatMode.Reverse), label = "breathe")
+    val breathe by rememberInfiniteTransition(label = "perm").animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "breathe")
     val edge = (if (p.danger) DevxColors.Danger else DevxColors.TextPrimary).copy(alpha = 0.16f + 0.26f * breathe)
     // The badge lands with a little overshoot.
     val badge = remember { Animatable(0.4f) }
@@ -785,7 +803,7 @@ private fun PermissionCard(p: Permission, onAnswer: (String) -> Unit) {
 private fun AskCardView(a: Ask, onSubmit: (List<String?>) -> Unit) {
     val picked = remember(a.id) { mutableStateListOf<String?>().apply { repeat(a.questions.size) { add(null) } } }
     val custom = remember(a.id) { mutableStateListOf<String>().apply { repeat(a.questions.size) { add("") } } }
-    val maxHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.58f).dp
+    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.58f).dp
     CardFrame(Modifier.heightIn(max = maxHeight)) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             a.questions.forEachIndexed { i, q ->
@@ -810,7 +828,7 @@ private fun AskCardView(a: Ask, onSubmit: (List<String?>) -> Unit) {
 
 @Composable
 private fun PlanCardView(p: PlanCard, onDecide: (String) -> Unit) {
-    CardFrame(Modifier.heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.58f).dp)) {
+    CardFrame(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.58f).dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(DevxIcons.ListCheck, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
             Text(stringResource(R.string.remote_plan_ready), style = DevxType.BodyStrong, color = DevxColors.TextPrimary)
@@ -888,7 +906,7 @@ private fun RemoteComposer(modifier: Modifier, text: String, onText: (String) ->
                 }
                 Row(Modifier.padding(start = 16.dp, end = 3.dp), verticalAlignment = Alignment.Bottom) {
                     Box(Modifier.weight(1f).heightIn(min = 42.dp).onGloballyPositioned { origin.field = it.boundsInWindow() }, contentAlignment = Alignment.CenterStart) {
-                        BasicTextField(text, onText, textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary), cursorBrush = SolidColor(DevxColors.Accent), maxLines = 6, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).onFocusChanged { focused = it.isFocused }, decorationBox = { inner ->
+                        BasicTextField(text, onText, textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary), cursorBrush = SolidColor(DevxColors.Accent), maxLines = 6, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).onFocusChanged { focused = it.isFocused }, decorationBox = { inner ->
                             Box(contentAlignment = Alignment.CenterStart) {
                                 if (text.isEmpty()) Text(if (running) stringResource(R.string.remote_placeholder_running) else stringResource(R.string.remote_placeholder), style = DevxType.Body, color = DevxColors.TextSecondary, maxLines = 1)
                                 inner()

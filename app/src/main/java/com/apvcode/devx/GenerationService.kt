@@ -1,5 +1,6 @@
 package com.apvcode.devx
 
+import com.apvcode.devx.data.logged
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -14,6 +15,11 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import com.apvcode.devx.data.ApprovalDecision
+import com.apvcode.devx.data.ApprovalReceiver
+import com.apvcode.devx.data.NotificationText
+import com.apvcode.devx.data.ToolApproval
 
 /** Whether the app is on screen; the answer that finishes while it is not is announced by a notification. */
 object AppState {
@@ -79,7 +85,7 @@ class GenerationService : Service() {
          * app is in front it needs no help, and so there is nothing to see in the notification shade.
          */
         fun start(context: Context) {
-            runCatching { androidx.core.content.ContextCompat.startForegroundService(context, Intent(context, GenerationService::class.java)) }
+            runCatching { ContextCompat.startForegroundService(context, Intent(context, GenerationService::class.java)) }
         }
 
         fun stop(context: Context) {
@@ -117,16 +123,16 @@ class GenerationService : Service() {
         }
 
         /** "It waits for your answer" with the buttons, for when the app is not on screen: the assistant is about to use a server. */
-        fun announceApproval(context: Context, chatId: String, title: String, request: com.apvcode.devx.data.ToolApproval) {
+        fun announceApproval(context: Context, chatId: String, title: String, request: ToolApproval) {
             runCatching {
                 ensureChannels(context)
                 val manager = NotificationManagerCompat.from(context)
                 if (!manager.areNotificationsEnabled()) return
-                fun action(decision: com.apvcode.devx.data.ApprovalDecision, label: Int): NotificationCompat.Action {
-                    val intent = Intent(context, com.apvcode.devx.data.ApprovalReceiver::class.java)
-                        .putExtra(com.apvcode.devx.data.ApprovalReceiver.EXTRA_CHAT, chatId)
-                        .putExtra(com.apvcode.devx.data.ApprovalReceiver.EXTRA_DECISION, decision.name)
-                    val pending = android.app.PendingIntent.getBroadcast(context, (chatId + decision.name).hashCode(), intent, android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+                fun action(decision: ApprovalDecision, label: Int): NotificationCompat.Action {
+                    val intent = Intent(context, ApprovalReceiver::class.java)
+                        .putExtra(ApprovalReceiver.EXTRA_CHAT, chatId)
+                        .putExtra(ApprovalReceiver.EXTRA_DECISION, decision.name)
+                    val pending = PendingIntent.getBroadcast(context, (chatId + decision.name).hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
                     return NotificationCompat.Action.Builder(0, context.getString(label), pending).build()
                 }
                 val notification = NotificationCompat.Builder(context, CHANNEL_ANSWERS)
@@ -138,17 +144,17 @@ class GenerationService : Service() {
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setOngoing(true)
                     .setContentIntent(openApp(context, chatId))
-                    .addAction(action(com.apvcode.devx.data.ApprovalDecision.Deny, R.string.mcp_ask_deny))
-                    .addAction(action(com.apvcode.devx.data.ApprovalDecision.Once, R.string.mcp_ask_allow))
+                    .addAction(action(ApprovalDecision.Deny, R.string.mcp_ask_deny))
+                    .addAction(action(ApprovalDecision.Once, R.string.mcp_ask_allow))
                     .build()
                 @Suppress("MissingPermission")
-                manager.notify(com.apvcode.devx.data.ApprovalReceiver.notificationId(chatId), notification)
-            }
+                manager.notify(ApprovalReceiver.notificationId(chatId), notification)
+            }.logged("generationservice")
         }
 
         /** The question was answered (on screen or from the notification): the notification goes. */
         fun withdrawApproval(context: Context, chatId: String) {
-            runCatching { NotificationManagerCompat.from(context).cancel(com.apvcode.devx.data.ApprovalReceiver.notificationId(chatId)) }
+            runCatching { NotificationManagerCompat.from(context).cancel(ApprovalReceiver.notificationId(chatId)) }
         }
 
         /** "The answer is ready", for when the app is not on screen. */
@@ -158,18 +164,18 @@ class GenerationService : Service() {
                 val manager = NotificationManagerCompat.from(context)
                 if (!manager.areNotificationsEnabled()) return
                 // The answer's own words, without the Markdown marks (and nothing of the cards, code or pictures in it).
-                val words = com.apvcode.devx.data.NotificationText.plain(preview).ifBlank { context.getString(R.string.notif_answer_ready) }
+                val words = NotificationText.plain(preview).ifBlank { context.getString(R.string.notif_answer_ready) }
                 val notification = NotificationCompat.Builder(context, CHANNEL_ANSWERS)
                     .setSmallIcon(R.drawable.ic_message_circle)
                     .setContentTitle(title.ifBlank { context.getString(R.string.app_name) })
-                    .setContentText(com.apvcode.devx.data.NotificationText.short(words, 90))
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(com.apvcode.devx.data.NotificationText.short(words, 320)))
+                    .setContentText(NotificationText.short(words, 90))
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(NotificationText.short(words, 320)))
                     .setAutoCancel(true)
                     .setContentIntent(openApp(context, chatId))
                     .build()
                 @Suppress("MissingPermission")
                 manager.notify(chatId.hashCode(), notification)
-            }
+            }.logged("generationservice")
         }
     }
 }

@@ -64,6 +64,7 @@ import com.apvcode.devx.ui.components.glass
 import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import androidx.compose.ui.unit.Dp
 
 /** The icon of a project by its id. */
 @Composable
@@ -99,7 +100,7 @@ fun projectIcon(id: String): ImageVector = ImageVector.vectorResource(
 
 /** A round badge with the project's icon, tinted with its colour. */
 @Composable
-fun ProjectBadge(icon: String, color: Long, size: androidx.compose.ui.unit.Dp = 44.dp, modifier: Modifier = Modifier) {
+fun ProjectBadge(icon: String, color: Long, size: Dp = 44.dp, modifier: Modifier = Modifier) {
     val tint = Color(color)
     Box(
         modifier.size(size).clip(CircleShape).background(tint.copy(alpha = 0.16f)),

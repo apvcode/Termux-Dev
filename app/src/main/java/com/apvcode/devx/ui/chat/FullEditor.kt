@@ -99,6 +99,9 @@ import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.markdown.MarkdownText
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 
 /**
  * The message, full screen: a big calm page to write on, with Markdown at hand (headings, bold, lists, checklists, quotes, code,
@@ -208,6 +211,7 @@ private fun FullEditor(initial: String, canSend: Boolean, onChange: (String) -> 
                             textStyle = DevxType.Body.copy(fontSize = 19.sp, lineHeight = 30.sp, color = DevxColors.TextPrimary),
                             cursorBrush = SolidColor(DevxColors.Accent),
                             visualTransformation = MarkdownHighlight,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                             onTextLayout = { layout = it },
                             modifier = Modifier.fillMaxWidth().focusRequester(focus),
                         )
@@ -341,7 +345,7 @@ private fun Counter(label: String, value: Int, min: Int, max: Int, onChange: (In
         Text(label, style = DevxType.Body, color = DevxColors.TextPrimary, modifier = Modifier.weight(1f))
         Row(Modifier.clip(CircleShape).background(DevxColors.Card), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).pressable(enabled = value > min, scaleTo = 0.9f, haptic = false) { onChange(value - 1) }, contentAlignment = Alignment.Center) { Text("−", style = DevxType.Title, color = if (value > min) DevxColors.TextPrimary else DevxColors.TextDisabled) }
-            Text("$value", style = DevxType.BodyStrong, color = DevxColors.TextPrimary, modifier = Modifier.width(28.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text("$value", style = DevxType.BodyStrong, color = DevxColors.TextPrimary, modifier = Modifier.width(28.dp), textAlign = TextAlign.Center)
             Box(Modifier.size(44.dp).pressable(enabled = value < max, scaleTo = 0.9f, haptic = false) { onChange(value + 1) }, contentAlignment = Alignment.Center) { Text("+", style = DevxType.Title, color = if (value < max) DevxColors.TextPrimary else DevxColors.TextDisabled) }
         }
     }

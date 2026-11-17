@@ -1,5 +1,6 @@
 package com.apvcode.devx.assist
 
+import com.apvcode.devx.data.logged
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -29,6 +30,12 @@ import com.apvcode.devx.ui.chat.ChatViewModel
 import com.apvcode.devx.ui.chat.SharedChat
 import com.apvcode.devx.ui.theme.DevxTheme
 import java.util.Locale
+import android.content.pm.ApplicationInfo
+import android.content.res.Configuration
+import android.graphics.drawable.ColorDrawable
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import com.apvcode.devx.data.VoiceTrace
 
 /** Devx as the phone's digital assistant: the system starts it when the person long-presses the power button or swipes from a corner. */
 class DevxInteractionService : VoiceInteractionService() {
@@ -82,13 +89,13 @@ class AssistantActivity : ComponentActivity() {
     private var started by mutableIntStateOf(0)
     private var say by mutableStateOf<String?>(null)
     private var permissionDone: ((Boolean) -> Unit)? = null
-    private val permissionLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionDone?.invoke(granted)
         permissionDone = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        com.apvcode.devx.data.VoiceTrace.start("assistant window created")
+        VoiceTrace.start("assistant window created")
         super.onCreate(savedInstanceState)
         VoiceWarm.warm(application)
         AppLock.init(applicationContext)
@@ -99,15 +106,15 @@ class AssistantActivity : ComponentActivity() {
             return
         }
         Thread {
-            val made = runCatching { SharedChat.acquire(application, "assistant") }.getOrNull()
-            com.apvcode.devx.data.VoiceTrace.mark("chat model made")
+            val made = runCatching { SharedChat.acquire(application, "assistant") }.logged("assist").getOrNull()
+            VoiceTrace.mark("chat model made")
             runOnUiThread { if (!isDestroyed) vm = made }
         }.apply { name = "devx-assistant-model"; isDaemon = true }.start()
         takeSay(intent)
-        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.setDimAmount(0f)
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT), navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT))
-        if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
+        if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
         setContent {
             DevxTheme {
                 key(started) {
@@ -130,7 +137,7 @@ class AssistantActivity : ComponentActivity() {
         if (action != null && chatId != null) intent.setAction(action).putExtra(MainActivity.EXTRA_CHAT_ID, chatId)
         startActivity(intent)
         // The app comes up out of the assistant (it rises and fades in while the assistant thins out upward).
-        if (android.os.Build.VERSION.SDK_INT >= 34) {
+        if (Build.VERSION.SDK_INT >= 34) {
             overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, com.apvcode.devx.R.anim.app_rise, com.apvcode.devx.R.anim.assistant_out)
             overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, com.apvcode.devx.R.anim.app_rise, com.apvcode.devx.R.anim.assistant_out)
         } else {
@@ -142,7 +149,7 @@ class AssistantActivity : ComponentActivity() {
 
     /** Debug builds only: words that are taken as if they had been said (for testing without a microphone). */
     private fun takeSay(intent: Intent?) {
-        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) say = intent?.getStringExtra("say")
+        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) say = intent?.getStringExtra("say")
     }
 
     override fun attachBaseContext(newBase: Context) {
@@ -151,7 +158,7 @@ class AssistantActivity : ComponentActivity() {
         if (tag == null) {
             super.attachBaseContext(newBase)
         } else {
-            val config = android.content.res.Configuration(newBase.resources.configuration)
+            val config = Configuration(newBase.resources.configuration)
             config.setLocale(Locale.forLanguageTag(tag))
             super.attachBaseContext(newBase.createConfigurationContext(config))
         }

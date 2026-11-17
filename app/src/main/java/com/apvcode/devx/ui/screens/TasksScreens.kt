@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -38,6 +39,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.apvcode.devx.R
 import com.apvcode.devx.data.ModelRef
+import com.apvcode.devx.data.Reminder
+import com.apvcode.devx.data.Reminders
 import com.apvcode.devx.data.ScheduledTask
 import com.apvcode.devx.data.Tasks
 import com.apvcode.devx.ui.chat.ChatViewModel
@@ -54,7 +57,12 @@ import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
+import android.content.pm.PackageManager
+import android.widget.Toast
 
 @Composable
 private fun daysLabel(days: Int): String {
@@ -71,11 +79,12 @@ private fun timeText(h: Int, m: Int) = "%02d:%02d".format(h, m)
 
 /** The scheduled tasks: what runs by itself, when, and on which model. A tap opens one; the switch turns it on or off. */
 @Composable
-fun TasksScreen(vm: ChatViewModel, onBack: () -> Unit, onEdit: (Int?) -> Unit) {
+fun TasksScreen(vm: ChatViewModel, onBack: () -> Unit, onEdit: (Int?) -> Unit, onReminders: () -> Unit) {
     val context = LocalContext.current
     var version by remember { mutableIntStateOf(0) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { version++ }
     val tasks = remember(version) { Tasks.all(context) }
+    val reminderCount = remember(version) { Reminders.all(context).size }
     ScreenScaffold(stringResource(R.string.tasks_title), onBack) {
         item {
             SettingsGroup {
@@ -84,6 +93,14 @@ fun TasksScreen(vm: ChatViewModel, onBack: () -> Unit, onEdit: (Int?) -> Unit) {
                     icon = Icons.Outlined.Add,
                     showChevron = true,
                     onClick = { onEdit(null) },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    title = stringResource(R.string.channel_reminders),
+                    icon = Icons.Outlined.Notifications,
+                    value = reminderCount.takeIf { it > 0 }?.toString(),
+                    showChevron = true,
+                    onClick = onReminders,
                 )
             }
         }
@@ -125,6 +142,47 @@ fun TasksScreen(vm: ChatViewModel, onBack: () -> Unit, onEdit: (Int?) -> Unit) {
     }
 }
 
+/** The reminders the assistant set ("remind me in an hour") and that have not come yet: a tap offers to delete one. */
+@Composable
+fun RemindersScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val locale = LocalConfiguration.current.locales[0]
+    var version by remember { mutableIntStateOf(0) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { version++ }
+    val reminders = remember(version) { Reminders.all(context) }
+    var deleting by remember { mutableStateOf<Reminder?>(null) }
+    val format = remember(locale) { DateTimeFormatter.ofPattern("EEE d MMM HH:mm", locale) }
+    ScreenScaffold(stringResource(R.string.channel_reminders), onBack) {
+        if (reminders.isEmpty()) {
+            item { EmptyNote(stringResource(R.string.reminders_empty_hint)) }
+        } else {
+            item {
+                SettingsGroup {
+                    reminders.forEachIndexed { i, reminder ->
+                        if (i > 0) SettingsDivider()
+                        SettingsRow(
+                            title = reminder.text.ifBlank { stringResource(R.string.reminder_title) },
+                            subtitle = format.format(Instant.ofEpochMilli(reminder.at).atZone(ZoneId.systemDefault())),
+                            onClick = { deleting = reminder },
+                        )
+                    }
+                }
+            }
+        }
+    }
+    deleting?.let { reminder ->
+        DevxDialog(stringResource(R.string.reminder_delete_title), onDismiss = { deleting = null }) {
+            Box(Modifier.padding(horizontal = 24.dp)) {
+                PillButton(stringResource(R.string.menu_delete), onClick = {
+                    Reminders.cancel(context, "#${reminder.id}")
+                    deleting = null
+                    version++
+                })
+            }
+        }
+    }
+}
+
 /** One task: its name, what to ask, the time, the days and the model; save, run it now, or delete it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -145,7 +203,7 @@ fun TaskEditScreen(vm: ChatViewModel, taskId: Int?, onBack: () -> Unit, onOpenCh
     // A task brings its answer as a notification: on new Android that needs the person's yes, once.
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val save = {
-        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         val name = title.trim().ifBlank { prompt.trim().take(40) }
@@ -219,7 +277,7 @@ fun TaskEditScreen(vm: ChatViewModel, taskId: Int?, onBack: () -> Unit, onOpenCh
                     filled = false,
                     onClick = {
                         Tasks.runNow(context, existing.id)
-                        android.widget.Toast.makeText(context, R.string.task_started, android.widget.Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, R.string.task_started, Toast.LENGTH_LONG).show()
                     },
                 )
             }

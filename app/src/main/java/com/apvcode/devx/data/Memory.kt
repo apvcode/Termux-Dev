@@ -25,9 +25,11 @@ data class MemoryNote(val id: String, val text: String, val createdAt: Long, val
  * Kept in two small files in the app's folder; never sent anywhere except inside the requests to the
  * provider the person chose, and only while the memory is switched on.
  */
-class MemoryStore(context: Context, notesName: String = "memory.json", summaryName: String = "memory_summary.json") {
-    private val notesFile = File(context.filesDir, notesName)
-    private val summaryFile = File(context.filesDir, summaryName)
+class MemoryStore(dir: File, notesName: String = "memory.json", summaryName: String = "memory_summary.json") {
+    constructor(context: Context, notesName: String = "memory.json", summaryName: String = "memory_summary.json") : this(context.filesDir, notesName, summaryName)
+
+    private val notesFile = File(dir, notesName)
+    private val summaryFile = File(dir, summaryName)
     private val writer = Executors.newSingleThreadExecutor { r -> Thread(r, "devx-memory").apply { isDaemon = true } }
 
     val notes = mutableStateListOf<MemoryNote>()
@@ -62,8 +64,8 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
                         MemoryNote(o.getString("id"), o.getString("text"), o.optLong("createdAt"), o.optLong("updatedAt"), o.optLong("expiresAt"))
                     }
                 }
-            }.getOrDefault(emptyList()).filterNot { it.expired() }
-            val s = runCatching { JSONObject(summaryFile.takeIf { it.exists() }?.readText() ?: "{}") }.getOrDefault(JSONObject())
+            }.logged("memory").getOrDefault(emptyList()).filterNot { it.expired() }
+            val s = runCatching { JSONObject(summaryFile.takeIf { it.exists() }?.readText() ?: "{}") }.logged("memory").getOrDefault(JSONObject())
             Loaded(list, s.optString("text"), s.optLong("at"), s.optBoolean("stale"), s.optBoolean("manual"), s.optString("prev"), s.optBoolean("seen", true))
         }
         notes.clear()
@@ -233,14 +235,7 @@ class MemoryStore(context: Context, notesName: String = "memory.json", summaryNa
     }
 
     private fun writeAtomic(file: File, text: String) {
-        runCatching {
-            val tmp = File(file.parentFile, file.name + ".tmp")
-            tmp.writeText(text)
-            if (!tmp.renameTo(file)) {
-                file.delete()
-                tmp.renameTo(file)
-            }
-        }
+        AtomicFile.writeQuietly("memory", file, text)
     }
 
     private fun freshId(): String {

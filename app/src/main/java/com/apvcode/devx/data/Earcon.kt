@@ -29,7 +29,7 @@ object Earcon {
 
     private fun audio(context: Context): AudioManager? = context.applicationContext.getSystemService(AudioManager::class.java)
 
-    private fun prefs(context: Context) = context.applicationContext.getSharedPreferences("earcon", Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PrefFiles.EARCON, Context.MODE_PRIVATE)
 
     /** The recognizer's own beeps are turned off (or down to the lowest step) while the microphone is on. */
     fun quiet(context: Context) {

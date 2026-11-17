@@ -47,6 +47,7 @@ import com.apvcode.devx.ui.components.DevxIcons
 import com.apvcode.devx.ui.components.PillButton
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import androidx.compose.animation.AnimatedContent
 
 /** The models of every provider, searchable, in a sheet from the bottom. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -214,7 +215,7 @@ private fun ReasoningSection(vm: ChatViewModel) {
             }
         }
         // The words under the chips change with a soft crossfade, and the sheet gives or takes the room smoothly.
-        androidx.compose.animation.AnimatedContent(
+        AnimatedContent(
             targetState = current,
             transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(320, delayMillis = 60)) togetherWith androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) },
             label = "level-meaning",

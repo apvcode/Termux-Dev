@@ -45,6 +45,7 @@ import com.apvcode.devx.ui.markdown.MarkdownText
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
+import androidx.compose.animation.core.MutableTransitionState
 
 /** 75 as "1:15", 7 as "0:07": the time a thing has been running. */
 private fun clock(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)
@@ -117,7 +118,7 @@ fun CompressedCard(
     var open by remember { mutableStateOf(fresh) }
     var listOpen by remember { mutableStateOf(false) }
     val shown = remember { Animatable(if (fresh && before > after) before.toFloat() else after.toFloat()) }
-    val entered = remember { androidx.compose.animation.core.MutableTransitionState(!fresh).apply { targetState = true } }
+    val entered = remember { MutableTransitionState(!fresh).apply { targetState = true } }
     LaunchedEffect(fresh) {
         if (fresh && before > after) {
             delay(350)

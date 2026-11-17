@@ -11,6 +11,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import java.net.URLEncoder
 
 /** One app of a store, as its card shows it. */
 class StoreApp(
@@ -54,11 +55,11 @@ object AppStores {
         http.newCall(Request.Builder().url(url).header("User-Agent", UA).header("Accept-Language", "${hl()},en;q=0.8").build()).execute().use { r ->
             if (!r.isSuccessful) null else r.body?.string()
         }
-    }.getOrNull()
+    }.logged("appstores").getOrNull()
 
     /** The ids of the apps the store finds for these words, best match first. */
     suspend fun search(store: String, query: String, limit: Int = 4): List<String> = withContext(Dispatchers.IO) {
-        val q = java.net.URLEncoder.encode(query, "UTF-8")
+        val q = URLEncoder.encode(query, "UTF-8")
         when (normalise(store)) {
             FDROID -> {
                 val body = get("https://search.f-droid.org/api/search_apps?q=$q") ?: return@withContext emptyList()

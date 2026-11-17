@@ -88,6 +88,9 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.tan
+import android.util.LruCache
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 
 /*
  * Pictures the assistant puts in its answer: a map (places and a route, drawn from the free OpenStreetMap tiles), photos and
@@ -196,7 +199,7 @@ private object Geo {
 }
 
 private object Tiles {
-    private val cache = object : android.util.LruCache<String, ImageBitmap>(96) {}
+    private val cache = object : LruCache<String, ImageBitmap>(96) {}
 
     suspend fun get(z: Int, x: Int, y: Int): ImageBitmap? {
         val key = "$z/$x/$y"
@@ -517,7 +520,7 @@ fun ChartBlock(json: String, modifier: Modifier = Modifier) {
 // ───────────────────────── quick answers ─────────────────────────
 
 /** Short answers under a question: a tap sends the words as the person's message, and the row is spent. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RepliesBlock(json: String, onSend: (String) -> Unit, modifier: Modifier = Modifier) {
     val options = remember(json) {
@@ -529,7 +532,7 @@ fun RepliesBlock(json: String, onSend: (String) -> Unit, modifier: Modifier = Mo
     }
     var chosen by remember(json) { mutableStateOf<String?>(null) }
     if (options.isEmpty()) return
-    androidx.compose.foundation.layout.FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { option ->
             val picked = chosen == option
             Text(

@@ -33,7 +33,7 @@ object MemoryRefresh {
     /** Sets the alarm (the same one again if it is already set; the system picks a convenient moment, so it costs no battery). */
     fun schedule(context: Context) {
         val app = context.applicationContext
-        runCatching {
+        attempt("memoryrefresh") {
             app.getSystemService(AlarmManager::class.java).setInexactRepeating(
                 AlarmManager.RTC, System.currentTimeMillis() + AlarmManager.INTERVAL_HALF_DAY, AlarmManager.INTERVAL_HALF_DAY, pending(app),
             )

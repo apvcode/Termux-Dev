@@ -81,6 +81,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.compose.foundation.layout.PaddingValues
+import com.apvcode.devx.remote.PendingPairing
+import com.apvcode.devx.remote.RemoteLink
+import com.apvcode.devx.remote.RemoteService
 
 internal fun LinkState.visual(): LinkVisual = when (this) {
     LinkState.Online -> LinkVisual.Online
@@ -89,10 +95,10 @@ internal fun LinkState.visual(): LinkVisual = when (this) {
 }
 
 /** The phone is still trying: connecting now, or waiting for its next try (it makes [com.apvcode.devx.remote.MAX_TRIES], then gives up). */
-internal val com.apvcode.devx.remote.RemoteConnection.trying: Boolean
+internal val RemoteConnection.trying: Boolean
     get() = state == LinkState.Connecting || (state == LinkState.Offline && !gaveUp && !revoked)
 
-internal fun com.apvcode.devx.remote.RemoteConnection.visual(): LinkVisual = when {
+internal fun RemoteConnection.visual(): LinkVisual = when {
     state == LinkState.Online -> LinkVisual.Online
     trying -> LinkVisual.Connecting
     else -> LinkVisual.Offline
@@ -157,7 +163,7 @@ fun RemoteHomeScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onAdd: () -> 
     ClockTicker()
     // All of them try to be reachable while this screen is open.
     LaunchedEffect(computers.size) {
-        computers.forEach { if (it.hostId != com.apvcode.devx.remote.RemoteLink.offHost) RemoteHub.connection(it.hostId)?.start() }
+        computers.forEach { if (it.hostId != RemoteLink.offHost) RemoteHub.connection(it.hostId)?.start() }
     }
     val conns = computers.map { RemoteHub.connection(it.hostId) }
     val overall = when {
@@ -168,7 +174,7 @@ fun RemoteHomeScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onAdd: () -> 
 
     Column(Modifier.fillMaxSize().background(DevxColors.Bg).statusBarsPadding()) {
         RemoteTopBar(stringResource(R.string.remote_title), onBack)
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { LinkHero(overall, Modifier.padding(top = 8.dp)) }
             if (computers.isEmpty()) {
                 item {
@@ -193,7 +199,7 @@ fun RemoteHomeScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onAdd: () -> 
                 SettingsGroup {
                     SettingsSwitchRow(
                         title = stringResource(R.string.remote_keepalive), subtitle = stringResource(R.string.remote_keepalive_hint), checked = Prefs.remoteKeepAlive,
-                        onCheckedChange = { Prefs.saveRemoteKeepAlive(it); if (!it) com.apvcode.devx.remote.RemoteService.stop(context) },
+                        onCheckedChange = { Prefs.saveRemoteKeepAlive(it); if (!it) RemoteService.stop(context) },
                     )
                 }
             }
@@ -249,11 +255,11 @@ fun PairScreen(onBack: () -> Unit, onDone: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var stage by remember { mutableStateOf<PairStage>(PairStage.Scan) }
     var asking by remember { mutableStateOf(false) }
-    var granted by remember { mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) }
+    var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     LaunchedEffect(Unit) { if (!granted) permission.launch(Manifest.permission.CAMERA) }
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    val pending = com.apvcode.devx.remote.PendingPairing.code
+    val pending = PendingPairing.code
 
     fun begin(text: String) {
         val p = Pairing.parse(text)
@@ -261,10 +267,10 @@ fun PairScreen(onBack: () -> Unit, onDone: (String) -> Unit) {
         stage = PairStage.Reaching(p.name)
         scope.launch(Dispatchers.IO) {
             try {
-                val conn = RemoteHub.pair(p, android.os.Build.MODEL ?: "Phone") { sas -> stage = PairStage.Verify(p.name, sas) }
+                val conn = RemoteHub.pair(p, Build.MODEL ?: "Phone") { sas -> stage = PairStage.Verify(p.name, sas) }
                 stage = PairStage.Done(p.name, conn.computer.hostId)
                 // Approvals and answers reach the phone as notifications: the system asks once.
-                if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                     withContext(Dispatchers.Main) { notifications.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 }
                 delay(1900)
@@ -276,7 +282,7 @@ fun PairScreen(onBack: () -> Unit, onDone: (String) -> Unit) {
     }
 
     LaunchedEffect(pending) {
-        if (pending != null && stage == PairStage.Scan) { com.apvcode.devx.remote.PendingPairing.code = null; begin(pending) }
+        if (pending != null && stage == PairStage.Scan) { PendingPairing.code = null; begin(pending) }
     }
 
     Column(Modifier.fillMaxSize().background(DevxColors.Bg).statusBarsPadding()) {

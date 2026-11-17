@@ -82,6 +82,15 @@ import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import android.app.Activity
+import android.content.ContextWrapper
+import android.content.pm.PackageManager
+import android.view.Surface
+import android.view.WindowManager
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 /**
  * What can be attached, in a glass card that opens out of the "+" button. It lives inside the
@@ -95,7 +104,7 @@ fun AttachMenu(
     onCamera: () -> Unit,
     onPhotos: () -> Unit,
     onFiles: () -> Unit,
-    bottomPadding: androidx.compose.ui.unit.Dp,
+    bottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
     if (open) BackHandler(onBack = onDismiss)
@@ -130,7 +139,7 @@ fun AttachMenu(
 }
 
 @Composable
-private fun MenuItem(index: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun MenuItem(index: Int, icon: ImageVector, label: String, onClick: () -> Unit) {
     // The rows come in one after another, each a little later than the previous.
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -158,7 +167,7 @@ private fun MenuItem(index: Int, icon: androidx.compose.ui.graphics.vector.Image
 
 /** True when the camera may be used; otherwise the system is asked (see [rememberCameraPermission]). */
 fun hasCameraPermission(context: Context): Boolean =
-    ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
 /**
  * The camera, inside the app: a panel that rises from the bottom, with the live picture, the
@@ -234,7 +243,7 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
     // The mode is chosen for one lens: turning to the other starts again with the flash off.
     LaunchedEffect(front) { flashMode = ImageCapture.FLASH_MODE_OFF }
     var screenLit by remember { mutableStateOf(false) }
-    val activity = remember(context) { var c = context; while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext; c as? android.app.Activity }
+    val activity = remember(context) { var c = context; while (c is ContextWrapper && c !is Activity) c = c.baseContext; c as? Activity }
     LaunchedEffect(flashMode, hasFlash, front) {
         imageCapture.flashMode = when {
             front -> if (flashMode == ImageCapture.FLASH_MODE_SCREEN) ImageCapture.FLASH_MODE_SCREEN else ImageCapture.FLASH_MODE_OFF
@@ -254,12 +263,12 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
 
             override fun clear() {
                 screenLit = false
-                activity?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } }
+                activity?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } }
             }
         })
         onDispose {
             imageCapture.setScreenFlash(null)
-            activity?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } }
+            activity?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } }
         }
     }
     // The little "2.0×" shows while the zoom changes and goes away after a moment.
@@ -279,7 +288,7 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
         val c = camera ?: return
         val point = previewView.meteringPointFactory.createPoint(at.x, at.y)
         val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
-            .setAutoCancelDuration(3, java.util.concurrent.TimeUnit.SECONDS)
+            .setAutoCancelDuration(3, TimeUnit.SECONDS)
             .build()
         c.cameraControl.startFocusAndMetering(action)
         focusAt = at
@@ -291,7 +300,7 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
     }
 
     fun capture(torch: Boolean) {
-        imageCapture.targetRotation = previewView.display?.rotation ?: android.view.Surface.ROTATION_0
+        imageCapture.targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
         val file = File(context.cacheDir, "shot_${System.currentTimeMillis()}.jpg")
         val options = ImageCapture.OutputFileOptions.Builder(file)
             .apply { if (front) setMetadata(ImageCapture.Metadata().apply { isReversedHorizontal = true }) }
@@ -376,7 +385,7 @@ private fun CameraContent(onClose: () -> Unit, onCaptured: (Uri) -> Unit) {
             Box(Modifier.size(48.dp))
             AnimatedVisibility(visible = zoomChip, enter = fadeIn(tween(120)), exit = fadeOut(tween(300))) {
                 Text(
-                    String.format(java.util.Locale.US, "%.1f×", zoom),
+                    String.format(Locale.US, "%.1f×", zoom),
                     style = DevxType.Body,
                     color = Color.White,
                     modifier = Modifier

@@ -99,6 +99,7 @@ import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.text.style.TextAlign
 
 private val Soft = spring<Float>(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
 
@@ -201,7 +202,7 @@ private fun Counted(text: String, max: Int, field: @Composable () -> Unit) {
                 style = DevxType.Caption,
                 color = if (text.length >= max) DevxColors.Warning else DevxColors.TextDisabled,
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp, end = 8.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                textAlign = TextAlign.End,
             )
         }
     }

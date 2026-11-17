@@ -35,7 +35,22 @@ class TokenUsageTest {
             val pieces = Api().stream(provider, "k", "m", "", listOf(WireMessage("user", "hi"))).toList()
             assertEquals("Hi", pieces.filterIsInstance<Piece.Text>().joinToString("") { it.text })
             assertEquals(Piece.Usage(1234, 56), usageOf(pieces))
-            // A server of its own is not asked for the count with an option it may not know.
+            // Every server is asked to count (without it many send no count in a stream, and the chat menu would show nothing).
+            assertTrue(JSONObject(server.takeRequest().body.readUtf8()).getJSONObject("stream_options").getBoolean("include_usage"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test fun aServerThatRefusesTheOptionIsAskedAgainWithoutIt() = runBlocking {
+        val server = MockWebServer().also { it.start() }
+        try {
+            server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":{"message":"Unrecognized request argument supplied: stream_options"}}"""))
+            server.enqueue(sse("""{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}"""))
+            val provider = Provider("p", "t", ProviderKind.OpenAI, server.url("/v1").toString().trimEnd('/'))
+            val pieces = Api().stream(provider, "k", "m", "", listOf(WireMessage("user", "hi"))).toList()
+            assertEquals("ok", pieces.filterIsInstance<Piece.Text>().joinToString("") { it.text })
+            assertTrue(JSONObject(server.takeRequest().body.readUtf8()).has("stream_options"))
             assertFalse(JSONObject(server.takeRequest().body.readUtf8()).has("stream_options"))
         } finally {
             server.shutdown()

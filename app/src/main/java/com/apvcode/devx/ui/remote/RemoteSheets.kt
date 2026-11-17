@@ -1,5 +1,6 @@
 package com.apvcode.devx.ui.remote
 
+import com.apvcode.devx.data.logged
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -81,6 +82,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 
 private fun fmt(n: Int): String = if (n >= 1_000_000) "%.1fM".format(n / 1_000_000f) else if (n >= 1000) "${n / 1000}k" else "$n"
 
@@ -102,7 +110,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 
 /** Two big cards side by side: the chosen one fills in white. */
 @Composable
-private fun ModeCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, hint: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun ModeCard(icon: ImageVector, title: String, hint: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val fill by animateColorAsState(if (selected) DevxColors.Accent else DevxColors.CardInner, tween(260), label = "fill")
     val ink by animateColorAsState(if (selected) DevxColors.OnAccent else DevxColors.TextPrimary, tween(260), label = "ink")
     val sub by animateColorAsState(if (selected) DevxColors.OnAccent.copy(alpha = 0.65f) else DevxColors.TextSecondary, tween(260), label = "sub")
@@ -118,7 +126,7 @@ private fun ModeCard(icon: androidx.compose.ui.graphics.vector.ImageVector, titl
 /** A row of choices with one thumb that slides to the chosen one. */
 @Composable
 private fun SlidingChoice(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
-    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().clip(CircleShape).background(DevxColors.CardInner).padding(4.dp)) {
+    BoxWithConstraints(Modifier.fillMaxWidth().clip(CircleShape).background(DevxColors.CardInner).padding(4.dp)) {
         val w = maxWidth / options.size
         val x by androidx.compose.animation.core.animateDpAsState(w * selected, spring(dampingRatio = 0.78f, stiffness = 420f), label = "thumb")
         Box(Modifier.offset(x = x).size(width = w, height = 42.dp).clip(CircleShape).background(DevxColors.Accent))
@@ -166,7 +174,7 @@ private fun ContextGauge(used: Int, limit: Int) {
 @Composable
 fun RemoteControls(session: RemoteSession, conn: RemoteConnection, onDismiss: () -> Unit, onCommand: (String) -> Unit) {
     val scope = rememberCoroutineScope()
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    val density = LocalDensity.current
     val s = session.state
     if (s == null) { LaunchedEffect(Unit) { onDismiss() }; return }
     var info by remember { mutableStateOf<JSONObject?>(null) }
@@ -175,10 +183,10 @@ fun RemoteControls(session: RemoteSession, conn: RemoteConnection, onDismiss: ()
     var renaming by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(session, s.ctxUsed, s.cost) {
-        info = runCatching { withContext(Dispatchers.IO) { session.info() } }.getOrNull()
-        tasks = runCatching { withContext(Dispatchers.IO) { session.tasks() } }.getOrNull()?.let { a -> List(a.length()) { a.getJSONObject(it) } } ?: emptyList()
+        info = runCatching { withContext(Dispatchers.IO) { session.info() } }.logged("remotesheets").getOrNull()
+        tasks = runCatching { withContext(Dispatchers.IO) { session.tasks() } }.logged("remotesheets").getOrNull()?.let { a -> List(a.length()) { a.getJSONObject(it) } } ?: emptyList()
     }
-    fun act(block: suspend () -> Unit) { scope.launch { runCatching { block() } } }
+    fun act(block: suspend () -> Unit) { scope.launch { runCatching { block() }.logged("remotesheets") } }
 
     // It opens by rising from the bottom while the screen dims, and closes the same way backwards (or follows the finger down).
     var shown by remember { mutableStateOf(false) }
@@ -186,9 +194,9 @@ fun RemoteControls(session: RemoteSession, conn: RemoteConnection, onDismiss: ()
     val drag = remember { Animatable(0f) }
     fun close() { if (closing) return; closing = true; shown = false; scope.launch { delay(300); onDismiss() } }
     LaunchedEffect(Unit) { shown = true }
-    androidx.activity.compose.BackHandler(onBack = ::close)
+    BackHandler(onBack = ::close)
     val scrim by animateFloatAsState(if (shown) 0.6f else 0f, tween(300), label = "scrim")
-    val maxHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.9f).dp
+    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
     val dismissAt = with(density) { 140.dp.toPx() }
 
     Box(Modifier.fillMaxSize()) {
@@ -197,11 +205,11 @@ fun RemoteControls(session: RemoteSession, conn: RemoteConnection, onDismiss: ()
             visible = shown,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 280f)) { it } + fadeIn(tween(220)),
-            exit = slideOutVertically(tween(300, easing = androidx.compose.animation.core.FastOutLinearInEasing)) { it } + fadeOut(tween(260)),
+            exit = slideOutVertically(tween(300, easing = FastOutLinearInEasing)) { it } + fadeOut(tween(260)),
         ) {
             val top = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp)
             Column(
-                Modifier.fillMaxWidth().heightIn(max = maxHeight).offset { androidx.compose.ui.unit.IntOffset(0, drag.value.toInt()) }
+                Modifier.fillMaxWidth().heightIn(max = maxHeight).offset { IntOffset(0, drag.value.toInt()) }
                     .clip(top).background(DevxColors.Drawer).border(1.dp, DevxColors.Outline.copy(alpha = 0.6f), top)
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { },
             ) {
@@ -334,7 +342,7 @@ fun RemoteControls(session: RemoteSession, conn: RemoteConnection, onDismiss: ()
 }
 
 @Composable
-private fun ActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun ActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(DevxColors.CardInner).pressable(scaleTo = 0.98f, haptic = false, onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Icon(icon, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(22.dp))
         Text(label, style = DevxType.Body, color = DevxColors.TextPrimary, modifier = Modifier.weight(1f))
@@ -396,7 +404,7 @@ fun RemoteModelPicker(session: RemoteSession, conn: RemoteConnection, onDismiss:
                 error?.let { Text(friendly(it), style = DevxType.Caption, color = DevxColors.Danger, modifier = Modifier.padding(8.dp)) }
                 models.filter { query.isBlank() || it.first.contains(query.trim(), ignoreCase = true) }.forEach { (m, viaAnthropic) ->
                     val on = m == session.state?.model && chosen == session.state?.provider
-                    Row(Modifier.fillMaxWidth().pressable(scaleTo = 0.98f, haptic = false) { scope.launch { runCatching { session.setModel(chosen, m) }; onDismiss() } }.padding(horizontal = 8.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().pressable(scaleTo = 0.98f, haptic = false) { scope.launch { runCatching { session.setModel(chosen, m) }.logged("remotesheets"); onDismiss() } }.padding(horizontal = 8.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(m, style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         if (viaAnthropic) Text(stringResource(R.string.model_format_anthropic), style = DevxType.Caption, color = DevxColors.TextDisabled, modifier = Modifier.padding(horizontal = 8.dp))
                         if (on) Icon(DevxIcons.Check, null, tint = DevxColors.TextPrimary, modifier = Modifier.size(20.dp))

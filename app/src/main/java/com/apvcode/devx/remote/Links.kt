@@ -1,6 +1,9 @@
 package com.apvcode.devx.remote
 
+import com.apvcode.devx.data.attempt
 import java.nio.ByteBuffer
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 
 /** Carries whole messages (bytes) to the computer and knows nothing about them. */
 interface Link {
@@ -64,7 +67,7 @@ class Chunker(private val conn: ByteArray) {
         if (p.parts[idx] == null) { p.parts[idx] = body; p.got++ }
         if (p.got < total) return null
         partial.remove(id)
-        val out = java.io.ByteArrayOutputStream()
+        val out = ByteArrayOutputStream()
         p.parts.forEach { out.write(it!!) }
         return out.toByteArray()
     }
@@ -88,7 +91,7 @@ class RelayLink private constructor(private val mqtt: MqttConn, private val host
     override fun send(data: ByteArray) { for (part in chunker.split(data)) mqtt.publishTo(up, part) }
 
     override fun close() {
-        runCatching { mqtt.publishTo(up, byteArrayOf(Chunker.PKT_BYE.toByte()) + conn) }
+        attempt("links") { mqtt.publishTo(up, byteArrayOf(Chunker.PKT_BYE.toByte()) + conn) }
         Thread { Thread.sleep(250); mqtt.close() }.apply { isDaemon = true }.start()
     }
 
@@ -109,8 +112,8 @@ class RelayLink private constructor(private val mqtt: MqttConn, private val host
             var pending: RelayLink? = null
             val mqtt = MqttConn(ws, { _, payload -> pending?.let { l -> l.chunker.join(payload)?.let { whole -> l.onMessage(whole) } } }, { pending?.onClose?.invoke() })
             try {
-                if (!mqtt.handshake("devx-" + RemoteCrypto.randomBytes(6).toHex(), timeoutMs)) throw java.io.IOException("the broker refused")
-                if (!mqtt.subscribeTo("devx/v1/$hostId/dn/$connHex", timeoutMs)) throw java.io.IOException("the broker did not confirm")
+                if (!mqtt.handshake("devx-" + RemoteCrypto.randomBytes(6).toHex(), timeoutMs)) throw IOException("the broker refused")
+                if (!mqtt.subscribeTo("devx/v1/$hostId/dn/$connHex", timeoutMs)) throw IOException("the broker did not confirm")
             } catch (e: Exception) {
                 mqtt.close()
                 throw e

@@ -72,3 +72,36 @@ fun spaceMatch(name: String, description: String, goal: String, query: String): 
 
 /** A file of the library that fits a search, and (when the words are inside it) a line of what it says around them. */
 class FileHit(val entry: LibraryEntry, val snippet: String?)
+
+/** A match inside a notebook or a project: which one, what kind of thing it is, and a line around the words. */
+class InsideHit(val space: String, val kind: String, val text: String, val start: Int, val end: Int)
+
+/** Looking for words in what is inside notebooks and projects (cards, lessons, the instructions and the notes of their memory) and in the person's own memory. */
+object InsideFinder {
+    const val CARD = "card"
+    const val LESSON = "lesson"
+    const val INSTRUCTIONS = "instructions"
+    const val NOTE = "note"
+
+    /** The "space" of a hit that is not in a notebook or a project but in the person's own memory. */
+    const val GENERAL = ""
+
+    fun run(spaces: Map<String, ProjectInfo>, query: String, limit: Int = 40, general: List<MemoryNote> = emptyList()): List<InsideHit> {
+        val q = query.trim()
+        if (q.length < 2) return emptyList()
+        val out = ArrayList<InsideHit>()
+        fun add(space: String, kind: String, text: String) {
+            val cut = ChatFinder.snippet(text, q) ?: return
+            out += InsideHit(space, kind, cut.text, cut.start, cut.end)
+        }
+        general.filter { !it.expired() }.forEach { n -> add(GENERAL, NOTE, n.text) }
+        for ((name, info) in spaces) {
+            info.plan.cards.forEach { c -> add(name, CARD, c.front + " — " + c.back) }
+            info.plan.lessons.forEach { l -> add(name, LESSON, (l.title + " " + l.note).trim()) }
+            if (info.instructions.isNotBlank()) add(name, INSTRUCTIONS, info.instructions)
+            info.memory.notes.filter { !it.expired() }.forEach { n -> add(name, NOTE, n.text) }
+            if (out.size >= limit) break
+        }
+        return out.take(limit)
+    }
+}

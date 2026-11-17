@@ -56,6 +56,8 @@ import com.apvcode.devx.ui.theme.DevxType
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import android.content.Context
+import androidx.compose.foundation.layout.PaddingValues
 
 /**
  * While the assistant uses a tool: what it is doing, in words, with a small animated picture of it, and
@@ -194,7 +196,7 @@ fun SourcesScreen(sources: List<Source>, onClose: () -> Unit, modifier: Modifier
             )
             Text(stringResource(R.string.sources_title), style = DevxType.Title, color = DevxColors.TextPrimary)
         }
-        LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
             if (read.isNotEmpty()) {
                 item { SectionTitle(stringResource(R.string.sources_opened)) }
                 items(read, key = { "r" + it.url }) { SourceRow(it) { open(context, it.url) } }
@@ -232,7 +234,7 @@ private fun SourceRow(source: Source, onClick: () -> Unit) {
     }
 }
 
-private fun open(context: android.content.Context, url: String) {
+private fun open(context: Context, url: String) {
     runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }

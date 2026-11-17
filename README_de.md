@@ -64,7 +64,7 @@ Der API-Schlüssel wird verschlüsselt auf dem Handy gespeichert (Android Keysto
 - Tippe `@` ins Feld: ein Menü dessen, worauf du verweisen kannst (ein Notizbuch, ein Projekt, eine Datei der Bibliothek, eine geplante Aufgabe). Ein Notizbuch oder Projekt wird Teil des Satzes, in seiner Farbe, und der Assistent bekommt, was darin steckt. Per Stimme nenne einfach den Namen.
 - Eine Suche über Chats, Notizbücher, Projekte, Dateien und Quellen, auch nach dem, was in Dokumenten, PDFs und Notizen steht.
 - Füge Bilder und Dateien direkt ins Nachrichtenfeld ein (aus der Zwischenablage oder von der Tastatur). „Devx fragen“ zu markiertem Text berührt deine Zwischenablage nicht.
-- Sicherung und Wiederherstellung von Chats, Notizbüchern, Gedächtnis, Skills und Einstellungen in einer Datei; eine automatische wöchentliche Kopie in einen Ordner deiner Wahl (die letzten vier bleiben).
+- Sicherung und Wiederherstellung von allem in einer Datei: Chats, Notizbücher und Projekte, Gedächtnis, Skills, Charakter, Anhänge und Einstellungen. API-Schlüssel und Token kommen nur hinein, wenn Sie ein Passwort setzen (damit werden sie verschlüsselt). Vor dem Wiederherstellen zeigt die App, was in der Datei ist und was sie ersetzt. Eine Wochenkopie entsteht von selbst in einem Ordner Ihrer Wahl und wird auf Wunsch zusätzlich in einen WebDAV-Ordner hochgeladen (Nextcloud, NAS); die letzten vier bleiben.
 - Chats anheften und archivieren, einen einzelnen Chat sperren, einen Chat auf den Startbildschirm legen. „Devx fragen“ zu markiertem Text zitiert die Stelle als Karte in deiner nächsten Nachricht.
 - Der Assistent arbeitet mit Dateien in einem eigenen Ordner: Er legt Dateien an und liest sie, erstellt und entpackt Archive, liest ein PDF seitenweise und sieht sich dessen Bilder an, bearbeitet Bilder und entpackt, ändert, packt neu und signiert APKs. Freigaben lassen sich direkt aus der Benachrichtigung geben (Erlauben / Ablehnen).
 - Vier Widgets (eine Fragezeile, Schnelltasten, die letzten Chats, die fälligen Karten) und zwei Schnelleinstellungs-Kacheln (Fragen, Sprache).
@@ -78,14 +78,16 @@ Der API-Schlüssel wird verschlüsselt auf dem Handy gespeichert (Android Keysto
 - Der Assistent kann ein Notizbuch oder Projekt ändern (Name, Symbol, Farbe, Beschreibung, Anweisungen, Ziel) und nach einem Gespräch ein neues Notizbuch oder Projekt vorschlagen: Du bestätigst auf einer Karte.
 - Teile einen Link, einen Text, ein PDF oder ein Bild aus jeder App: devx bietet einen neuen Chat oder eines deiner Notizbücher an, wo es zur Quelle wird (ein Link wird gelesen und gespeichert).
 - Lernstatistik auf der Seite: Tage in Folge, die letzten sieben Tage als Balken; ein Widget auf dem Startbildschirm zeigt, wie viele Karten fällig sind, und startet die Wiederholung. Karten und der Überblick des Notizbuchs lassen sich anhören (ein *Audio-Überblick* wird zum Zuhören geschrieben und dann vorgelesen), und ein Notizbuch lässt sich als eine Markdown-Datei exportieren.
+- Karten können ein Bild haben und lassen sich laut beantworten. Sie kommen aus Anki (`.apkg` oder Text) und aus CSV und gehen als Anki-Paket mit Bildern, als Anki-Text oder als CSV hinaus. Eine *Begriffskarte* zeigt die Ideen des Notizbuchs und wie sie zusammenhängen, eingefärbt danach, wie gut Sie sie kennen, mit *Erklären* und *Frag mich ab*. Ein Notizbuch lässt sich archivieren oder kopieren, um neu zu beginnen (Quellen und Lektionen, nicht die Chats).
 - Die Bibliothek enthält jede Datei, die du je angehängt hast oder die der Assistent erstellt hat: Suche, Filter, wo sie benutzt wurde, an einen neuen Chat anhängen, überall löschen. PDF, Word, Folien, Tabellen, Text, Bilder und Seiten öffnen sich im eingebauten Viewer; Office-Originale bleiben erhalten.
 
 ### Aussehen, Charakter und Sicherheit
 
-- Aussehen: wie das System, schwarz, dunkelgrau oder hell.
+- Das Aussehen hat eine eigene Seite: drei schnelle Auswahlen (System, Schwarz, Hell) und ein Bildschirm mit weiteren Themen (Dunkelgrau, Mitternacht, Wald, Dämmerung, Glut, Ozean, Papier, Sakura, Minze). Das Thema kann sich von selbst nach der Tageszeit ändern (ein Tag- und ein Nachtthema), und der Wechsel ist animiert. Das unscharfe Glas lässt sich ausschalten: dann bleiben die Schaltflächen deckend.
 - Charakter: wähle eine Art (ruhig, ohne Floskeln, ausführlich, freundlich, professionell, direkt, Mentor), stimme den Ton fein ab, gib dem Assistenten einen Namen und schreibe eigene Anweisungen. Ein Tippen setzt alles zurück.
 - App-Sperre mit der Bildschirmsperre, einem Code oder Biometrie; einzelne Chats lassen sich ebenfalls sperren, und die Liste der letzten Apps blendet das Bild aus, solange eine Sperre aktiv ist.
 - Fotos pro Nachricht, Benachrichtigungen über Antworten und Freigaben und ob ein Computer im „Alles“-Modus laufen darf, stehen in den Einstellungen.
+- Daten und Sicherheit haben eine eigene Seite: die Sperre, die Kopien und der Papierkorb. Gelöschte Chats, Projekte und Notizbücher bleiben 30 Tage im Papierkorb und lassen sich zurückholen (gleich nach dem Löschen bietet eine Meldung „Rückgängig“ an). Eine Chatdatei, die nicht gelesen werden kann, wird beiseitegelegt statt verloren, und Sie werden informiert. Wovon sich die App erholt hat, steht unter **Über → Diagnose**.
 
 ### Sprachassistent
 
@@ -95,6 +97,7 @@ Der API-Schlüssel wird verschlüsselt auf dem Handy gespeichert (Android Keysto
 - Sieht sich deine Galerie an, liest Benachrichtigungen auf dem Bildschirm, arbeitet in einem Ordner deiner Wahl, aber nur, wenn du fragst und nur, wenn du es erlaubt hast.
 - Geplante Aufgaben: „jeden Morgen schick mir die Nachrichten über KI“. Sie laufen von selbst und kommen als Chat und Benachrichtigung.
 - Sprechtempo, Stimme und ein eigenes schnelles Modell fürs Sprechen findest du unter **Einstellungen → Sprachassistent**.
+- Eine natürliche Stimme Ihres Anbieters (Sprache im OpenAI-Format oder Gemini) kann die roboterhafte Telefonstimme ersetzen: Anbieter, Sprachmodell (aus seiner Liste oder einen Namen eintippen) und Stimme wählen und eine Probe anhören. Schlägt es fehl, wird der Grund angezeigt, und währenddessen liest die Telefonstimme.
 - Tippe auf die Pille, um zu schreiben statt zu sprechen; halte sie und wische nach oben, um die App mit demselben Chat zu öffnen (ein Hinweis über der Pille zeigt immer, wie). Das Mikrofon hat eigene sanfte Töne statt des Pieptons des Spracherkennungsdienstes.
 - „Nach einer Antwort weiter zuhören“ (freihändig) und die Sprache, die du sprichst, getrennt von der der App gewählt.
 - Geplante Aufgaben haben einen eigenen Bildschirm: eine Zeit, die Tage, das Modell für jede, „jetzt ausführen“.

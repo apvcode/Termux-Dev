@@ -49,24 +49,37 @@ import com.apvcode.devx.ui.components.DevxIcons
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import com.apvcode.devx.data.FileHit
+import com.apvcode.devx.data.InsideFinder
+import com.apvcode.devx.data.InsideHit
+import com.apvcode.devx.data.LibraryEntry
+import com.apvcode.devx.data.ProjectInfo
+import com.apvcode.devx.data.SearchHit
+import kotlinx.coroutines.Dispatchers
 
 /**
  * Full-screen list of all chats with a search field at the bottom (thumb reach), opened from the
  * menu. It slides up over everything; the keyboard opens a moment later so the motion stays smooth.
  */
 // Results come and go while typing: they slide into their places and fade, instead of jumping.
-private val rowMove = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 0.85f, stiffness = 380f)
+private val rowMove = androidx.compose.animation.core.spring<IntOffset>(dampingRatio = 0.85f, stiffness = 380f)
 private val rowIn = androidx.compose.animation.core.tween<Float>(220, delayMillis = 40)
 private val rowOut = androidx.compose.animation.core.tween<Float>(120)
 
 @Composable
 fun SearchScreen(
     chats: List<ChatSummary>,
-    search: (String) -> List<com.apvcode.devx.data.SearchHit>,
-    searchSpaces: (String) -> List<Pair<String, com.apvcode.devx.data.ProjectInfo>>,
-    searchFiles: (String) -> List<com.apvcode.devx.data.FileHit>,
+    search: (String) -> List<SearchHit>,
+    searchSpaces: (String) -> List<Pair<String, ProjectInfo>>,
+    searchFiles: (String) -> List<FileHit>,
+    searchInside: (String) -> List<InsideHit> = { emptyList() },
     onOpenSpace: (String) -> Unit,
-    onOpenFile: (com.apvcode.devx.data.LibraryEntry) -> Unit,
+    onOpenMemory: () -> Unit = {},
+    onOpenFile: (LibraryEntry) -> Unit,
     onClose: () -> Unit,
     onOpenChat: (id: String, messageId: String?) -> Unit,
     modifier: Modifier = Modifier,
@@ -75,24 +88,30 @@ fun SearchScreen(
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     // The words are looked for in every message of every chat, a moment after the last key and off the main thread.
-    val hits by androidx.compose.runtime.produceState(emptyList<com.apvcode.devx.data.SearchHit>(), query) {
+    val hits by androidx.compose.runtime.produceState(emptyList<SearchHit>(), query) {
         val q = query.trim()
         if (q.isEmpty()) { value = emptyList(); return@produceState }
         delay(140)
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { search(q) }
+        value = kotlinx.coroutines.withContext(Dispatchers.Default) { search(q) }
     }
     // Notebooks, projects and files are looked for in the same moment, and shown above the chats.
-    val spaces by androidx.compose.runtime.produceState(emptyList<Pair<String, com.apvcode.devx.data.ProjectInfo>>(), query) {
+    val spaces by androidx.compose.runtime.produceState(emptyList<Pair<String, ProjectInfo>>(), query) {
         val q = query.trim()
         if (q.isEmpty()) { value = emptyList(); return@produceState }
         delay(140)
         value = searchSpaces(q)
     }
-    val files by androidx.compose.runtime.produceState(emptyList<com.apvcode.devx.data.FileHit>(), query) {
+    val files by androidx.compose.runtime.produceState(emptyList<FileHit>(), query) {
         val q = query.trim()
         if (q.isEmpty()) { value = emptyList(); return@produceState }
         delay(140)
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { searchFiles(q) }
+        value = kotlinx.coroutines.withContext(Dispatchers.Default) { searchFiles(q) }
+    }
+    val inside by androidx.compose.runtime.produceState(emptyList<InsideHit>(), query) {
+        val q = query.trim()
+        if (q.isEmpty()) { value = emptyList(); return@produceState }
+        delay(140)
+        value = kotlinx.coroutines.withContext(Dispatchers.Default) { searchInside(q) }
     }
     val byId = remember(chats.toList()) { chats.associateBy { it.id } }
     val searching = query.isNotBlank()
@@ -138,13 +157,17 @@ fun SearchScreen(
                         item(key = "h-files") { SectionLabel(R.string.search_files) }
                         items(files, key = { "f-" + it.entry.id }) { h -> Box(Modifier.animateItem(placementSpec = rowMove, fadeInSpec = rowIn, fadeOutSpec = rowOut)) { FileRow(h) { onOpenFile(h.entry) } } }
                     }
-                    if (hits.isNotEmpty() && (spaces.isNotEmpty() || files.isNotEmpty())) item(key = "h-chats") { SectionLabel(R.string.search_chats) }
+                    if (inside.isNotEmpty()) {
+                        item(key = "h-inside") { SectionLabel(R.string.search_inside) }
+                        items(inside.size, key = { "i-$it" }) { i -> val h = inside[i]; Box(Modifier.animateItem(placementSpec = rowMove, fadeInSpec = rowIn, fadeOutSpec = rowOut)) { InsideRow(h) { if (h.space == InsideFinder.GENERAL) onOpenMemory() else onOpenSpace(h.space) } } }
+                    }
+                    if (hits.isNotEmpty() && (spaces.isNotEmpty() || files.isNotEmpty() || inside.isNotEmpty())) item(key = "h-chats") { SectionLabel(R.string.search_chats) }
                     items(hits, key = { it.chatId }) { hit ->
                         byId[hit.chatId]?.let { chat -> Box(Modifier.animateItem(placementSpec = rowMove, fadeInSpec = rowIn, fadeOutSpec = rowOut)) { HitRow(chat, hit) { onOpenChat(chat.id, hit.messageId) } } }
                     }
                 }
             }
-            if (if (searching) hits.isEmpty() && spaces.isEmpty() && files.isEmpty() else chats.isEmpty()) {
+            if (if (searching) hits.isEmpty() && spaces.isEmpty() && files.isEmpty() && inside.isEmpty() else chats.isEmpty()) {
                 Text(
                     stringResource(R.string.search_empty),
                     style = DevxType.Body,
@@ -209,9 +232,9 @@ private fun SectionLabel(res: Int) {
 }
 
 @Composable
-private fun SpaceRow(name: String, info: com.apvcode.devx.data.ProjectInfo, onClick: () -> Unit) {
+private fun SpaceRow(name: String, info: ProjectInfo, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false, onClick = onClick).clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp)).padding(horizontal = 8.dp, vertical = 9.dp),
+        Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false, onClick = onClick).clip(RoundedCornerShape(16.dp)).padding(horizontal = 8.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         ProjectBadge(info.icon, info.color, 44.dp)
@@ -224,10 +247,33 @@ private fun SpaceRow(name: String, info: com.apvcode.devx.data.ProjectInfo, onCl
 }
 
 @Composable
-private fun FileRow(hit: com.apvcode.devx.data.FileHit, onClick: () -> Unit) {
+private fun InsideRow(hit: InsideHit, onClick: () -> Unit) {
+    val kind = stringResource(when (hit.kind) {
+        InsideFinder.CARD -> R.string.search_kind_card
+        InsideFinder.LESSON -> R.string.search_kind_lesson
+        InsideFinder.INSTRUCTIONS -> R.string.search_kind_instructions
+        else -> R.string.search_kind_note
+    })
+    Column(
+        Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false, onClick = onClick).clip(RoundedCornerShape(16.dp)).padding(horizontal = 8.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text((if (hit.space == InsideFinder.GENERAL) stringResource(R.string.search_general_memory) else hit.space) + " · " + kind, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            androidx.compose.ui.text.buildAnnotatedString {
+                append(hit.text)
+                addStyle(SpanStyle(color = DevxColors.TextPrimary, background = DevxColors.Card), hit.start.coerceIn(0, hit.text.length), hit.end.coerceIn(0, hit.text.length))
+            },
+            style = DevxType.Body, color = DevxColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun FileRow(hit: FileHit, onClick: () -> Unit) {
     val e = hit.entry
     Row(
-        Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false, onClick = onClick).clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp)).padding(horizontal = 8.dp, vertical = 11.dp),
+        Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false, onClick = onClick).clip(RoundedCornerShape(16.dp)).padding(horizontal = 8.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Icon(com.apvcode.devx.ui.components.fileIcon(e.name), null, tint = DevxColors.TextPrimary, modifier = Modifier.size(26.dp))
@@ -250,7 +296,7 @@ private fun ChatRow(chat: ChatSummary, onClick: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .pressable(scaleTo = 0.97f, haptic = false, onClick = onClick)
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp))
             .padding(horizontal = 8.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -270,12 +316,12 @@ private fun ChatRow(chat: ChatSummary, onClick: () -> Unit) {
 
 /** A chat that has the words: its title, and a line of what was said with the words marked. */
 @Composable
-private fun HitRow(chat: ChatSummary, hit: com.apvcode.devx.data.SearchHit, onClick: () -> Unit) {
+private fun HitRow(chat: ChatSummary, hit: SearchHit, onClick: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
             .pressable(scaleTo = 0.97f, haptic = false, onClick = onClick)
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp))
             .padding(horizontal = 8.dp, vertical = 13.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
@@ -287,7 +333,7 @@ private fun HitRow(chat: ChatSummary, hit: com.apvcode.devx.data.SearchHit, onCl
         hit.snippet?.let { line ->
             val marked = androidx.compose.ui.text.buildAnnotatedString {
                 append(line.substring(0, hit.matchStart))
-                withStyle(androidx.compose.ui.text.SpanStyle(color = DevxColors.TextPrimary, background = DevxColors.TextPrimary.copy(alpha = 0.16f), fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)) {
+                withStyle(SpanStyle(color = DevxColors.TextPrimary, background = DevxColors.TextPrimary.copy(alpha = 0.16f), fontWeight = FontWeight.Medium)) {
                     append(line.substring(hit.matchStart, hit.matchEnd))
                 }
                 append(line.substring(hit.matchEnd))

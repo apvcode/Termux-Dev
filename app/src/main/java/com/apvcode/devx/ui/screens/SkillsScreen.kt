@@ -44,6 +44,12 @@ import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import com.apvcode.devx.ui.components.CircleIconButton
+import com.apvcode.devx.ui.components.DevxIcons
+import com.apvcode.devx.ui.components.DevxTextField
+import com.apvcode.devx.ui.components.PillButton
 
 /** The skills the assistant may read: switch each on or off, import your own. */
 @Composable
@@ -98,7 +104,7 @@ fun SkillsScreen(vm: ChatViewModel, onBack: () -> Unit, onWrite: () -> Unit = {}
                 SettingsRow(
                     title = stringResource(R.string.skills_write),
                     subtitle = stringResource(R.string.skills_write_hint),
-                    icon = com.apvcode.devx.ui.components.DevxIcons.Pencil,
+                    icon = DevxIcons.Pencil,
                     onClick = onWrite,
                 )
                 SettingsDivider()
@@ -156,7 +162,7 @@ fun SkillEditScreen(vm: ChatViewModel, onClose: () -> Unit, onDone: () -> Unit) 
     var busy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    androidx.compose.foundation.layout.Column(
+    Column(
         Modifier
             .fillMaxSize()
             .background(DevxColors.Bg)
@@ -164,8 +170,8 @@ fun SkillEditScreen(vm: ChatViewModel, onClose: () -> Unit, onDone: () -> Unit) 
             .navigationBarsPadding()
             .imePadding(),
     ) {
-        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-            com.apvcode.devx.ui.components.CircleIconButton(
+        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+            CircleIconButton(
                 icon = Icons.Outlined.Close,
                 contentDescription = stringResource(R.string.cd_close),
                 onClick = { if (!busy) onClose() },
@@ -173,25 +179,25 @@ fun SkillEditScreen(vm: ChatViewModel, onClose: () -> Unit, onDone: () -> Unit) 
             )
             Text(stringResource(R.string.skills_new), style = DevxType.Title, color = DevxColors.TextPrimary)
         }
-        androidx.compose.foundation.layout.Column(
+        Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Text(stringResource(R.string.skills_write_hint), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(horizontal = 6.dp))
-            com.apvcode.devx.ui.components.DevxTextField(
+            DevxTextField(
                 stringResource(R.string.skills_body), body, { if (it.length <= 30_000) body = it },
                 placeholder = stringResource(R.string.skills_body_hint), singleLine = false, minLines = 8,
             )
-            com.apvcode.devx.ui.components.DevxTextField(
+            DevxTextField(
                 stringResource(R.string.skills_name), name, { if (it.length <= 48) name = it.replace("\n", "") },
                 placeholder = stringResource(R.string.skills_name_hint),
             )
-            com.apvcode.devx.ui.components.DevxTextField(
+            DevxTextField(
                 stringResource(R.string.skills_desc), description, { if (it.length <= 300) description = it },
                 placeholder = stringResource(R.string.skills_desc_hint), singleLine = false, minLines = 2,
             )
         }
-        com.apvcode.devx.ui.components.PillButton(
+        PillButton(
             stringResource(if (busy) R.string.skills_creating else R.string.skills_create),
             enabled = body.isNotBlank() && !busy,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),

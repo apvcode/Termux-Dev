@@ -23,6 +23,12 @@ import java.net.NoRouteToHostException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
+import java.io.EOFException
+import java.net.ProtocolException
+import java.net.SocketException
+import java.util.TreeMap
+import java.util.UUID
+import kotlinx.coroutines.InternalCoroutinesApi
 
 class ApiException(val kind: ErrorKind, val code: Int? = null, val detail: String? = null) : Exception(detail)
 
@@ -173,16 +179,13 @@ class Api {
         val json = "application/json".toMediaType()
         val body = buildBody(provider.kind, model, system, history, extra, tools)
         // Some servers send the count only when asked; those that do not know the option are not asked.
-        if (provider.kind == ProviderKind.OpenAI && asksForUsage(provider.baseUrl) && !body.has("stream_options")) {
-            body.put("stream_options", JSONObject().put("include_usage", true))
-        }
-        val request = request(provider, key, chatUrl(provider))
-            .post(body.toString().toRequestBody(json))
-            .build()
-        val call = client.newCall(request)
+        val askedForUsage = provider.kind == ProviderKind.OpenAI && !body.has("stream_options")
+        if (askedForUsage) body.put("stream_options", JSONObject().put("include_usage", true))
+        fun requestOf() = request(provider, key, chatUrl(provider)).post(body.toString().toRequestBody(json)).build()
+        var call = client.newCall(requestOf())
         VoiceTrace.mark("request sent (${body.toString().length / 1024} KB, ${tools.size} tools)")
         var firstPiece = true
-        @OptIn(kotlinx.coroutines.InternalCoroutinesApi::class)
+        @OptIn(InternalCoroutinesApi::class)
         val handle = currentCoroutineContext()[Job]?.invokeOnCompletion(onCancelling = true) { call.cancel() }
         val splitter = ThinkSplitter()
         val state = StreamState()
@@ -193,7 +196,18 @@ class Api {
             if (summaries != null && piece is Piece.Text) summaries.feed(piece.text).forEach { emit(it) } else emit(piece)
         }
         try {
-            call.execute().use { response ->
+            var first = call.execute()
+            // A server that does not know the option may refuse the whole request: when it complains about that option, the request is
+            // made again without it. Any other refusal is an error of its own and is not repeated.
+            if (!first.isSuccessful && askedForUsage && (first.code == 400 || first.code == 422)) {
+                val code = first.code
+                val text = first.use { it.body?.string().orEmpty() }
+                if (!refusesUsageOption(text)) throw httpError(code, text)
+                body.remove("stream_options")
+                call = client.newCall(requestOf())
+                first = call.execute()
+            }
+            first.use { response ->
                 VoiceTrace.mark("provider answered (headers)")
                 if (!response.isSuccessful) throw httpError(response.code, response.body?.string().orEmpty())
                 val source = response.body?.source() ?: throw ApiException(ErrorKind.ProviderDown, response.code, "Empty answer")
@@ -210,7 +224,7 @@ class Api {
                 // The calls are whole only now: their arguments arrive in fragments.
                 for (pending in state.calls.values) {
                     if (pending.name.isNotBlank()) {
-                        emit(Piece.ToolCall(pending.id.ifBlank { "call_" + java.util.UUID.randomUUID().toString().take(12) }, pending.name, pending.args.toString().ifBlank { "{}" }))
+                        emit(Piece.ToolCall(pending.id.ifBlank { "call_" + UUID.randomUUID().toString().take(12) }, pending.name, pending.args.toString().ifBlank { "{}" }))
                     }
                 }
             }
@@ -226,9 +240,10 @@ class Api {
     suspend fun complete(provider: Provider, key: String, model: String, system: String, history: List<WireMessage>, extra: JSONObject? = null): String =
         stream(provider, key, model, system, history, extra).toList().filterIsInstance<Piece.Text>().joinToString("") { it.text }
 
-    private fun asksForUsage(baseUrl: String): Boolean {
-        val host = baseUrl.lowercase()
-        return "api.openai.com" in host || "openrouter.ai" in host
+    /** Whether a refusal is about the "count the tokens" option of the request (servers word it in many ways, but all name it or call it unknown). */
+    private fun refusesUsageOption(text: String): Boolean {
+        val t = text.lowercase()
+        return "stream_options" in t || "include_usage" in t
     }
 
     // ---------- requests ----------
@@ -412,7 +427,7 @@ class Api {
     private class StreamState {
         var usageIn = 0
         var usageOut = 0
-        val calls = java.util.TreeMap<Int, PendingCall>()
+        val calls = TreeMap<Int, PendingCall>()
         val thinking = HashMap<Int, PendingThinking>()
     }
 
@@ -557,7 +572,7 @@ class Api {
         is InterruptedIOException -> ApiException(ErrorKind.Timeout, null, e.message)
         is UnknownHostException, is ConnectException, is NoRouteToHostException -> ApiException(ErrorKind.NoInternet, null, e.message)
         // The line broke in the middle of an answer: that is the network, not the provider.
-        is java.net.SocketException, is java.io.EOFException, is java.net.ProtocolException -> ApiException(ErrorKind.NoInternet, null, e.message)
+        is SocketException, is EOFException, is ProtocolException -> ApiException(ErrorKind.NoInternet, null, e.message)
         is SSLException -> ApiException(
             if (Regex("reset|abort|closed|read error|unexpected end|broken pipe|timed out", RegexOption.IGNORE_CASE).containsMatchIn(e.message.orEmpty())) ErrorKind.NoInternet else ErrorKind.ProviderDown,
             null, e.message,

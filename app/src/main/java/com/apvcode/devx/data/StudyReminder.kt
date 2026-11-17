@@ -18,7 +18,7 @@ object StudyReminder {
 
     fun fire(context: Context, project: String) {
         val due = StudyDue.read(context)[project] ?: return
-        runCatching {
+        attempt("studyreminder") {
             GenerationService.ensureChannels(context)
             val manager = NotificationManagerCompat.from(context)
             if (!manager.areNotificationsEnabled()) return

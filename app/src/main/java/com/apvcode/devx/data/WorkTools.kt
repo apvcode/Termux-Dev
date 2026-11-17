@@ -29,6 +29,22 @@ import java.util.Calendar
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
+import android.os.Build
+import java.io.FilterOutputStream
+import java.math.BigInteger
+import java.security.KeyFactory
+import java.security.KeyPair
+import java.security.Signature
+import java.security.cert.CertificateFactory
+import java.security.spec.PKCS8EncodedKeySpec
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 /**
  * The assistant's workshop: it writes files, hands them over as cards, unpacks and makes archives and APKs,
@@ -263,17 +279,17 @@ class WorkTools(
             "${archive.name}: ${entries.size} entries\n" + entries.take(400).joinToString("\n") { (if (it.directory) "dir  " else "file ") + it.name + if (it.size >= 0 && !it.directory) "  ${it.size} bytes" else "" } +
                 if (entries.size > 400) "\n[the list is cut]" else "",
         )
-    }.getOrElse { ToolOutcome("Could not read the archive: ${it.message}") }
+    }.logged("worktools").getOrElse { ToolOutcome("Could not read the archive: ${it.message}") }
 
     private fun archiveExtract(archive: File, dest: File, root: File): ToolOutcome = runCatching {
         val count = Archives.extract(archive, dest)
         ToolOutcome("Unpacked $count files into ${rel(dest, root)}/")
-    }.getOrElse { ToolOutcome("Could not unpack: ${it.message}") }
+    }.logged("worktools").getOrElse { ToolOutcome("Could not unpack: ${it.message}") }
 
     private fun archiveCreate(output: File, inputs: List<File>, root: File): ToolOutcome = runCatching {
         val count = Archives.create(output, inputs, root)
         ToolOutcome("Made ${rel(output, root)} (${output.length()} bytes) with $count files.")
-    }.getOrElse { ToolOutcome("Could not make the archive: ${it.message}") }
+    }.logged("worktools").getOrElse { ToolOutcome("Could not make the archive: ${it.message}") }
 
     // ---------- APK ----------
 
@@ -302,7 +318,7 @@ class WorkTools(
         val info = (apkInfo(apk).text)
         File(dest, "apk-info.txt").writeText(info)
         ToolOutcome("Unpacked $count files into ${rel(dest, root)}/ (apk-info.txt has the details).")
-    }.getOrElse { ToolOutcome("Could not unpack the APK: ${it.message}") }
+    }.logged("worktools").getOrElse { ToolOutcome("Could not unpack the APK: ${it.message}") }
 
     private fun apkPack(folder: File, output: File, root: File): ToolOutcome = runCatching {
         if (!folder.isDirectory) return@runCatching ToolOutcome("There is no such folder.")
@@ -324,7 +340,7 @@ class WorkTools(
             unsigned.delete()
         }
         ToolOutcome("Made ${rel(output, root)} (${output.length()} bytes), signed with the app's key. It can be installed over nothing else than an app with the same key, or fresh.")
-    }.getOrElse {
+    }.logged("worktools").getOrElse {
         output.delete()
         ToolOutcome("Could not make the APK: ${it.message}" + (generateSequence(it.cause) { c -> c.cause }.joinToString("") { c -> " / " + c.javaClass.simpleName + ": " + c.message }))
     }
@@ -332,7 +348,7 @@ class WorkTools(
     /** A zip of the folder in which resources.arsc is stored plain and aligned to four bytes, as Android requires. */
     private fun writeAligned(folder: File, target: File) {
         val files = folder.walkTopDown().filter { it.isFile && !it.relativeTo(folder).path.startsWith("META-INF") && it.name != "apk-info.txt" }.toList()
-        val count = object : java.io.FilterOutputStream(FileOutputStream(target)) {
+        val count = object : FilterOutputStream(FileOutputStream(target)) {
             var written = 0L
             override fun write(b: Int) { out.write(b); written++ }
             override fun write(b: ByteArray, off: Int, len: Int) { out.write(b, off, len); written += len }
@@ -366,20 +382,20 @@ class WorkTools(
     private fun signingKey(): Pair<PrivateKey, X509Certificate> {
         val keyFile = File(context.filesDir, "apk-signing-key.p8")
         val certFile = File(context.filesDir, "apk-signing-cert.der")
-        val factory = java.security.cert.CertificateFactory.getInstance("X.509")
+        val factory = CertificateFactory.getInstance("X.509")
         if (!keyFile.isFile || !certFile.isFile) {
             val pair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
             val cert = selfSigned(pair)
             keyFile.writeBytes(pair.private.encoded)
             certFile.writeBytes(cert)
         }
-        val key = java.security.KeyFactory.getInstance("RSA").generatePrivate(java.security.spec.PKCS8EncodedKeySpec(keyFile.readBytes()))
+        val key = KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(keyFile.readBytes()))
         val cert = factory.generateCertificate(certFile.inputStream()) as X509Certificate
         return key to cert
     }
 
     /** A self-signed X.509 certificate (valid 25 years, subject CN=Devx), built by hand in DER. */
-    private fun selfSigned(pair: java.security.KeyPair): ByteArray {
+    private fun selfSigned(pair: KeyPair): ByteArray {
         fun len(n: Int): ByteArray = when {
             n < 128 -> byteArrayOf(n.toByte())
             n < 256 -> byteArrayOf(0x81.toByte(), n.toByte())
@@ -391,16 +407,16 @@ class WorkTools(
         }
         val sha256Rsa = der(0x30, der(0x06, byteArrayOf(0x2A, 0x86.toByte(), 0x48, 0x86.toByte(), 0xF7.toByte(), 0x0D, 0x01, 0x01, 0x0B)), der(0x05))
         val name = der(0x30, der(0x31, der(0x30, der(0x06, byteArrayOf(0x55, 0x04, 0x03)), der(0x0C, "Devx".toByteArray()))))
-        fun time(c: Calendar): ByteArray = der(0x17, java.text.SimpleDateFormat("yyMMddHHmmss'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(c.time).toByteArray())
+        fun time(c: Calendar): ByteArray = der(0x17, SimpleDateFormat("yyMMddHHmmss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(c.time).toByteArray())
         val start = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
         val end = Calendar.getInstance().apply { add(Calendar.YEAR, 25) }
-        val serial = der(0x02, java.math.BigInteger.valueOf(System.currentTimeMillis()).toByteArray())
+        val serial = der(0x02, BigInteger.valueOf(System.currentTimeMillis()).toByteArray())
         val tbs = der(
             0x30,
             der(0xA0, der(0x02, byteArrayOf(2))),
             serial, sha256Rsa, name, der(0x30, time(start), time(end)), name, pair.public.encoded,
         )
-        val signer = java.security.Signature.getInstance("SHA256withRSA").apply { initSign(pair.private); update(tbs) }
+        val signer = Signature.getInstance("SHA256withRSA").apply { initSign(pair.private); update(tbs) }
         val signature = signer.sign()
         return der(0x30, tbs, sha256Rsa, der(0x03, byteArrayOf(0) + signature))
     }
@@ -445,8 +461,8 @@ class WorkTools(
         }
         if (args.optBoolean("grayscale", false)) {
             val grey = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-            val paint = android.graphics.Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix().apply { setSaturation(0f) }) }
-            android.graphics.Canvas(grey).drawBitmap(bitmap, 0f, 0f, paint)
+            val paint = Paint().apply { colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) }) }
+            Canvas(grey).drawBitmap(bitmap, 0f, 0f, paint)
             bitmap = grey
         }
         val wantW = args.optInt("width", 0)
@@ -472,18 +488,18 @@ class WorkTools(
         val quality = args.optInt("quality", 90).coerceIn(1, 100)
         val format = when (output.extension.lowercase()) {
             "png" -> Bitmap.CompressFormat.PNG
-            "webp" -> if (android.os.Build.VERSION.SDK_INT >= 30) Bitmap.CompressFormat.WEBP_LOSSY else @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
+            "webp" -> if (Build.VERSION.SDK_INT >= 30) Bitmap.CompressFormat.WEBP_LOSSY else @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
             else -> Bitmap.CompressFormat.JPEG
         }
         // A picture with see-through parts saved as JPEG would get black there: put it on white.
         if (format == Bitmap.CompressFormat.JPEG && bitmap.hasAlpha()) {
             val flat = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-            android.graphics.Canvas(flat).apply { drawColor(android.graphics.Color.WHITE); drawBitmap(bitmap, 0f, 0f, null) }
+            Canvas(flat).apply { drawColor(Color.WHITE); drawBitmap(bitmap, 0f, 0f, null) }
             bitmap = flat
         }
         FileOutputStream(output).use { bitmap.compress(format, quality, it) }
         ToolOutcome("Saved ${rel(output, root)}: ${bitmap.width}x${bitmap.height}, ${output.length()} bytes.")
-    }.getOrElse { ToolOutcome("Could not edit the picture: ${it.message}") }
+    }.logged("worktools").getOrElse { ToolOutcome("Could not edit the picture: ${it.message}") }
 
     // ---------- the terminal ----------
 
@@ -535,7 +551,7 @@ class WorkTools(
         try {
             job.await().take(MAX_OUTPUT).ifBlank { "(no output)" }
         } catch (e: CancellationException) {
-            runCatching { py().callAttr("interrupt") }
+            attempt("worktools") { py().callAttr("interrupt") }
             throw e
         }
     }
@@ -544,7 +560,7 @@ class WorkTools(
         if (pkg.isBlank()) return@coroutineScope "Give the package name."
         val libs = File(dir, ".pylibs")
         val job = async(Dispatchers.IO) {
-            runCatching { py().callAttr("pip_install", pkg.trim(), libs.path).toString() }.getOrElse { "Could not install $pkg: ${it.message?.lines()?.firstOrNull { l -> l.isNotBlank() } ?: it.javaClass.simpleName}" }
+            runCatching { py().callAttr("pip_install", pkg.trim(), libs.path).toString() }.logged("worktools").getOrElse { "Could not install $pkg: ${it.message?.lines()?.firstOrNull { l -> l.isNotBlank() } ?: it.javaClass.simpleName}" }
         }
         job.await().ifBlank { "$pkg is already installed." }
     }

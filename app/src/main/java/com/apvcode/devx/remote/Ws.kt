@@ -1,5 +1,6 @@
 package com.apvcode.devx.remote
 
+import com.apvcode.devx.data.attempt
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -12,6 +13,9 @@ import java.util.Base64
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
+import java.io.IOException
+import java.net.URI
+import java.security.SecureRandom
 
 /**
  * A small WebSocket client over a plain socket (binary messages, ping/pong, close). It is used instead of OkHttp
@@ -29,11 +33,11 @@ class WsConn private constructor(
     private val writeLock = Any()
 
     companion object {
-        private val random = java.security.SecureRandom()
+        private val random = SecureRandom()
 
         /** Opens a connection: `url` is `ws://host:port/path` or `wss://...`. Throws on any failure. */
         fun open(url: String, subprotocol: String? = null, connectTimeoutMs: Int = 5000): WsConn {
-            val uri = java.net.URI(url)
+            val uri = URI(url)
             val tls = uri.scheme == "wss"
             val port = if (uri.port > 0) uri.port else if (tls) 443 else 80
             val host = uri.host ?: throw IllegalArgumentException("no host in $url")
@@ -48,7 +52,7 @@ class WsConn private constructor(
                     val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(plain, host, port, true) as SSLSocket
                     ssl.soTimeout = connectTimeoutMs
                     ssl.startHandshake()
-                    if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(host, ssl.session)) throw java.io.IOException("certificate does not match $host")
+                    if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(host, ssl.session)) throw IOException("certificate does not match $host")
                     socket = ssl
                 }
                 socket.soTimeout = connectTimeoutMs
@@ -73,17 +77,17 @@ class WsConn private constructor(
                     val b = inp.read()
                     if (b < 0) throw EOFException("closed during the handshake")
                     head.append(b.toChar())
-                    if (head.length > 16 * 1024) throw java.io.IOException("answer too long")
+                    if (head.length > 16 * 1024) throw IOException("answer too long")
                 }
                 val lines = head.toString().split("\r\n")
-                if (!lines[0].contains(" 101 ")) throw java.io.IOException("not a WebSocket server: ${lines[0]}")
+                if (!lines[0].contains(" 101 ")) throw IOException("not a WebSocket server: ${lines[0]}")
                 val expect = Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-1").digest((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray()))
                 val accept = lines.firstOrNull { it.startsWith("Sec-WebSocket-Accept:", ignoreCase = true) }?.substringAfter(':')?.trim()
-                if (accept != expect) throw java.io.IOException("bad accept key")
+                if (accept != expect) throw IOException("bad accept key")
                 socket.soTimeout = 0
                 return WsConn(socket, inp, out).also { it.startReader() }
             } catch (e: Exception) {
-                runCatching { socket.close() }
+                attempt("ws") { socket.close() }
                 throw e
             }
         }
@@ -164,7 +168,7 @@ class WsConn private constructor(
     private fun shutdown() {
         if (closed) return
         closed = true
-        runCatching { socket.close() }
+        attempt("ws") { socket.close() }
         onClose()
     }
 }

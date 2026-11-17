@@ -1,11 +1,13 @@
 package com.apvcode.devx.remote
 
+import com.apvcode.devx.data.logged
 import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.Base64
+import com.apvcode.devx.data.AtomicFile
 
 /** A computer that is paired with this phone. The public key is pinned: only the computer that holds it is trusted. */
 data class Computer(
@@ -74,7 +76,7 @@ class ComputerStore(context: Context, name: String = "remote_computers.json") {
         val list = runCatching {
             val a = JSONArray(file.takeIf { it.exists() }?.readText() ?: "[]")
             List(a.length()) { Computer.fromJson(a.getJSONObject(it)) }
-        }.getOrDefault(emptyList())
+        }.logged("computers").getOrDefault(emptyList())
         items.clear()
         items.addAll(list)
     }
@@ -96,10 +98,6 @@ class ComputerStore(context: Context, name: String = "remote_computers.json") {
 
     private fun save() {
         val json = JSONArray().also { a -> items.forEach { a.put(it.toJson()) } }.toString()
-        runCatching {
-            val tmp = File(file.parentFile, file.name + ".tmp")
-            tmp.writeText(json)
-            if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
-        }
+        AtomicFile.writeQuietly("computers", file, json)
     }
 }

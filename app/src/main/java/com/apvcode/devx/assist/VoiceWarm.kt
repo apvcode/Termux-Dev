@@ -1,10 +1,12 @@
 package com.apvcode.devx.assist
 
+import com.apvcode.devx.data.logged
 import android.app.Application
 import android.content.Context
 import com.apvcode.devx.data.Prefs
 import com.apvcode.devx.data.Speaker
 import com.apvcode.devx.ui.chat.SharedChat
+import com.apvcode.devx.data.Earcon
 
 /**
  * What the voice assistant needs ready before it is called: the speech engine, the chat model and its connection. When Devx is the
@@ -20,13 +22,13 @@ object VoiceWarm {
 
     fun warm(app: Application) {
         Prefs.init(app)
-        com.apvcode.devx.data.Earcon.recover(app)
+        Earcon.recover(app)
         speaker(app)
         if (model) return
         model = true
         // The model of the chats is made off the main thread: it reads its files and sets up its tools.
         Thread {
-            runCatching { SharedChat.acquire(app, "warm") }.onFailure { model = false }
+            runCatching { SharedChat.acquire(app, "warm") }.logged("voicewarm").onFailure { model = false }
         }.apply { name = "devx-voice-warm"; isDaemon = true }.start()
     }
 

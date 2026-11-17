@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.apvcode.devx.R
 import com.apvcode.devx.assist.AssistantActivity
 import com.apvcode.devx.assist.AssistantStatus
+import com.apvcode.devx.data.CloudVoice
 import com.apvcode.devx.data.Prefs
 import com.apvcode.devx.ui.components.ScreenScaffold
 import com.apvcode.devx.ui.components.SectionLabel
@@ -39,13 +40,25 @@ import com.apvcode.devx.ui.components.SettingsRow
 import com.apvcode.devx.ui.components.SettingsSwitchRow
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import android.app.NotificationManager
+import android.os.Build
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
+import androidx.documentfile.provider.DocumentFile
+import com.apvcode.devx.assist.VoiceWarm
+import com.apvcode.devx.data.PermissionBridge
+import com.apvcode.devx.ui.chat.ChatViewModel
+import com.apvcode.devx.ui.chat.ModelPicker
+import com.apvcode.devx.ui.components.DevxDialog
+import java.util.Locale
 
 /**
  * Settings of the voice assistant: whether the phone really calls Devx (checked again every time the page is in view),
  * whether the microphone, speech recognition and the voice are there, how it behaves, how to call it and what it can do.
  */
 @Composable
-fun VoiceSettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -> Unit) {
+fun VoiceSettingsScreen(vm: ChatViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
@@ -56,11 +69,11 @@ fun VoiceSettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -
     val speech = AssistantStatus.speechEngineThere(context)
     val phone = Prefs.phoneTools
     val canWrite = Settings.System.canWrite(context)
-    val photosPermission = if (android.os.Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
-    val photosAllowed = com.apvcode.devx.data.PermissionBridge.has(context, photosPermission)
-    val locationAllowed = com.apvcode.devx.data.PermissionBridge.has(context, Manifest.permission.ACCESS_FINE_LOCATION) || com.apvcode.devx.data.PermissionBridge.has(context, Manifest.permission.ACCESS_COARSE_LOCATION)
+    val photosPermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
+    val photosAllowed = PermissionBridge.has(context, photosPermission)
+    val locationAllowed = PermissionBridge.has(context, Manifest.permission.ACCESS_FINE_LOCATION) || PermissionBridge.has(context, Manifest.permission.ACCESS_COARSE_LOCATION)
     val notificationsOn = AssistantStatus.notificationAccess(context)
-    val dndAllowed = context.getSystemService(android.app.NotificationManager::class.java).isNotificationPolicyAccessGranted
+    val dndAllowed = context.getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
 
     val chooseAssistant = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { tick++ }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -175,7 +188,7 @@ fun VoiceSettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -
                     onClick = { open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                 )
                 SettingsDivider()
-                val folderName = Prefs.folderUri?.let { androidx.documentfile.provider.DocumentFile.fromTreeUri(context, Uri.parse(it))?.name }
+                val folderName = Prefs.folderUri?.let { DocumentFile.fromTreeUri(context, Uri.parse(it))?.name }
                 StatusRow(
                     title = stringResource(R.string.va_folder),
                     hint = if (folderName != null) stringResource(R.string.va_folder_yes) else stringResource(R.string.va_folder_no),
@@ -238,7 +251,7 @@ fun VoiceSettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -
                     onClick = { modelPicker = true },
                 )
                 if (modelPicker) {
-                    com.apvcode.devx.ui.chat.ModelPicker(
+                    ModelPicker(
                         vm = vm,
                         onDismiss = { modelPicker = false },
                         onOpenProviders = { modelPicker = false },
@@ -248,12 +261,12 @@ fun VoiceSettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -
                     )
                 }
                 SettingsDivider()
-                val speaker = remember { com.apvcode.devx.assist.VoiceWarm.speaker(context) }
+                val speaker = remember { VoiceWarm.speaker(context) }
                 SettingsRow(
                     title = stringResource(R.string.va_voice_speed),
                     subtitle = stringResource(R.string.va_voice_speed_hint),
                     trailing = {
-                        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("−", style = DevxType.Title, color = DevxColors.TextPrimary, modifier = Modifier.pressable(scaleTo = 0.9f, haptic = false) { Prefs.saveVoiceRate(Prefs.voiceRate - 0.05f); speaker.refresh() }.padding(horizontal = 14.dp, vertical = 6.dp))
                             Text("%.2f×".format(Prefs.voiceRate), style = DevxType.Body, color = DevxColors.TextSecondary)
                             Text("+", style = DevxType.Title, color = DevxColors.TextPrimary, modifier = Modifier.pressable(scaleTo = 0.9f, haptic = false) { Prefs.saveVoiceRate(Prefs.voiceRate + 0.05f); speaker.refresh() }.padding(horizontal = 14.dp, vertical = 6.dp))
@@ -270,24 +283,24 @@ fun VoiceSettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -
                     onClick = { voiceDialog = true },
                 )
                 if (voiceDialog) {
-                    val tag = java.util.Locale.getDefault().toLanguageTag()
+                    val tag = Locale.getDefault().toLanguageTag()
                     val voices = remember(speaker.engineReady) { speaker.voicesFor(tag) }
-                    com.apvcode.devx.ui.components.DevxDialog(stringResource(R.string.va_voice), onDismiss = { voiceDialog = false }) {
-                        androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 12.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    DevxDialog(stringResource(R.string.va_voice), onDismiss = { voiceDialog = false }) {
+                        Column(Modifier.padding(horizontal = 12.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                             @Composable
                             fun Choice(label: String, detail: String?, selected: Boolean, onPick: () -> Unit) {
                                 SettingsRow(title = label, subtitle = detail, onClick = onPick, trailing = { if (selected) Text("✓", style = DevxType.Title, color = DevxColors.TextPrimary) })
                             }
                             Choice(stringResource(R.string.va_voice_best), stringResource(R.string.va_voice_best_hint), Prefs.voiceName.isBlank()) {
-                                Prefs.saveVoiceName(""); speaker.refresh(); speaker.speak(context.getString(R.string.va_voice_sample))
+                                Prefs.saveVoiceName(""); speaker.refresh(); speaker.read(context.getString(R.string.va_voice_sample))
                             }
                             voices.forEachIndexed { i, v ->
                                 val quality = when { v.quality >= 500 -> "★★★"; v.quality >= 400 -> "★★"; else -> "★" }
                                 Choice(
-                                    stringResource(R.string.va_voice_n, i + 1) + "  " + quality,
-                                    v.name + (if (v.isNetworkConnectionRequired) " · " + stringResource(R.string.va_voice_online) else ""),
+                                    stringResource(R.string.va_voice_n, i + 1) + "  " + quality + "  " + v.name.substringAfter("-x-", v.name).take(14),
+                                    v.locale.displayName + " · " + v.name + (if (v.isNetworkConnectionRequired) " · " + stringResource(R.string.va_voice_online) else ""),
                                     Prefs.voiceName == v.name,
-                                ) { Prefs.saveVoiceName(v.name); speaker.refresh(); speaker.speak(context.getString(R.string.va_voice_sample)) }
+                                ) { Prefs.saveVoiceName(v.name); speaker.refresh(); speaker.read(context.getString(R.string.va_voice_sample)) }
                             }
                         }
                     }
@@ -299,6 +312,126 @@ fun VoiceSettingsScreen(vm: com.apvcode.devx.ui.chat.ChatViewModel, onBack: () -
                     checked = Prefs.voiceHandsFree,
                     onCheckedChange = { Prefs.saveVoiceHandsFree(it) },
                 )
+            }
+        }
+        item { SectionLabel(stringResource(R.string.voice_section)) }
+        item {
+            SettingsGroup {
+                val speaker = remember { VoiceWarm.speaker(context) }
+                // Leaving the page cuts the voice off: a sample must never go on playing (or pile up) after it.
+                androidx.compose.runtime.DisposableEffect(Unit) { onDispose { speaker.stop() } }
+                var dialog by remember { mutableStateOf<String?>(null) }
+                val cloud = Prefs.voiceEngine == Prefs.ENGINE_CLOUD
+                val eligible = vm.providers.filter { CloudVoice.backendOf(it) != null }
+                val chosen = eligible.firstOrNull { it.id == Prefs.cloudProvider }
+                SettingsRow(
+                    title = stringResource(R.string.voice_engine),
+                    subtitle = stringResource(R.string.voice_engine_hint),
+                    value = stringResource(if (cloud) R.string.voice_engine_cloud else R.string.voice_engine_phone),
+                    showChevron = true,
+                    onClick = { dialog = "engine" },
+                )
+                if (cloud) {
+                    SettingsDivider()
+                    SettingsRow(
+                        title = stringResource(R.string.voice_provider),
+                        subtitle = if (eligible.isEmpty()) stringResource(R.string.voice_provider_none) else stringResource(R.string.voice_cloud_note),
+                        value = chosen?.name?.take(18),
+                        showChevron = eligible.isNotEmpty(),
+                        onClick = if (eligible.isNotEmpty()) ({ dialog = "provider" }) else null,
+                    )
+                    SettingsDivider()
+                    val models = chosen?.let { CloudVoice.speechModels(it) }.orEmpty()
+                    val activeModel = Prefs.cloudModel.ifBlank { models.firstOrNull().orEmpty() }.takeIf { it.isNotBlank() }
+                    SettingsRow(
+                        title = stringResource(R.string.voice_model),
+                        subtitle = when {
+                            chosen == null -> stringResource(R.string.voice_pick_provider)
+                            models.isEmpty() -> stringResource(R.string.voice_no_models)
+                            Prefs.cloudModel.isBlank() -> stringResource(R.string.voice_model_auto)
+                            else -> null
+                        },
+                        value = activeModel?.take(24),
+                        showChevron = chosen != null,
+                        onClick = if (chosen != null) ({ dialog = "model" }) else null,
+                    )
+                    SettingsDivider()
+                    SettingsRow(
+                        title = stringResource(R.string.voice_cloud_voice),
+                        subtitle = if (chosen == null) stringResource(R.string.voice_pick_provider) else null,
+                        value = chosen?.let { Prefs.cloudVoice.ifBlank { CloudVoice.defaultVoice(CloudVoice.backendOf(it)!!) } },
+                        showChevron = chosen != null,
+                        onClick = if (chosen != null) ({ dialog = "voice" }) else null,
+                    )
+                    if (chosen != null) {
+                        SettingsDivider()
+                        SettingsRow(
+                            title = stringResource(R.string.voice_test),
+                            icon = com.apvcode.devx.ui.components.DevxIcons.Speaker,
+                            onClick = { speaker.refresh(); speaker.read(context.getString(R.string.va_voice_sample)) },
+                        )
+                    }
+                    speaker.cloudError?.let { reason ->
+                        SettingsDivider()
+                        SettingsRow(title = stringResource(R.string.voice_cloud_failed, reason.take(160)), titleColor = DevxColors.Danger)
+                    }
+                }
+                SettingsDivider()
+                SettingsRow(
+                    title = stringResource(R.string.voice_better),
+                    subtitle = stringResource(R.string.voice_better_hint),
+                    showChevron = true,
+                    onClick = {
+                        val tts = Intent("com.android.settings.TTS_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        runCatching { context.startActivity(tts) }.onFailure { runCatching { context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+                    },
+                )
+                when (dialog) {
+                    "engine" -> com.apvcode.devx.ui.components.ChoiceDialog(
+                        stringResource(R.string.voice_engine),
+                        listOf(Prefs.ENGINE_PHONE to stringResource(R.string.voice_engine_phone), Prefs.ENGINE_CLOUD to stringResource(R.string.voice_engine_cloud)),
+                        Prefs.voiceEngine,
+                        onPick = { Prefs.saveVoiceEngine(it); if (it == Prefs.ENGINE_CLOUD && Prefs.cloudProvider.isBlank()) eligible.firstOrNull()?.let { p -> Prefs.saveCloudProvider(p.id) }; speaker.refresh(); dialog = null },
+                        onDismiss = { dialog = null },
+                    )
+                    "provider" -> com.apvcode.devx.ui.components.ChoiceDialog(
+                        stringResource(R.string.voice_provider),
+                        eligible.map { it.id to it.name },
+                        Prefs.cloudProvider,
+                        onPick = { Prefs.saveCloudProvider(it); speaker.refresh(); dialog = null },
+                        onDismiss = { dialog = null },
+                    )
+                    "model" -> chosen?.let { p ->
+                        val models = CloudVoice.speechModels(p)
+                        com.apvcode.devx.ui.components.ChoiceDialog(
+                            stringResource(R.string.voice_model),
+                            listOf("" to stringResource(R.string.voice_model_auto)) + models.map { it to it } + listOf("\u0000type" to stringResource(R.string.voice_model_type)),
+                            Prefs.cloudModel.takeIf { it.isNotBlank() }.orEmpty(),
+                            onPick = { if (it == "\u0000type") dialog = "typemodel" else { Prefs.saveCloudModel(it); speaker.refresh(); dialog = null } },
+                            onDismiss = { dialog = null },
+                        )
+                    }
+                    "typemodel" -> {
+                        var typed by remember { mutableStateOf(Prefs.cloudModel) }
+                        DevxDialog(stringResource(R.string.voice_model), onDismiss = { dialog = null }) {
+                            Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                                com.apvcode.devx.ui.components.DevxTextField(stringResource(R.string.voice_model_type_hint), typed, { typed = it.trim() })
+                                com.apvcode.devx.ui.components.PillButton(stringResource(R.string.dialog_save), enabled = typed.isNotBlank(), onClick = { Prefs.saveCloudModel(typed); speaker.refresh(); dialog = null })
+                                com.apvcode.devx.ui.components.PillButton(stringResource(R.string.dialog_cancel), filled = false, onClick = { dialog = null })
+                            }
+                        }
+                    }
+                    "voice" -> chosen?.let { p ->
+                        val backend = CloudVoice.backendOf(p)!!
+                        com.apvcode.devx.ui.components.ChoiceDialog(
+                            stringResource(R.string.voice_cloud_voice),
+                            CloudVoice.voicesOf(backend).map { it to it },
+                            Prefs.cloudVoice.ifBlank { CloudVoice.defaultVoice(backend) },
+                            onPick = { Prefs.saveCloudVoice(it); speaker.refresh(); dialog = null; speaker.read(context.getString(R.string.va_voice_sample)) },
+                            onDismiss = { dialog = null },
+                        )
+                    }
+                }
             }
         }
         item { SectionLabel(stringResource(R.string.va_section_call)) }

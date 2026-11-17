@@ -46,6 +46,8 @@ import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import android.app.AlarmManager
+import java.time.ZonedDateTime
 
 /**
  * What the assistant can do on the phone itself: set an alarm or a timer, remind, open an app, dial, write a message,
@@ -355,7 +357,7 @@ class PhoneTools(private val context: Context) {
         val result = open(intent, context.getString(R.string.phone_alarm_label, time))
         if (result != Launch.Done) return finish(result, "")
         delay(900)
-        val next = runCatching { context.getSystemService(android.app.AlarmManager::class.java).nextAlarmClock }.getOrNull()
+        val next = runCatching { context.getSystemService(AlarmManager::class.java).nextAlarmClock }.getOrNull()
         val seen = next?.let { " The phone's next alarm is now ${stamp(it.triggerTime)}." }.orEmpty()
         val repeat = if (days.first.isNotEmpty()) " Repeats: ${args.optJSONArray("days")?.let { a -> (0 until a.length()).joinToString { a.optString(it) } }}." else ""
         return ToolOutcome("The alarm for $time${if (label.isNotEmpty()) " (\"$label\")" else ""} was handed to the clock app.$repeat$seen")
@@ -711,7 +713,7 @@ class PhoneTools(private val context: Context) {
     // ---------- the phone itself ----------
 
     private fun info(): String {
-        val now = java.time.ZonedDateTime.now(zone())
+        val now = ZonedDateTime.now(zone())
         val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val level = battery?.let { it.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) * 100 / max(1, it.getIntExtra(BatteryManager.EXTRA_SCALE, 100)) }
         val charging = battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)?.let { it != 0 } ?: false

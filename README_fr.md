@@ -64,7 +64,7 @@ La clé d'API est conservée chiffrée sur le téléphone (Android Keystore) et 
 - Tapez `@` dans le champ : un menu de ce que vous pouvez désigner (un carnet, un projet, un fichier de la bibliothèque, une tâche planifiée). Un carnet ou un projet devient une partie de la phrase, dans sa couleur, et l'assistant reçoit ce qu'il contient. À la voix, dites simplement son nom.
 - Une seule recherche dans les discussions, carnets, projets, fichiers et sources, y compris par ce qui est écrit dans les documents, PDF et notes.
 - Collez des images et des fichiers directement dans le champ du message (depuis le presse-papiers ou le clavier). « Demander à devx » sur un texte sélectionné ne touche pas à votre presse-papiers.
-- Sauvegarde et restauration des discussions, carnets, mémoire, compétences et réglages dans un seul fichier ; une copie hebdomadaire automatique dans un dossier de votre choix (les quatre dernières sont gardées).
+- Sauvegarde et restauration de tout dans un seul fichier : discussions, carnets et projets, mémoire, compétences, caractère, pièces jointes et réglages. Les clés d'API et les jetons n'y entrent que si vous définissez un mot de passe (ils sont chiffrés avec lui). Avant de restaurer, l'appli montre ce que contient le fichier et ce qu'elle va remplacer. Une copie hebdomadaire se fait toute seule dans un dossier de votre choix et, si vous le souhaitez, est aussi envoyée dans un dossier WebDAV (Nextcloud, un NAS) ; les quatre dernières sont conservées.
 - Épingler et archiver des discussions, verrouiller une discussion précise, ajouter une discussion à l'écran d'accueil. « Demander à devx » sur un texte sélectionné cite le passage sous forme de carte dans votre message suivant.
 - L'assistant travaille avec des fichiers dans un dossier à part : il crée et lit des fichiers, fait et décompresse des archives, lit un PDF page par page et regarde ses images, retouche des images, et décompresse, modifie, recompresse et signe des APK. Les approbations peuvent se donner depuis la notification elle-même (Autoriser / Refuser).
 - Quatre widgets (une barre pour demander, des boutons rapides, les dernières discussions, les cartes à réviser) et deux tuiles de réglages rapides (demander, voix).
@@ -78,14 +78,16 @@ La clé d'API est conservée chiffrée sur le téléphone (Android Keystore) et 
 - L'assistant peut modifier un carnet ou un projet (nom, icône, couleur, description, instructions, objectif) et, après discussion, en proposer un nouveau : vous confirmez sur une carte.
 - Partagez un lien, un texte, un PDF ou une image depuis n'importe quelle appli : devx propose une nouvelle discussion ou l'un de vos carnets, où cela devient une source (un lien est lu et conservé).
 - Statistiques d'étude sur la page : jours d'affilée, les sept derniers jours en barres ; un widget d'écran d'accueil montre combien de cartes sont à réviser et lance la révision. Les cartes et le résumé du carnet peuvent s'écouter (un *résumé audio* est écrit pour être écouté, puis lu à voix haute), et un carnet s'exporte en un fichier Markdown.
+- Les cartes peuvent avoir une image et on peut y répondre à voix haute. Elles arrivent d'Anki (`.apkg` ou texte) et de CSV, et repartent en paquet Anki avec images, en texte Anki ou en CSV. Une *carte des notions* montre les idées du carnet et leurs liens, colorées selon votre degré de maîtrise, avec *Explique* et *Interroge-moi*. Un carnet peut être archivé ou copié pour recommencer (ses sources et leçons, pas ses discussions).
 - La bibliothèque garde chaque fichier que vous avez joint ou que l'assistant a créé : recherche, filtres, où il a servi, joindre à une nouvelle discussion, supprimer partout. PDF, Word, diapositives, tableurs, texte, images et sites s'ouvrent dans la visionneuse intégrée ; les originaux Office sont conservés.
 
 ### Apparence, caractère et sécurité
 
-- Apparence : celle du système, noire, gris foncé ou claire.
+- L'apparence a sa propre page : trois choix rapides (système, noir, clair) et un écran d'autres thèmes (gris foncé, Minuit, Forêt, Crépuscule, Braise, Océan, Papier, Sakura, Menthe). Le thème peut changer tout seul selon l'heure (un de jour, un de nuit), et le changement est animé. Le verre flouté peut être désactivé : les boutons restent alors opaques.
 - Caractère : choisissez une manière (calme, sans fioritures, détaillée, amicale, professionnelle, franche, mentor), affinez le ton, donnez un nom à l'assistant et écrivez vos propres instructions. Un toucher remet tout à zéro.
 - Verrouillage de l'application par le verrouillage d'écran, un code ou la biométrie ; on peut aussi verrouiller des discussions isolées, et la liste des applis récentes masque l'image tant qu'un verrou est actif.
 - Les photos par message, les notifications de réponses et d'approbations, et le droit pour un ordinateur de fonctionner en mode « tout » se règlent dans les réglages.
+- Données et sécurité ont leur propre page : le verrou, les copies et la corbeille. Les discussions, projets et carnets supprimés restent 30 jours dans la corbeille et peuvent être remis (juste après la suppression, un message propose « Annuler »). Un fichier de discussion illisible est mis de côté au lieu d'être perdu, et vous en êtes informé. Ce dont l'appli s'est remise est listé dans **À propos → Diagnostic**.
 
 ### Assistant vocal
 
@@ -95,6 +97,7 @@ La clé d'API est conservée chiffrée sur le téléphone (Android Keystore) et 
 - Regarde votre galerie, lit les notifications à l'écran, travaille dans un dossier de votre choix, mais seulement quand vous le demandez et seulement si vous l'avez autorisé.
 - Tâches planifiées : « chaque matin, envoie-moi les nouvelles sur l'IA ». Elles s'exécutent seules et arrivent sous forme de discussion et de notification.
 - La vitesse d'élocution, la voix et un modèle rapide à part pour parler se trouvent dans **Réglages → Assistant vocal**.
+- Une voix naturelle de votre fournisseur (voix au format OpenAI ou Gemini) peut remplacer la voix robotique du téléphone : choisissez le fournisseur, le modèle vocal (dans sa liste ou en saisissant un nom) et la voix, et écoutez un exemple. En cas d'échec, la raison s'affiche et la voix du téléphone lit en attendant.
 - Touchez la pastille pour écrire au lieu de parler ; maintenez-la et balayez vers le haut pour ouvrir l'application avec la même discussion (un indice au-dessus de la pastille montre toujours comment). Le microphone a ses propres sons doux au lieu du bip du service de reconnaissance vocale.
 - « Continuer à écouter après une réponse » (mains libres) et la langue que vous parlez, choisie à part de celle de l'application.
 - Les tâches planifiées ont un écran dédié : une heure, les jours, le modèle de chacune, « exécuter maintenant ».

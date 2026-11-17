@@ -74,6 +74,18 @@ import com.apvcode.devx.ui.components.pressable
 import com.apvcode.devx.ui.screens.ProjectBadge
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import com.apvcode.devx.data.Attachment
 
 /** The "@word" being typed at the cursor: where it starts and ends in the text, and the letters after the @. */
 data class MentionToken(val start: Int, val end: Int, val query: String)
@@ -121,7 +133,7 @@ enum class MentionKind(val tint: Color, val word: Int, val hint: Int) {
  * One row of the list. [key] is what a message keeps (a notebook's or project's name, "task:<id>"); a file is not kept as a mention but
  * joins the message as an attachment ([attachment]). [info] gives a notebook or project its own icon and colour.
  */
-class MentionItem(val key: String, val title: String, val subtitle: String, val kind: MentionKind, val info: ProjectInfo? = null, val attachment: com.apvcode.devx.data.Attachment? = null)
+class MentionItem(val key: String, val title: String, val subtitle: String, val kind: MentionKind, val info: ProjectInfo? = null, val attachment: Attachment? = null)
 
 /** How a kept mention looks: its name, its kind and (for a notebook or a project) its icon. Null look: it is gone. */
 class MentionLook(val title: String, val kind: MentionKind, val info: ProjectInfo?)
@@ -134,14 +146,14 @@ fun matchingItems(items: List<MentionItem>, query: String): List<MentionItem> {
 }
 
 @Composable
-private fun IconBadge(icon: ImageVector, tint: Color, size: androidx.compose.ui.unit.Dp = 40.dp) {
+private fun IconBadge(icon: ImageVector, tint: Color, size: Dp = 40.dp) {
     Box(Modifier.size(size).clip(CircleShape).background(tint.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(size * 0.5f))
     }
 }
 
 @Composable
-private fun ItemBadge(item: MentionItem, size: androidx.compose.ui.unit.Dp) {
+private fun ItemBadge(item: MentionItem, size: Dp) {
     if (item.info != null) ProjectBadge(item.info.icon, item.info.color, size) else IconBadge(item.kind.icon, item.kind.tint, size)
 }
 
@@ -180,7 +192,7 @@ fun MentionPicker(
     val held = remember { Held() }
     if (token != null) { held.query = token.query; held.kind = kind }
     val shape = RoundedCornerShape(28.dp)
-    val settle = spring<androidx.compose.ui.unit.IntSize>(dampingRatio = 0.9f, stiffness = 380f)
+    val settle = spring<IntSize>(dampingRatio = 0.9f, stiffness = 380f)
     AnimatedVisibility(
         visibleState = show,
         modifier = modifier,
@@ -202,9 +214,9 @@ fun MentionPicker(
                     targetState = held.kind,
                     transitionSpec = {
                         val deeper = targetState != null
-                        (fadeIn(tween(240, delayMillis = 60)) + slideInHorizontally(tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { if (deeper) it / 6 else -it / 6 }) togetherWith
-                            (fadeOut(tween(120)) + slideOutHorizontally(tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { if (deeper) -it / 8 else it / 8 }) using
-                            androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() }
+                        (fadeIn(tween(240, delayMillis = 60)) + slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { if (deeper) it / 6 else -it / 6 }) togetherWith
+                            (fadeOut(tween(120)) + slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { if (deeper) -it / 8 else it / 8 }) using
+                            SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() }
                     },
                     label = "mention-level",
                 ) { k ->
@@ -328,11 +340,11 @@ fun mentionSpans(text: String, names: Collection<String>): List<MentionSpan> {
  * opens it). [looks] are the mentions the message kept; a name that matches none is left as plain text.
  */
 @Composable
-fun mentionedText(text: String, looks: List<Pair<String, MentionLook>>, onOpen: (String) -> Unit): Pair<androidx.compose.ui.text.AnnotatedString, Map<String, androidx.compose.foundation.text.InlineTextContent>> {
+fun mentionedText(text: String, looks: List<Pair<String, MentionLook>>, onOpen: (String) -> Unit): Pair<AnnotatedString, Map<String, InlineTextContent>> {
     val byName = looks.associate { it.second.title to it }
     val spans = mentionSpans(text, byName.keys)
-    if (spans.isEmpty()) return androidx.compose.ui.text.AnnotatedString(text) to emptyMap()
-    val inline = HashMap<String, androidx.compose.foundation.text.InlineTextContent>()
+    if (spans.isEmpty()) return AnnotatedString(text) to emptyMap()
+    val inline = HashMap<String, InlineTextContent>()
     val built = androidx.compose.ui.text.buildAnnotatedString {
         var cursor = 0
         spans.forEachIndexed { i, sp ->
@@ -340,12 +352,12 @@ fun mentionedText(text: String, looks: List<Pair<String, MentionLook>>, onOpen: 
             val (key, look) = byName.getValue(sp.name)
             val tint = look.info?.let { Color(it.color) } ?: look.kind.tint
             val id = "m$i"
-            inline[id] = androidx.compose.foundation.text.InlineTextContent(
-                androidx.compose.ui.text.Placeholder(22.sp, 22.sp, androidx.compose.ui.text.PlaceholderVerticalAlign.TextCenter),
+            inline[id] = InlineTextContent(
+                Placeholder(22.sp, 22.sp, PlaceholderVerticalAlign.TextCenter),
             ) { if (look.info != null) ProjectBadge(look.info.icon, look.info.color, 20.dp) else IconBadge(look.kind.icon, tint, 20.dp) }
             appendInlineContent(id, "◻")
             append(" ")
-            withLink(androidx.compose.ui.text.LinkAnnotation.Clickable(key, androidx.compose.ui.text.TextLinkStyles(androidx.compose.ui.text.SpanStyle(color = tint, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold))) { onOpen(key) }) {
+            withLink(LinkAnnotation.Clickable(key, TextLinkStyles(SpanStyle(color = tint, fontWeight = FontWeight.SemiBold))) { onOpen(key) }) {
                 append(text.substring(sp.start, sp.end))
             }
             cursor = sp.end

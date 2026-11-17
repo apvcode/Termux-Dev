@@ -48,6 +48,27 @@ import com.apvcode.devx.R
 import com.apvcode.devx.ui.components.PillButton
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import android.annotation.SuppressLint
+import android.content.Context
+import android.view.View
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.viewinterop.AndroidView
+import com.apvcode.devx.data.ApprovalDecision
+import com.apvcode.devx.data.PendingApproval
+import java.io.ByteArrayInputStream
 
 /** Outlined frame used by cards inside a message. */
 @Composable
@@ -74,7 +95,7 @@ fun SvgView(caption: String, svg: String, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(20.dp)
     val aspect = remember(svg) { svgAspect(svg) }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        androidx.compose.foundation.layout.BoxWithConstraints(
+        BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
                 .clip(shape)
@@ -82,7 +103,7 @@ fun SvgView(caption: String, svg: String, modifier: Modifier = Modifier) {
                 .border(1.dp, DevxColors.Outline, shape),
         ) {
             val height = (maxWidth / aspect).coerceIn(90.dp, 680.dp)
-            androidx.compose.ui.viewinterop.AndroidView(
+            AndroidView(
                 factory = { context -> sandboxedWebView(context) },
                 update = { web ->
                     if (web.tag != svg) {
@@ -126,13 +147,13 @@ private fun svgPage(svg: String): String =
         "-webkit-user-select:none;user-select:none;touch-action:manipulation}" +
         "body>svg{display:block;width:100%;height:auto}</style></head><body>" + svg + "</body></html>"
 
-@android.annotation.SuppressLint("SetJavaScriptEnabled")
-private fun sandboxedWebView(context: android.content.Context): android.webkit.WebView =
-    android.webkit.WebView(context).apply {
+@SuppressLint("SetJavaScriptEnabled")
+private fun sandboxedWebView(context: Context): WebView =
+    WebView(context).apply {
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         isVerticalScrollBarEnabled = false
         isHorizontalScrollBarEnabled = false
-        overScrollMode = android.view.View.OVER_SCROLL_NEVER
+        overScrollMode = View.OVER_SCROLL_NEVER
         isLongClickable = false
         setOnLongClickListener { true }
         isHapticFeedbackEnabled = false
@@ -143,15 +164,15 @@ private fun sandboxedWebView(context: android.content.Context): android.webkit.W
             allowContentAccess = false
             blockNetworkLoads = true
             setSupportZoom(false)
-            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         }
-        webViewClient = object : android.webkit.WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?) = true
+        webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?) = true
 
-            override fun shouldInterceptRequest(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val url = request?.url?.toString().orEmpty()
                 return if (url.startsWith("about:") || url.startsWith("data:")) null
-                else android.webkit.WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
+                else WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
             }
         }
     }
@@ -259,17 +280,17 @@ fun ApprovalCard(command: String, modifier: Modifier = Modifier) {
  * stop asking in this chat, or cancel. The card rises with a spring, the badge lands with a bounce, the parts come in one after another.
  */
 @Composable
-fun ToolApprovalCard(pending: com.apvcode.devx.data.PendingApproval, modifier: Modifier = Modifier) {
+fun ToolApprovalCard(pending: PendingApproval, modifier: Modifier = Modifier) {
     val r = pending.request
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    androidx.compose.runtime.LaunchedEffect(Unit) { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) }
+    val haptic = LocalHapticFeedback.current
+    LaunchedEffect(Unit) { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
     // The edge breathes slowly: the card asks to be looked at without shouting.
     val breathe by androidx.compose.animation.core.rememberInfiniteTransition(label = "ask").animateFloat(
-        0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800, easing = androidx.compose.animation.core.FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "breathe",
+        0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "breathe",
     )
     val tint = if (r.changesData) DevxColors.Warning else DevxColors.TextPrimary
-    val badge = remember { androidx.compose.animation.core.Animatable(0.4f) }
-    androidx.compose.runtime.LaunchedEffect(Unit) { badge.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.42f, stiffness = 320f)) }
+    val badge = remember { Animatable(0.4f) }
+    LaunchedEffect(Unit) { badge.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.42f, stiffness = 320f)) }
     val shape = RoundedCornerShape(26.dp)
     Column(
         modifier.fillMaxWidth().clip(shape).background(DevxColors.Card).border(1.dp, tint.copy(alpha = 0.18f + 0.3f * breathe), shape).padding(16.dp),
@@ -286,11 +307,11 @@ fun ToolApprovalCard(pending: com.apvcode.devx.data.PendingApproval, modifier: M
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(DevxColors.CardInner).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (r.plain) {
-                        Text(r.title, style = DevxType.BodyStrong, color = DevxColors.TextPrimary, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        if (r.detail.isNotBlank()) Text(r.detail, style = DevxType.Body.copy(fontSize = 14.sp), color = DevxColors.TextSecondary, maxLines = 8, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text(r.title, style = DevxType.BodyStrong, color = DevxColors.TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        if (r.detail.isNotBlank()) Text(r.detail, style = DevxType.Body.copy(fontSize = 14.sp), color = DevxColors.TextSecondary, maxLines = 8, overflow = TextOverflow.Ellipsis)
                     } else {
-                        Text(r.title, style = DevxType.Mono, color = DevxColors.TextPrimary, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        if (r.detail.isNotBlank()) Text(r.detail, style = DevxType.Mono.copy(fontSize = 12.sp), color = DevxColors.TextSecondary, maxLines = 5, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text(r.title, style = DevxType.Mono, color = DevxColors.TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        if (r.detail.isNotBlank()) Text(r.detail, style = DevxType.Mono.copy(fontSize = 12.sp), color = DevxColors.TextSecondary, maxLines = 5, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 if (r.changesData) Text(stringResource(R.string.mcp_ask_changes), style = DevxType.Caption, color = DevxColors.Warning)
@@ -298,20 +319,20 @@ fun ToolApprovalCard(pending: com.apvcode.devx.data.PendingApproval, modifier: M
         }
         AskRise(190) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PillButton(stringResource(R.string.mcp_ask_deny), onClick = { pending.answer(com.apvcode.devx.data.ApprovalDecision.Deny) }, filled = false, modifier = Modifier.weight(1f))
-                PillButton(stringResource(R.string.mcp_ask_allow), onClick = { pending.answer(com.apvcode.devx.data.ApprovalDecision.Once) }, modifier = Modifier.weight(1f))
+                PillButton(stringResource(R.string.mcp_ask_deny), onClick = { pending.answer(ApprovalDecision.Deny) }, filled = false, modifier = Modifier.weight(1f))
+                PillButton(stringResource(R.string.mcp_ask_allow), onClick = { pending.answer(ApprovalDecision.Once) }, modifier = Modifier.weight(1f))
             }
         }
         if (!r.plain && r.alwaysKey.isNotEmpty()) AskRise(250) {
             Text(
-                stringResource(R.string.mcp_ask_always_tool, r.alwaysKey), style = DevxType.Caption, color = DevxColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).pressable(scaleTo = 0.97f) { pending.answer(com.apvcode.devx.data.ApprovalDecision.Always) }.padding(vertical = 11.dp, horizontal = 12.dp),
+                stringResource(R.string.mcp_ask_always_tool, r.alwaysKey), style = DevxType.Caption, color = DevxColors.TextSecondary, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).pressable(scaleTo = 0.97f) { pending.answer(ApprovalDecision.Always) }.padding(vertical = 11.dp, horizontal = 12.dp),
             )
         }
         if (!r.plain) AskRise(310) {
             Text(
-                stringResource(R.string.mcp_ask_always, r.serverName), style = DevxType.Caption, color = DevxColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).pressable(scaleTo = 0.97f) { pending.answer(com.apvcode.devx.data.ApprovalDecision.ThisChat) }.padding(vertical = 11.dp, horizontal = 12.dp),
+                stringResource(R.string.mcp_ask_always, r.serverName), style = DevxType.Caption, color = DevxColors.TextSecondary, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).pressable(scaleTo = 0.97f) { pending.answer(ApprovalDecision.ThisChat) }.padding(vertical = 11.dp, horizontal = 12.dp),
             )
         }
     }
@@ -319,7 +340,7 @@ fun ToolApprovalCard(pending: com.apvcode.devx.data.PendingApproval, modifier: M
 
 @Composable
 private fun AskRise(delayMs: Long, content: @Composable () -> Unit) {
-    val a = remember { androidx.compose.animation.core.Animatable(0f) }
-    androidx.compose.runtime.LaunchedEffect(Unit) { kotlinx.coroutines.delay(delayMs); a.animateTo(1f, androidx.compose.animation.core.tween(360, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    val a = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(delayMs); a.animateTo(1f, androidx.compose.animation.core.tween(360, easing = FastOutSlowInEasing)) }
     Box(Modifier.graphicsLayer { alpha = a.value; translationY = (1f - a.value) * 14.dp.toPx() }) { content() }
 }

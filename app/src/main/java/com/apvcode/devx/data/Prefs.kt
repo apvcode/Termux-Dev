@@ -3,10 +3,11 @@ package com.apvcode.devx.data
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
-enum class ThemeMode { System, Black, Gray, Light }
+enum class ThemeMode { System, Black, Gray, Light, Midnight, Forest, Dusk, Ember, Ocean, Paper, Sakura, Mint }
 
 enum class AppLanguage(val tag: String?) {
     System(null), English("en"), Russian("ru"), German("de"), Spanish("es"), French("fr"),
@@ -15,12 +16,22 @@ enum class AppLanguage(val tag: String?) {
 
 /** Small personal settings: nickname, theme, language. Read on start, changed from Settings. */
 object Prefs {
+    const val ENGINE_PHONE = "phone"
+    const val ENGINE_CLOUD = "cloud"
+
     private var store: SharedPreferences? = null
     internal val raw: SharedPreferences? get() = store
 
     var nickname by mutableStateOf("")
         private set
     var theme by mutableStateOf(ThemeMode.Black)
+
+    /** The theme follows the time of day: [dayTheme] by day, [nightTheme] from [nightFrom] to [nightTo] (minutes of the day). */
+    var themeSchedule by mutableStateOf(false)
+    var dayTheme by mutableStateOf(ThemeMode.Light)
+    var nightTheme by mutableStateOf(ThemeMode.Black)
+    var nightFrom by mutableIntStateOf(ThemeSchedule.DEFAULT_FROM)
+    var nightTo by mutableIntStateOf(ThemeSchedule.DEFAULT_TO)
         private set
     var language by mutableStateOf(AppLanguage.System)
         private set
@@ -48,12 +59,25 @@ object Prefs {
         private set
 
     /** Lets the assistant act on the phone: alarms, timers, reminders, apps, contacts, calendar, music. On until switched off. */
+    /** Glass panels blur what is behind them. On by default; off is for a slow phone (the panels are plain then). */
+    var blur by mutableStateOf(true)
+
     var phoneTools by mutableStateOf(true)
     var twoGis by mutableStateOf(true)
 
     /** How fast the assistant speaks (1.0 is the voice's own speed) and the voice chosen by name (empty: the best one the phone has). */
     var voiceRate by mutableStateOf(1.05f)
     var voiceName by mutableStateOf("")
+
+    /** The voice that reads answers aloud: [ENGINE_PHONE] (the phone's own) or [ENGINE_CLOUD] (a provider's neural voice, which sounds like a person). */
+    var voiceEngine by mutableStateOf(ENGINE_PHONE)
+
+    /** For the cloud voice: the provider (by id) and the name of its voice. */
+    var cloudProvider by mutableStateOf("")
+    var cloudVoice by mutableStateOf("")
+
+    /** The speech model chosen by hand; empty means the newest one the provider lists. */
+    var cloudModel by mutableStateOf("")
 
     /** The model of the voice assistant's talks (a quick one is best); null means the model chosen for chats. */
     var voiceModel by mutableStateOf<ModelRef?>(null)
@@ -92,11 +116,16 @@ object Prefs {
 
     fun init(context: Context) {
         if (store != null) return
-        val p = context.applicationContext.getSharedPreferences("devx_prefs", Context.MODE_PRIVATE)
+        val p = context.applicationContext.getSharedPreferences(PrefFiles.APP, Context.MODE_PRIVATE)
         store = p
         Persona.load(p)
         nickname = p.getString("nickname", "").orEmpty()
         theme = runCatching { ThemeMode.valueOf(p.getString("theme", "") ?: "") }.getOrDefault(ThemeMode.Black)
+        themeSchedule = p.getBoolean("themeSchedule", false)
+        dayTheme = runCatching { ThemeMode.valueOf(p.getString("dayTheme", "") ?: "") }.getOrDefault(ThemeMode.Light)
+        nightTheme = runCatching { ThemeMode.valueOf(p.getString("nightTheme", "") ?: "") }.getOrDefault(ThemeMode.Black)
+        nightFrom = p.getInt("nightFrom", ThemeSchedule.DEFAULT_FROM).coerceIn(0, 1439)
+        nightTo = p.getInt("nightTo", ThemeSchedule.DEFAULT_TO).coerceIn(0, 1439)
         language = runCatching { AppLanguage.valueOf(p.getString("language", "") ?: "") }.getOrDefault(AppLanguage.System)
         voiceLanguage = p.getString("voiceLanguage", "").orEmpty()
         onboarded = p.getBoolean("onboarded", false) || nickname.isNotBlank()
@@ -105,9 +134,14 @@ object Prefs {
         workTools = p.getBoolean("workTools", true)
         terminal = p.getBoolean("terminal", true)
         phoneTools = p.getBoolean("phoneTools", true)
+        blur = p.getBoolean("blur", true)
         twoGis = p.getBoolean("twoGis", true)
         voiceRate = p.getFloat("voiceRate", 1.05f)
         voiceName = p.getString("voiceName", "").orEmpty()
+        voiceEngine = p.getString("voiceEngine", ENGINE_PHONE).orEmpty().takeIf { it == ENGINE_CLOUD } ?: ENGINE_PHONE
+        cloudProvider = p.getString("cloudProvider", "").orEmpty()
+        cloudVoice = p.getString("cloudVoice", "").orEmpty()
+        cloudModel = p.getString("cloudModel", "").orEmpty()
         voiceModel = p.getString("voiceModelProvider", null)?.let { pr -> p.getString("voiceModelName", null)?.let { m -> ModelRef(pr, m) } }
         folderUri = p.getString("folderUri", null)
         galleryTools = p.getBoolean("galleryTools", true)
@@ -185,6 +219,20 @@ object Prefs {
         store?.edit()?.putBoolean("voiceHandsFree", value)?.apply()
     }
 
+    fun saveVoiceEngine(value: String) { voiceEngine = value; store?.edit()?.putString("voiceEngine", value)?.apply() }
+
+    /** A new provider has its own voices: the voice is forgotten (the first of the list is used until one is picked). */
+    fun saveCloudProvider(id: String) { cloudProvider = id; cloudVoice = ""; cloudModel = ""; store?.edit()?.putString("cloudProvider", id)?.putString("cloudVoice", "")?.putString("cloudModel", "")?.apply() }
+
+    fun saveCloudModel(id: String) { cloudModel = id; store?.edit()?.putString("cloudModel", id)?.apply() }
+
+    fun saveCloudVoice(name: String) { cloudVoice = name; store?.edit()?.putString("cloudVoice", name)?.apply() }
+
+    fun saveBlur(value: Boolean) {
+        blur = value
+        store?.edit()?.putBoolean("blur", value)?.apply()
+    }
+
     fun savePhoneTools(value: Boolean) {
         phoneTools = value
         store?.edit()?.putBoolean("phoneTools", value)?.apply()
@@ -231,9 +279,26 @@ object Prefs {
         onboarded = true
     }
 
+    /** Picking a theme by hand puts the schedule aside: what was tapped is what is shown. */
     fun saveTheme(value: ThemeMode) {
         theme = value
-        store?.edit()?.putString("theme", value.name)?.apply()
+        themeSchedule = false
+        store?.edit()?.putString("theme", value.name)?.putBoolean("themeSchedule", false)?.apply()
+    }
+
+    fun saveThemeSchedule(on: Boolean) {
+        themeSchedule = on
+        store?.edit()?.putBoolean("themeSchedule", on)?.apply()
+    }
+
+    fun saveDayTheme(value: ThemeMode) { dayTheme = value; store?.edit()?.putString("dayTheme", value.name)?.apply() }
+
+    fun saveNightTheme(value: ThemeMode) { nightTheme = value; store?.edit()?.putString("nightTheme", value.name)?.apply() }
+
+    fun saveNightTimes(from: Int, to: Int) {
+        nightFrom = from.coerceIn(0, 1439)
+        nightTo = to.coerceIn(0, 1439)
+        store?.edit()?.putInt("nightFrom", nightFrom)?.putInt("nightTo", nightTo)?.apply()
     }
 
     fun saveVoiceLanguage(tag: String) {

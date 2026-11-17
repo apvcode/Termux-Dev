@@ -147,7 +147,7 @@ set_brightness changes the screen's brightness (a percent, or automatic) and do_
 
 /** Do Not Disturb that ends by itself: an alarm turns it off at the time (and again after a restart, if the time has passed). */
 object Dnd {
-    private const val PREFS = "dnd"
+    private const val PREFS = PrefFiles.DND
     private const val KEY = "until"
     const val ACTION = "com.apvcode.devx.DND_OFF"
 
@@ -174,7 +174,7 @@ object Dnd {
 
     fun cancel(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY).apply()
-        runCatching { context.getSystemService(AlarmManager::class.java).cancel(pending(context)) }
+        attempt("devicetools") { context.getSystemService(AlarmManager::class.java).cancel(pending(context)) }
     }
 
     /** The time came (or the phone was restarted after it): Do Not Disturb goes off. */

@@ -1,5 +1,6 @@
 package com.apvcode.devx
 
+import com.apvcode.devx.data.logged
 import androidx.compose.runtime.mutableStateOf
 import android.content.Intent
 import android.content.Context
@@ -16,29 +17,47 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.apvcode.devx.ui.DevxApp
 import com.apvcode.devx.ui.theme.DevxTheme
+import android.net.Uri
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import com.apvcode.devx.data.AppLock
+import com.apvcode.devx.data.AutoBackup
+import com.apvcode.devx.data.Earcon
+import com.apvcode.devx.data.MemoryRefresh
+import com.apvcode.devx.data.PendingAsk
+import com.apvcode.devx.data.PendingShare
+import com.apvcode.devx.data.PendingStudy
+import com.apvcode.devx.data.PermissionBridge
+import com.apvcode.devx.data.Tasks
+import com.apvcode.devx.remote.PendingPairing
+import com.apvcode.devx.remote.PendingRemoteChat
+import com.apvcode.devx.remote.RemoteHub
+import com.apvcode.devx.remote.RemoteLink
+import com.apvcode.devx.ui.chat.ChatViewModel
+import com.apvcode.devx.ui.chat.SharedChat
 
 class MainActivity : ComponentActivity() {
     /** The chat that a home-screen icon or a notification asked for; the app takes it and clears it. */
     private val requestedChat = mutableStateOf<String?>(null)
-    private val viewModel: com.apvcode.devx.ui.chat.ChatViewModel by lazy { com.apvcode.devx.ui.chat.SharedChat.acquire(application, "app") }
+    private val viewModel: ChatViewModel by lazy { SharedChat.acquire(application, "app") }
 
     /** A permission the assistant's tools asked for (contacts, calendar): the answer goes back to the tool. */
     private var permissionDone: ((Boolean) -> Unit)? = null
-    private val permissionLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionDone?.invoke(granted)
         permissionDone = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        com.apvcode.devx.data.AppLock.init(applicationContext)
-        com.apvcode.devx.data.Earcon.recover(applicationContext)
-        com.apvcode.devx.data.MemoryRefresh.schedule(applicationContext)
+        AppLock.init(applicationContext)
+        Earcon.recover(applicationContext)
+        MemoryRefresh.schedule(applicationContext)
         // After a restore from a backup the tasks are back but their alarms are not: every enabled task gets its next one.
-        Thread { runCatching { com.apvcode.devx.data.Tasks.restoreAll(applicationContext) }; runCatching { com.apvcode.devx.data.AutoBackup.runIfDue(applicationContext) } }.start()
+        Thread { runCatching { Tasks.restoreAll(applicationContext) }.logged("mainactivity"); runCatching { AutoBackup.runIfDue(applicationContext) }.logged("mainactivity") }.start()
         takeChatFrom(intent)
-        com.apvcode.devx.remote.RemoteHub.init(applicationContext)
-        com.apvcode.devx.remote.RemoteHub.memory = viewModel.memory
+        RemoteHub.init(applicationContext)
+        RemoteHub.memory = viewModel.memory
         setContent {
             DevxTheme {
                 // Bar icons follow the theme: light icons on dark themes, dark ones on the light theme.
@@ -74,56 +93,58 @@ class MainActivity : ComponentActivity() {
 
     private fun takeChatFrom(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE) takeShare(intent)
-        if (intent?.action == ACTION_ASK) com.apvcode.devx.data.PendingAsk.request = true
-        if (intent?.action == ACTION_STUDY) com.apvcode.devx.data.PendingStudy.project = intent.getStringExtra("project").orEmpty().ifEmpty { "\u0000" }
-        if (intent?.action == ACTION_TEMP) com.apvcode.devx.data.PendingAsk.temporary = true
-        if (intent?.action == ACTION_COMPUTERS) com.apvcode.devx.data.PendingAsk.computers = true
+        if (intent?.action == ACTION_ASK) PendingAsk.request = true
+        if (intent?.action == ACTION_STUDY) PendingStudy.project = intent.getStringExtra("project").orEmpty().ifEmpty { "\u0000" }
+        if (intent?.action == ACTION_TEMP) PendingAsk.temporary = true
+        if (intent?.action == ACTION_COMPUTERS) PendingAsk.computers = true
         if (intent?.action == ACTION_OPEN_CHAT) requestedChat.value = intent.getStringExtra(EXTRA_CHAT_ID)
         if (intent?.action == ACTION_OPEN_REMOTE) {
             val host = intent.getStringExtra(EXTRA_HOST)
             val session = intent.getStringExtra(EXTRA_SESSION)
-            if (host != null && session != null) com.apvcode.devx.remote.PendingRemoteChat.target = host to session
+            if (host != null && session != null) PendingRemoteChat.target = host to session
         }
-        if (intent?.action == Intent.ACTION_VIEW) intent.dataString?.takeIf { it.startsWith("devx1:") }?.let { com.apvcode.devx.remote.PendingPairing.code = it }
+        if (intent?.action == Intent.ACTION_VIEW) intent.dataString?.takeIf { it.startsWith("devx1:") }?.let { PendingPairing.code = it }
     }
 
     /** Words (with a title, if the other app gave one) and/or files from the Share menu. */
     @Suppress("DEPRECATION")
     private fun takeShare(intent: Intent) {
         val words = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT)?.takeIf { it.isNotBlank() }, intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }).joinToString("\n\n")
-        val uris = if (intent.action == Intent.ACTION_SEND_MULTIPLE) intent.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty()
-        else listOfNotNull(intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM))
-        if (words.isNotEmpty() || uris.isNotEmpty()) com.apvcode.devx.data.PendingShare.item = com.apvcode.devx.data.PendingShare.Item(words, uris)
+        val uris = if (intent.action == Intent.ACTION_SEND_MULTIPLE) intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+        else listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))
+        if (words.isNotEmpty() || uris.isNotEmpty()) PendingShare.item = PendingShare.Item(words, uris)
     }
 
     override fun onStart() {
         super.onStart()
         // Back after a while: the lock may shut. (The picture in the list of recent apps is hidden while a lock is on.)
-        com.apvcode.devx.data.AppLock.back()
-        if (android.os.Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!com.apvcode.devx.data.AppLock.enabled)
+        AppLock.back()
+        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!AppLock.enabled)
         AppState.foreground = true
     }
 
     override fun onStop() {
         AppState.foreground = false
-        com.apvcode.devx.data.AppLock.leave()
+        AppLock.leave()
         // The widgets show the chats and honour the lock: bring them up to date as the app goes.
         runCatching { Widgets.refreshAll(this) }
         // Leaving the app: only a computer the person is connected to (with its notification) stays reachable, so that approvals
         // and answers still arrive. Every other connection ends with the screen.
-        if (!com.apvcode.devx.remote.RemoteLink.held) com.apvcode.devx.remote.RemoteHub.stopAll()
+        if (!RemoteLink.held) RemoteHub.stopAll()
         super.onStop()
     }
 
     override fun onDestroy() {
+        // The app is closed for good: the voice stops with it (a sample or an answer must not go on playing).
+        if (isFinishing) com.apvcode.devx.assist.VoiceWarm.speaker(applicationContext).stop()
         permissionDone = null
-        if (com.apvcode.devx.data.PermissionBridge.owner === this) com.apvcode.devx.data.PermissionBridge.asker = null
+        if (PermissionBridge.owner === this) PermissionBridge.asker = null
         // The app is closed (not turned, not sent to the background): nothing of it goes on working.
         if (isFinishing) {
-            com.apvcode.devx.remote.RemoteLink.disconnect(this)
-            com.apvcode.devx.remote.RemoteHub.stopAll()
-            com.apvcode.devx.ui.chat.SharedChat.release("app")
-            if (com.apvcode.devx.ui.chat.SharedChat.idle) GenerationService.stop(this)
+            RemoteLink.disconnect(this)
+            RemoteHub.stopAll()
+            SharedChat.release("app")
+            if (SharedChat.idle) GenerationService.stop(this)
         }
         super.onDestroy()
     }
@@ -131,8 +152,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AppState.resumed = true
-        com.apvcode.devx.data.PermissionBridge.owner = this
-        com.apvcode.devx.data.PermissionBridge.asker = { permission, done ->
+        PermissionBridge.owner = this
+        PermissionBridge.asker = { permission, done ->
             permissionDone?.invoke(false)
             permissionDone = done
             permissionLauncher.launch(permission)

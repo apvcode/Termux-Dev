@@ -1,5 +1,6 @@
 package com.apvcode.devx
 
+import com.apvcode.devx.data.logged
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -10,6 +11,13 @@ import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.RemoteViews
+import android.os.Handler
+import android.os.Looper
+import android.view.View
+import com.apvcode.devx.assist.AssistantActivity
+import com.apvcode.devx.data.AppLock
+import com.apvcode.devx.data.StudyDue
+import java.io.File
 
 /** The way into a fresh chat from outside the app: the intent the tile and the widget send. */
 internal fun askIntent(context: Context): Intent =
@@ -52,7 +60,7 @@ class VoiceTileService : TileService() {
     @Suppress("DEPRECATION", "StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
-        val intent = com.apvcode.devx.assist.AssistantActivity.intent(this)
+        val intent = AssistantActivity.intent(this)
         if (Build.VERSION.SDK_INT >= 34) {
             startActivityAndCollapse(PendingIntent.getActivity(this, 1, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
         } else {
@@ -92,7 +100,7 @@ class QuickWidget : AppWidgetProvider() {
 class StudyWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         val views = RemoteViews(context.packageName, R.layout.widget_study)
-        val due = com.apvcode.devx.data.StudyDue.read(context)
+        val due = StudyDue.read(context)
         val total = due.values.sum()
         val best = due.maxByOrNull { it.value }?.key
         views.setTextViewText(R.id.study_title, if (total > 0) context.resources.getQuantityString(R.plurals.nb_cards_due, total, total) else context.getString(R.string.widget_study_title))
@@ -115,7 +123,7 @@ internal object Widgets {
     private val ICONS = intArrayOf(R.id.icon1, R.id.icon2, R.id.icon3, R.id.icon4)
     private val TITLES = intArrayOf(R.id.title1, R.id.title2, R.id.title3, R.id.title4)
     private val TIMES = intArrayOf(R.id.time1, R.id.time2, R.id.time3, R.id.time4)
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val handler = Handler(Looper.getMainLooper())
     private var pending: Runnable? = null
 
     fun open(context: Context, action: String, code: Int, extra: Pair<String, String>? = null): PendingIntent {
@@ -126,7 +134,7 @@ internal object Widgets {
 
     /** The voice assistant's window (over whatever is open), with the microphone on. */
     fun assistant(context: Context, code: Int): PendingIntent =
-        PendingIntent.getActivity(context, code, com.apvcode.devx.assist.AssistantActivity.intent(context), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        PendingIntent.getActivity(context, code, AssistantActivity.intent(context), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
     fun refresh(context: Context, provider: Class<*>) {
         val manager = AppWidgetManager.getInstance(context)
@@ -158,14 +166,14 @@ internal object Widgets {
 
     /** The newest chats, read straight from the files (the app may not be running). Only the few newest are opened. */
     private fun latest(context: Context): List<Row> {
-        val dir = java.io.File(context.filesDir, "chats")
+        val dir = File(context.filesDir, "chats")
         val files = (dir.listFiles() ?: return emptyList()).filter { it.extension == "json" }.sortedByDescending { it.lastModified() }.take(12)
         return files.mapNotNull { f ->
             runCatching {
                 val o = org.json.JSONObject(f.readText())
                 if (o.optBoolean("archived")) return@runCatching null
                 Row(o.getString("id"), o.optString("title"), o.optLong("updatedAt", f.lastModified()), o.optBoolean("pinned"), o.optBoolean("locked"))
-            }.getOrNull()
+            }.logged("askentry").getOrNull()
         }.sortedWith(compareByDescending<Row> { it.pinned }.thenByDescending { it.at }).take(4)
     }
 
@@ -184,21 +192,21 @@ internal object Widgets {
         views.setOnClickPendingIntent(R.id.widget_new, open(context, MainActivity.ACTION_ASK, 20))
         // With the lock on, what the chats are called is nobody's business on a home screen.
         // The widget can run with the app not started: the lock has to be read first. If that fails, hide.
-        val lockKnown = runCatching { com.apvcode.devx.data.AppLock.init(context) }.isSuccess
-        val hidden = !lockKnown || com.apvcode.devx.data.AppLock.locksApp
+        val lockKnown = runCatching { AppLock.init(context) }.logged("askentry").isSuccess
+        val hidden = !lockKnown || AppLock.locksApp
         val rows = if (hidden) emptyList() else latest(context)
         for (i in ROWS.indices) {
             val row = rows.getOrNull(i)
-            views.setViewVisibility(ROWS[i], if (row == null) (if (rows.isEmpty()) android.view.View.GONE else android.view.View.INVISIBLE) else android.view.View.VISIBLE)
+            views.setViewVisibility(ROWS[i], if (row == null) (if (rows.isEmpty()) View.GONE else View.INVISIBLE) else View.VISIBLE)
             if (row == null) continue
-            val shown = !row.locked || !com.apvcode.devx.data.AppLock.locksChats
+            val shown = !row.locked || !AppLock.locksChats
             views.setTextViewText(TITLES[i], if (shown) row.title.ifBlank { context.getString(R.string.chat_placeholder) } else "••••••••")
             views.setTextViewText(TIMES[i], age(context, row.at))
             views.setImageViewResource(ICONS[i], when { row.pinned -> R.drawable.ic_pin; !shown -> R.drawable.ic_lock; else -> R.drawable.ic_message_circle })
             views.setOnClickPendingIntent(ROWS[i], open(context, MainActivity.ACTION_OPEN_CHAT, 30 + i, MainActivity.EXTRA_CHAT_ID to row.id))
         }
         val note = when { hidden -> R.string.widget_locked; rows.isEmpty() -> R.string.widget_empty; else -> 0 }
-        views.setViewVisibility(R.id.note_box, if (note == 0) android.view.View.GONE else android.view.View.VISIBLE)
+        views.setViewVisibility(R.id.note_box, if (note == 0) View.GONE else View.VISIBLE)
         if (note != 0) {
             views.setTextViewText(R.id.note, context.getString(note))
             views.setImageViewResource(R.id.note_icon, if (hidden) R.drawable.ic_lock else R.drawable.ic_message_circle)

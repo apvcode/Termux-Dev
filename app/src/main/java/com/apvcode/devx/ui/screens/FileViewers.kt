@@ -55,6 +55,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 
 private const val MAX_LINES = 5_000
 private const val MAX_LINE = 2_000
@@ -72,7 +75,7 @@ fun ViewerBar(name: String, caption: String?, onClose: () -> Unit, trailing: (@C
         )
         if (trailing != null) Box(Modifier.align(Alignment.CenterEnd)) { trailing() }
         Column(Modifier.padding(horizontal = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(name, style = DevxType.Title, color = DevxColors.TextPrimary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(name, style = DevxType.Title, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (caption != null) Text(caption, style = DevxType.Caption, color = DevxColors.TextSecondary)
         }
     }
@@ -100,7 +103,7 @@ fun TextFileViewer(file: File, name: String, onClose: () -> Unit, modifier: Modi
                 val code = DevxType.Mono.copy(fontSize = 13.sp, lineHeight = 20.sp, fontFamily = FontFamily.Monospace)
                 SelectionContainer(Modifier.weight(1f)) {
                     Box(Modifier.fillMaxSize().horizontalScroll(rememberScrollState())) {
-                        LazyColumn(Modifier.widthIn(min = 360.dp).navigationBarsPadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                        LazyColumn(Modifier.widthIn(min = 360.dp).navigationBarsPadding(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                             itemsIndexed(shown) { i, line ->
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     Text((i + 1).toString().padStart(digits), style = code, color = DevxColors.TextDisabled)
@@ -136,14 +139,14 @@ fun PdfViewer(file: File, name: String, onClose: () -> Unit, modifier: Modifier 
                 LazyColumn(
                     state = list,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 24.dp),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(doc.pages) { index ->
                         val page by produceState<Bitmap?>(null, index, widthPx) { value = doc.render(index, widthPx) }
                         val bitmap = page
                         Box(
-                            Modifier.fillMaxWidth().aspectRatio(bitmap?.let { it.width.toFloat() / it.height } ?: 0.707f).clip(RoundedCornerShape(6.dp)).background(androidx.compose.ui.graphics.Color.White),
+                            Modifier.fillMaxWidth().aspectRatio(bitmap?.let { it.width.toFloat() / it.height } ?: 0.707f).clip(RoundedCornerShape(6.dp)).background(Color.White),
                         ) {
                             if (bitmap != null) Image(bitmap.asImageBitmap(), null, contentScale = ContentScale.FillWidth, modifier = Modifier.fillMaxSize())
                         }

@@ -95,6 +95,13 @@ import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import java.util.Calendar
 import java.util.Date
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TransformOrigin
+import com.apvcode.devx.assist.VoiceWarm
+import com.apvcode.devx.data.Artifact
+import com.apvcode.devx.data.PendingApproval
+import kotlinx.coroutines.FlowPreview
 
 /** What a message can ask of the screen around it. */
 class MessageActionsHost(
@@ -106,7 +113,7 @@ class MessageActionsHost(
     val onOpenPhoto: (Attachment) -> Unit,
     val onShowThinking: (Msg) -> Unit,
     val onShowSources: (Msg) -> Unit,
-    val onOpenFile: (com.apvcode.devx.data.Artifact) -> Unit,
+    val onOpenFile: (Artifact) -> Unit,
     val onShowSteps: (Msg) -> Unit,
     /** A notebook or a project that a message pointed at with @ was tapped. */
     val onOpenProject: (String) -> Unit = {},
@@ -242,7 +249,7 @@ private fun FoldedText(text: String, open: Boolean, onToggle: () -> Unit) {
         Column(
             Modifier
                 .animateContentSize(tween(340, easing = FastOutSlowInEasing))
-                .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
                     if (fade > 0.001f) {
@@ -312,9 +319,9 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
             else AssistantStatus(msg, onClick = { host.onShowThinking(msg) })
         }
     }
-    val imageContext = androidx.compose.ui.platform.LocalContext.current
+    val imageContext = LocalContext.current
     val imageResolver = remember(vm) { { src: String -> resolveImageSource(vm, imageContext, src) } }
-    androidx.compose.runtime.CompositionLocalProvider(LocalImageResolver provides imageResolver) {
+    CompositionLocalProvider(LocalImageResolver provides imageResolver) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         blocks.forEach { block ->
             when (block) {
@@ -337,12 +344,12 @@ private fun AssistantMessage(msg: Msg, vm: ChatViewModel, animate: Boolean, host
         }
         // The assistant waits for a "yes" before it uses a server: the card rises under the text, and sinks when it is answered.
         val asked = msg.approval
-        var lastAsk by remember { mutableStateOf<com.apvcode.devx.data.PendingApproval?>(null) }
+        var lastAsk by remember { mutableStateOf<PendingApproval?>(null) }
         if (asked != null) lastAsk = asked
         AnimatedVisibility(
             visible = asked != null,
             enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 320f)) { it / 2 } +
-                androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 360f), initialScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)) +
+                androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 360f), initialScale = 0.9f, transformOrigin = TransformOrigin(0.5f, 1f)) +
                 androidx.compose.animation.expandVertically(androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 360f)) + fadeIn(tween(240)),
             exit = androidx.compose.animation.slideOutVertically(tween(260)) { it / 3 } + androidx.compose.animation.scaleOut(tween(240), targetScale = 0.94f) + shrinkVertically(tween(280)) + fadeOut(tween(200)),
         ) { lastAsk?.let { ToolApprovalCard(it) } }
@@ -447,7 +454,7 @@ private fun AssistantActions(msg: Msg, vm: ChatViewModel, host: MessageActionsHo
                         }
                     }
                     if (msg.text.isNotBlank()) {
-                        val speaker = remember { com.apvcode.devx.assist.VoiceWarm.speaker(context) }
+                        val speaker = remember { VoiceWarm.speaker(context) }
                         MenuRow(DevxIcons.Speaker, stringResource(if (speaker.speaking) R.string.msg_listen_stop else R.string.msg_listen)) {
                             menu = false
                             if (speaker.speaking) speaker.stop() else speaker.read(msg.text)
@@ -534,7 +541,7 @@ private fun whenLabel(context: Context, timestamp: Long): String {
 /** The photos and files of a message: photos as tiles that open full screen, files as chips. */
 
 /** The text of a message; while [active] (it is being written) it follows the message at most every 80 ms. */
-@OptIn(kotlinx.coroutines.FlowPreview::class)
+@OptIn(FlowPreview::class)
 @Composable
 private fun sampledText(msg: Msg, active: Boolean): String {
     var shown by remember(msg.id) { mutableStateOf(msg.text) }

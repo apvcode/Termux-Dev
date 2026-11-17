@@ -1,5 +1,6 @@
 package com.apvcode.devx.ui.screens
 
+import com.apvcode.devx.data.logged
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -20,7 +21,20 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.Quiz
+import androidx.compose.material.icons.outlined.RecordVoiceOver
+import androidx.compose.material.icons.outlined.Today
+import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.foundation.layout.Arrangement
+import com.apvcode.devx.ui.Ask
+import com.apvcode.devx.ui.AskHost
+import com.apvcode.devx.ui.ChatItem
+import com.apvcode.devx.ui.SelectionBar
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -102,6 +116,24 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlin.math.cos
 import kotlin.math.sin
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import com.apvcode.devx.data.NotebookExport
+import com.apvcode.devx.data.Pace
+import com.apvcode.devx.data.StudyLog
+import com.apvcode.devx.data.StudyPlan
+import com.apvcode.devx.ui.components.TextEditorSheet
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 
 /**
  * A notebook's own page. A calm glow in the notebook's colour behind its floating icon and name; what it holds at a glance (sources,
@@ -125,24 +157,59 @@ fun NotebookPage(
     onAsk: (String) -> Unit,
     /** Opens the cards screen: the cards that are due, one after another, without a chat. */
     onCards: () -> Unit = {},
+    /** Opens the concept map of the notebook. */
+    onGraph: () -> Unit = {},
 ) {
     val info = vm.projectInfo[name]
     if (info == null) { LaunchedEffect(Unit) { onBack() }; return }
     val tint = Color(info.color).let { if (info.color == 0xFFE6E6E6L) Color(0xFF8FA3D9) else it }
     val chats = vm.chats.filter { it.project == name }
     var menu by remember { mutableStateOf(false) }
-    val exportContext = androidx.compose.ui.platform.LocalContext.current
+    val exportContext = LocalContext.current
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
-    val export = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+    val export = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri != null) exportScope.launch {
-            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 runCatching { exportContext.contentResolver.openOutputStream(uri)!!.use { it.write(vm.exportNotebook(name).toByteArray(Charsets.UTF_8)) } }.isSuccess
             }
-            android.widget.Toast.makeText(exportContext, if (ok) R.string.export_saved else R.string.export_failed, android.widget.Toast.LENGTH_SHORT).show()
+            Toast.makeText(exportContext, if (ok) R.string.export_saved else R.string.export_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+    // Cards in and out: a file of cards (Anki text or package, CSV) is read into the notebook, and the cards are written as Anki text or CSV.
+    val importCards = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) exportScope.launch {
+            val r = vm.importCards(name, uri)
+            val text = r.problem?.let { exportContext.getString(it) } ?: exportContext.getString(R.string.cards_imported, r.added, r.inFile)
+            Toast.makeText(exportContext, text, Toast.LENGTH_LONG).show()
+        }
+    }
+    var cardsCsv by remember { mutableStateOf(false) }
+    val exportCards = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) exportScope.launch {
+            val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                runCatching { exportContext.contentResolver.openOutputStream(uri)!!.use { it.write(vm.exportCards(name, cardsCsv).toByteArray(Charsets.UTF_8)) } }.isSuccess
+            }
+            Toast.makeText(exportContext, if (ok) R.string.export_saved else R.string.export_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+    val exportApkg = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) exportScope.launch {
+            val n = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                runCatching { exportContext.contentResolver.openOutputStream(uri)!!.use { vm.exportApkg(name, it) } }.logged("notebookpage").getOrNull()
+            }
+            Toast.makeText(exportContext, if (n != null && n > 0) R.string.export_saved else R.string.export_failed, Toast.LENGTH_SHORT).show()
         }
     }
     var delete by remember { mutableStateOf(false) }
     var ask by remember { mutableStateOf("") }
+    // Chats of the notebook: hold one for its menu (pick, pin, rename, move, archive, delete), tap the others to tick them.
+    var chatAsk by remember { mutableStateOf<Ask?>(null) }
+    var selecting by remember { mutableStateOf(false) }
+    val picked = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    fun stopSelecting() { selecting = false; picked.clear() }
+    BackHandler(enabled = selecting) { stopSelecting() }
+    // A chat that is gone (deleted, moved to another notebook) is no longer ticked.
+    LaunchedEffect(chats.map { it.id }) { picked.retainAll(chats.map { it.id }.toSet()); if (selecting && chats.isEmpty()) stopSelecting() }
     val haze = rememberHazeState()
     LaunchedEffect(name) { if (vm.memorySummaryStale(name)) vm.refreshMemorySummary(name) }
 
@@ -155,12 +222,13 @@ fun NotebookPage(
     }
     var instructionsOpen by remember { mutableStateOf(false) }
     val openInstructions = { if (info.isNotebook) onSettings() else instructionsOpen = true }
-    if (instructionsOpen) com.apvcode.devx.ui.components.TextEditorSheet(
+    if (instructionsOpen) TextEditorSheet(
         title = stringResource(R.string.project_instructions), hint = stringResource(R.string.project_instructions_hint), initial = info.instructions,
         maxChars = 4000, onDismiss = { instructionsOpen = false }, onSave = { vm.setProjectInstructions(name, it) },
     )
     val ideaTexts = ideas.map { stringResource(it) }
 
+    AskHost(chatAsk, onDismiss = { chatAsk = null }, vm = vm, onDeleted = { stopSelecting() })
     if (delete) {
         DevxDialog(stringResource(if (info.isNotebook) R.string.dialog_delete_notebook else R.string.dialog_delete_project), onDismiss = { delete = false }) {
             Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -210,7 +278,7 @@ fun NotebookPage(
                         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SectionTitle(stringResource(R.string.nb_progress))
                             if (info.goal.isBlank()) GoalCard(tint) { onAsk(goalPrompt) }
-                            else ProgressCard(info, tint, onAsk, onCards, onChangeGoal = { onAsk(goalPrompt) }, onLesson = { l, s -> vm.setStudyLesson(name, l.id, s) })
+                            else ProgressCard(info, tint, onAsk, onCards, onGraph, onChangeGoal = { onAsk(goalPrompt) }, onLesson = { l, s -> vm.setStudyLesson(name, l.id, s) }, onDeadline = { vm.setNotebookDeadline(name, it) })
                         }
                     }
                 }
@@ -294,19 +362,15 @@ fun NotebookPage(
                         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             SectionTitle(stringResource(R.string.notebook_chats))
                             if (chats.isEmpty()) Text(stringResource(if (info.isNotebook) R.string.notebook_chats_empty else R.string.project_chats_empty), style = DevxType.Body, color = DevxColors.TextDisabled, modifier = Modifier.padding(top = 4.dp))
+                            val projectNames = vm.projects.toList()
                             chats.forEach { c ->
-                                Row(
-                                    Modifier.fillMaxWidth().pressable(scaleTo = 0.98f, haptic = false) { onOpenChat(c.id) }.clip(RoundedCornerShape(18.dp)).padding(vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                ) {
-                                    Box(Modifier.size(38.dp).clip(CircleShape).background(tint.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                                        Icon(DevxIcons.MessageCircle, null, tint = tint, modifier = Modifier.size(18.dp))
-                                    }
-                                    Column(Modifier.weight(1f)) {
-                                        Text(c.title, style = DevxType.Body, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (c.preview.isNotBlank()) Text(c.preview, style = DevxType.Caption, color = DevxColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                    Text(c.time, style = DevxType.Caption, color = DevxColors.TextDisabled)
+                                androidx.compose.runtime.key(c.id) {
+                                    ChatItem(
+                                        c, projectNames, vm, { onOpenChat(c.id) }, { chatAsk = it },
+                                        selecting, c.id in picked,
+                                        { if (c.id in picked) picked.remove(c.id) else picked.add(c.id) },
+                                        { selecting = true; if (c.id !in picked) picked.add(c.id) },
+                                    )
                                 }
                             }
                         }
@@ -332,12 +396,35 @@ fun NotebookPage(
                         MenuRow(DevxIcons.Pencil, stringResource(R.string.nb_edit)) { menu = false; onEdit() }
                         if (info.isNotebook) MenuRow(DevxIcons.Settings, stringResource(R.string.notebook_settings)) { menu = false; onSettings() }
                         else MenuRow(DevxIcons.Settings, stringResource(R.string.project_instructions)) { menu = false; instructionsOpen = true }
-                        MenuRow(DevxIcons.Share, stringResource(R.string.nb_export)) { menu = false; export.launch(com.apvcode.devx.data.NotebookExport.fileName(name)) }
+                        MenuRow(DevxIcons.Share, stringResource(R.string.nb_export)) { menu = false; export.launch(NotebookExport.fileName(name)) }
+                        if (info.isStudy) {
+                            MenuRow(DevxIcons.FilePlus, stringResource(R.string.cards_import)) { menu = false; importCards.launch(arrayOf("*/*")) }
+                            MenuRow(DevxIcons.Share, stringResource(R.string.cards_export_anki)) { menu = false; cardsCsv = false; exportCards.launch("$name-cards.txt") }
+                            MenuRow(DevxIcons.Share, stringResource(R.string.cards_export_apkg)) { menu = false; exportApkg.launch("$name.apkg") }
+                            MenuRow(DevxIcons.Share, stringResource(R.string.cards_export_csv)) { menu = false; cardsCsv = true; exportCards.launch("$name-cards.csv") }
+                        }
+                        MenuRow(DevxIcons.Archive, stringResource(if (info.archived) R.string.space_unarchive else R.string.menu_archive)) { menu = false; vm.setArchived(name, !info.archived) }
+                        MenuRow(DevxIcons.Copy, stringResource(R.string.space_duplicate)) {
+                            menu = false
+                            vm.duplicateProject(name)?.let { Toast.makeText(exportContext, exportContext.getString(R.string.space_duplicated, it), Toast.LENGTH_LONG).show() }
+                        }
                         MenuRow(DevxIcons.ChatOff, stringResource(R.string.menu_delete), danger = true) { menu = false; delete = true }
                     }
                 }
             }
 
+            if (selecting) {
+                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    SelectionBar(
+                        count = picked.size,
+                        total = chats.size,
+                        onCancel = { stopSelecting() },
+                        onToggleAll = { if (picked.size == chats.size) picked.clear() else { picked.clear(); picked.addAll(chats.map { it.id }) } },
+                        onArchive = { picked.toList().forEach(vm::archiveChat); stopSelecting() },
+                        onDelete = { chatAsk = Ask.DeleteChats(picked.toList()) },
+                    )
+                }
+            } else
             // Asking right in the notebook: glass over the page, the words start a chat of the notebook.
             Row(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 14.dp)
@@ -347,7 +434,7 @@ fun NotebookPage(
                 BasicTextField(
                     value = ask, onValueChange = { ask = it }, maxLines = 4,
                     textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary), cursorBrush = SolidColor(DevxColors.Accent),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { if (ask.isNotBlank()) { onAsk(ask.trim()); ask = "" } }),
                     modifier = Modifier.weight(1f).padding(vertical = 14.dp),
                     decorationBox = { inner -> Box { if (ask.isEmpty()) Text(stringResource(if (info.isNotebook) R.string.notebook_ask_hint else R.string.nb_ask_project), style = DevxType.Body, color = DevxColors.TextSecondary, maxLines = 1); inner() } },
@@ -409,7 +496,7 @@ private fun StatChip(label: String, value: Int, onClick: (() -> Unit)?, suffix: 
 }
 
 @Composable
-private fun ActionPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, filled: Boolean, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun ActionPill(icon: ImageVector, label: String, filled: Boolean, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Row(
         modifier.pressable(scaleTo = 0.96f, onClick = onClick).clip(CircleShape)
             .then(if (filled) Modifier.background(tint.copy(alpha = 0.9f)) else Modifier.border(1.dp, tint.copy(alpha = 0.6f), CircleShape))
@@ -430,7 +517,7 @@ private fun SectionTitle(text: String, modifier: Modifier = Modifier, action: St
 }
 
 @Composable
-private fun MemoryTile(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, modifier: Modifier, onClick: () -> Unit) {
+private fun MemoryTile(icon: ImageVector, label: String, value: String, modifier: Modifier, onClick: () -> Unit) {
     Column(modifier.pressable(scaleTo = 0.97f, haptic = false, onClick = onClick).clip(RoundedCornerShape(22.dp)).background(DevxColors.Card).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Icon(icon, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
         Text(label, style = DevxType.Caption, color = DevxColors.TextSecondary)
@@ -453,7 +540,7 @@ private fun GoalCard(tint: Color, onSetGoal: () -> Unit) {
 
 /** The goal, a ring that fills with the lessons done, the next step, and the lessons as a path. */
 @Composable
-private fun ProgressCard(info: ProjectInfo, tint: Color, onAsk: (String) -> Unit, onCards: () -> Unit, onChangeGoal: () -> Unit, onLesson: (Lesson, String) -> Unit) {
+private fun ProgressCard(info: ProjectInfo, tint: Color, onAsk: (String) -> Unit, onCards: () -> Unit, onGraph: () -> Unit, onChangeGoal: () -> Unit, onLesson: (Lesson, String) -> Unit, onDeadline: (Long) -> Unit) {
     val plan = info.plan
     val fraction by animateFloatAsState(if (plan.total == 0) 0f else plan.done.toFloat() / plan.total, tween(1100, easing = FastOutSlowInEasing), label = "ring")
     var open by remember { mutableStateOf(false) }
@@ -462,8 +549,8 @@ private fun ProgressCard(info: ProjectInfo, tint: Color, onAsk: (String) -> Unit
             Box(Modifier.size(86.dp), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
                     val w = 9.dp.toPx()
-                    drawArc(DevxColors.Outline, -90f, 360f, false, style = Stroke(w, cap = StrokeCap.Round), topLeft = Offset(w / 2, w / 2), size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w))
-                    if (fraction > 0f) drawArc(tint, -90f, 360f * fraction, false, style = Stroke(w, cap = StrokeCap.Round), topLeft = Offset(w / 2, w / 2), size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w))
+                    drawArc(DevxColors.Outline, -90f, 360f, false, style = Stroke(w, cap = StrokeCap.Round), topLeft = Offset(w / 2, w / 2), size = Size(size.width - w, size.height - w))
+                    if (fraction > 0f) drawArc(tint, -90f, 360f * fraction, false, style = Stroke(w, cap = StrokeCap.Round), topLeft = Offset(w / 2, w / 2), size = Size(size.width - w, size.height - w))
                 }
                 Text("${(fraction * 100).toInt()}%", style = DevxType.BodyStrong, color = DevxColors.TextPrimary)
             }
@@ -474,6 +561,7 @@ private fun ProgressCard(info: ProjectInfo, tint: Color, onAsk: (String) -> Unit
             }
         }
         StudyStats(plan.log, tint)
+        DeadlineRow(info, tint, onDeadline)
         val remindPrompt = stringResource(R.string.study_prompt_remind_setup)
         val next = plan.next
         val label = when {
@@ -513,6 +601,18 @@ private fun ProgressCard(info: ProjectInfo, tint: Color, onAsk: (String) -> Unit
                 }
             }
         }
+        StudyModes(plan, tint, onAsk)
+        // The map of concepts: a picture of the ideas and how they connect (the assistant builds it as it teaches).
+        Row(
+            Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false) { onGraph() }.clip(RoundedCornerShape(18.dp)).background(tint.copy(alpha = 0.08f)).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(Icons.Outlined.Hub, null, tint = tint, modifier = Modifier.size(22.dp))
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.graph_title), style = DevxType.BodyStrong, color = DevxColors.TextPrimary)
+                Text(if (plan.concepts.isEmpty()) stringResource(R.string.graph_row_empty) else stringResource(R.string.graph_row_count, plan.concepts.size, plan.links.size), style = DevxType.Caption, color = DevxColors.TextSecondary)
+            }
+        }
         if (plan.total > 0) {
             Text(
                 stringResource(R.string.nb_remind), style = DevxType.Caption, color = tint,
@@ -531,9 +631,101 @@ private fun ProgressCard(info: ProjectInfo, tint: Color, onAsk: (String) -> Unit
     }
 }
 
+/** The day the person wants to reach the goal by, and the pace that takes; a tap picks or changes the day. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DeadlineRow(info: ProjectInfo, tint: Color, onDeadline: (Long) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    val plan = info.plan
+    val pace = Pace.of(info.deadline, plan.total - plan.done)
+    val line = when {
+        pace == null -> stringResource(R.string.nb_deadline_set)
+        pace.overdue -> stringResource(R.string.nb_deadline_over)
+        pace.daysLeft == 0 -> stringResource(R.string.nb_deadline_today)
+        else -> stringResource(R.string.nb_deadline_days, pace.daysLeft)
+    }
+    val detail = if (pace != null && !pace.overdue && plan.total - plan.done > 0)
+        stringResource(R.string.nb_pace, String.format(Locale.getDefault(), "%.1f", pace.perDay).replace(Regex("[.,]0$"), "")) else null
+    val rate = plan.doneSince() / 7.0
+    val behind = pace != null && plan.hasHistory() && pace.behind(rate)
+    val late = (pace?.overdue == true && plan.total - plan.done > 0) || behind
+    Row(
+        Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false) { picking = true }.clip(RoundedCornerShape(18.dp))
+            .background(if (late) DevxColors.Danger.copy(alpha = 0.12f) else tint.copy(alpha = 0.08f)).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(Icons.Outlined.CalendarMonth, null, tint = if (late) DevxColors.Danger else tint, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f)) {
+            Text(line, style = DevxType.BodyStrong, color = if (pace == null) DevxColors.TextSecondary else DevxColors.TextPrimary)
+            if (detail != null) Text(detail, style = DevxType.Caption, color = DevxColors.TextSecondary)
+            if (behind) Text(stringResource(R.string.nb_behind, String.format(Locale.getDefault(), "%.1f", rate).replace(Regex("[.,]0$"), "")), style = DevxType.Caption, color = DevxColors.Danger)
+        }
+    }
+    if (picking) {
+        val day = 86_400_000L
+        val start = if (info.deadline > 0) info.deadline else StudyLog.today() + 30L
+        val state = androidx.compose.material3.rememberDatePickerState(initialSelectedDateMillis = start * day)
+        DatePickerDialog(
+            onDismissRequest = { picking = false },
+            confirmButton = {
+                TextButton(onClick = { state.selectedDateMillis?.let { onDeadline(it / day) }; picking = false }) { Text(stringResource(R.string.dialog_save)) }
+            },
+            dismissButton = {
+                Row {
+                    if (info.deadline > 0) TextButton(onClick = { onDeadline(0L); picking = false }) { Text(stringResource(R.string.cd_remove)) }
+                    TextButton(onClick = { picking = false }) { Text(stringResource(R.string.dialog_cancel)) }
+                }
+            },
+        ) { DatePicker(state = state) }
+    }
+}
+
+/** Ways to practise (an exam, explaining it back, the weak spots, today's plan, a study sheet), the weak topics themselves and the last exam. */
+@Composable
+private fun StudyModes(plan: StudyPlan, tint: Color, onAsk: (String) -> Unit) {
+    if (plan.total == 0 && plan.cards.isEmpty()) return
+    val modes = listOf(
+        Triple(Icons.Outlined.Quiz, R.string.study_mode_exam, R.string.study_prompt_exam),
+        Triple(Icons.Outlined.RecordVoiceOver, R.string.study_mode_feynman, R.string.study_prompt_feynman),
+        Triple(Icons.Outlined.Today, R.string.study_mode_today, R.string.study_prompt_today),
+        Triple(Icons.Outlined.TrackChanges, R.string.study_mode_weak, R.string.study_prompt_weak),
+        Triple(Icons.Outlined.Description, R.string.study_mode_notes, R.string.study_prompt_notes),
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            modes.forEach { (icon, label, prompt) ->
+                val text = stringResource(prompt)
+                Row(
+                    Modifier.pressable(scaleTo = 0.95f) { onAsk(text) }.clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Icon(icon, null, tint = tint, modifier = Modifier.size(17.dp))
+                    Text(stringResource(label), style = DevxType.Body.copy(fontSize = 14.sp), color = DevxColors.TextPrimary, maxLines = 1)
+                }
+            }
+        }
+        val weak = plan.weakSpots(4)
+        if (weak.isNotEmpty()) {
+            Text(stringResource(R.string.nb_weak_title), style = DevxType.Caption, color = DevxColors.TextSecondary)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                weak.forEach { w ->
+                    val drill = stringResource(R.string.study_prompt_drill, w.topic)
+                    Text(
+                        w.topic, style = DevxType.Body.copy(fontSize = 14.sp), color = DevxColors.TextPrimary,
+                        modifier = Modifier.pressable(scaleTo = 0.95f) { onAsk(drill) }.clip(CircleShape).background(tint.copy(alpha = 0.16f)).padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
+        plan.exams.lastOrNull()?.let { e ->
+            Text(stringResource(R.string.nb_exam_last, e.correct, e.total) + " · ${e.percent}%", style = DevxType.Caption, color = DevxColors.TextSecondary)
+        }
+    }
+}
+
 /** How the study goes: the days in a row, and the last seven days as small bars (today on the right). */
 @Composable
-private fun StudyStats(log: com.apvcode.devx.data.StudyLog, tint: Color) {
+private fun StudyStats(log: StudyLog, tint: Color) {
     if (log.isEmpty) return
     val streak = log.streak()
     val week = log.week()

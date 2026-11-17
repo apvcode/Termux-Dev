@@ -2,6 +2,8 @@ package com.apvcode.devx.data
 
 import android.content.Context
 import org.json.JSONObject
+import java.time.Instant
+import java.time.ZoneId
 
 /** The assistant's way to make, list, change, run and delete scheduled tasks ("every morning send me the news about AI"). */
 class TaskTools(private val context: Context) {
@@ -73,7 +75,7 @@ class TaskTools(private val context: Context) {
     }
 
     private fun describe(t: ScheduledTask): String {
-        val next = if (t.enabled) Tasks.nextRun(t)?.let { " next " + java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().toString().replace('T', ' ').take(16) } else null
+        val next = if (t.enabled) Tasks.nextRun(t)?.let { " next " + Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDateTime().toString().replace('T', ' ').take(16) } else null
         return "#${t.id} \"${t.title}\" at %02d:%02d ${Tasks.daysText(t.days)}, model ${t.model?.model ?: "default"}, ${if (t.enabled) "on" else "off"}${next ?: ""}".format()
     }
 

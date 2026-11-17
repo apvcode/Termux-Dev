@@ -1,5 +1,6 @@
 package com.apvcode.devx.remote
 
+import com.apvcode.devx.data.logged
 import android.content.Context
 import android.util.Base64
 import kotlinx.coroutines.CompletableDeferred
@@ -8,6 +9,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 
 /**
  * The pictures and files that the computer shows in a chat: fetched from it piece by piece (`file.get`) into the cache the
@@ -36,7 +38,7 @@ object RemoteMedia {
             result
         } catch (e: Exception) {
             mine.complete(null)
-            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is CancellationException) throw e
             null
         } finally {
             running.remove(m.id, mine)
@@ -48,7 +50,7 @@ object RemoteMedia {
         val item = withContext(Dispatchers.IO) {
             runCatching {
                 session.conn.call("media.resolve", JSONObject().put("s", session.id).put("paths", org.json.JSONArray().put(path)), 20_000).optJSONArray("items")?.optJSONObject(0)
-            }.getOrNull()
+            }.logged("remotemedia").getOrNull()
         } ?: return null
         if (item.has("error") || !item.has("id")) return null
         val media = RItem.Media(0, item.optString("id"), item.optString("name"), item.optString("mime"), item.optLong("size"), false)

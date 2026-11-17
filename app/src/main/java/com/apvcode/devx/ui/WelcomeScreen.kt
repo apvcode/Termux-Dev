@@ -70,6 +70,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import com.apvcode.devx.ui.theme.DevxFonts
 
 /**
  * First start: soft light drifting in the dark, the question writing itself in letter by letter,
@@ -135,7 +136,7 @@ fun WelcomeScreen(onDone: (String) -> Unit, modifier: Modifier = Modifier) {
             Spacer(Modifier.weight(1f))
             Text(
                 "devx",
-                style = DevxType.Title.copy(fontFamily = com.apvcode.devx.ui.theme.DevxFonts.Serif),
+                style = DevxType.Title.copy(fontFamily = DevxFonts.Serif),
                 color = DevxColors.TextSecondary,
                 modifier = Modifier.graphicsLayer { alpha = (typed.value / 3f).coerceIn(0f, 1f) },
             )

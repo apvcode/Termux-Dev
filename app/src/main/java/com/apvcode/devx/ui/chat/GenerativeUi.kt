@@ -47,6 +47,19 @@ import com.apvcode.devx.ui.theme.DevxType
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import android.content.Context
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import com.apvcode.devx.data.PrefFiles
+import java.util.Locale
+import kotlinx.coroutines.FlowPreview
 
 /*
  * Generative UI: the assistant describes an interactive card as JSON and the app draws it natively.
@@ -238,12 +251,12 @@ private object CardStates {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, UiCardState>?) = size > 80
     }
 
-    private fun prefs(context: android.content.Context) = context.applicationContext.getSharedPreferences("cards", android.content.Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PrefFiles.CARDS, Context.MODE_PRIVATE)
 
     @Synchronized
-    fun of(context: android.content.Context, json: String): UiCardState = cache.getOrPut(json.hashCode()) { UiCardState().also { load(context, json.hashCode(), it) } }
+    fun of(context: Context, json: String): UiCardState = cache.getOrPut(json.hashCode()) { UiCardState().also { load(context, json.hashCode(), it) } }
 
-    private fun load(context: android.content.Context, key: Int, state: UiCardState) {
+    private fun load(context: Context, key: Int, state: UiCardState) {
         val raw = prefs(context).getString(key.toString(), null) ?: return
         runCatching {
             val o = JSONObject(raw)
@@ -254,7 +267,7 @@ private object CardStates {
         }
     }
 
-    fun save(context: android.content.Context, key: Int, state: UiCardState) {
+    fun save(context: Context, key: Int, state: UiCardState) {
         val p = prefs(context)
         val values = JSONObject().also { o -> state.values.toMap().forEach { (k, v) -> o.put(k, v) } }
         val entry = JSONObject().put("v", values).put("c", state.checked).put("s", state.submitted).put("t", System.currentTimeMillis())
@@ -300,7 +313,7 @@ private fun isRequired(n: UiNode) = (n is UiNode.Input && n.required) || (n is U
 private fun pickedOf(value: String?): List<String> = value.orEmpty().split(MANY).filter { it.isNotEmpty() }
 
 private fun numberText(v: Float, step: Float): String =
-    if (step >= 1f && v == v.toInt().toFloat()) v.toInt().toString() else "%.2f".format(java.util.Locale.US, v).trimEnd('0').trimEnd('.')
+    if (step >= 1f && v == v.toInt().toFloat()) v.toInt().toString() else "%.2f".format(Locale.US, v).trimEnd('0').trimEnd('.')
 
 private class UiContext(
     val root: UiNode,
@@ -372,11 +385,11 @@ fun GenerativeCard(json: String, onSend: (String) -> Unit, modifier: Modifier = 
         Text("⚠ card", style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = modifier)
         return
     }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val state = remember(json) { CardStates.of(context, json) }
     val ctx = remember(root, state, onSend) { UiContext(root, state, onSend) }
     // What is written or sent is kept, a moment after it stops changing.
-    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    @OptIn(FlowPreview::class)
     LaunchedEffect(state) {
         androidx.compose.runtime.snapshotFlow { Triple(state.values.toMap(), state.checked, state.submitted) }
             .drop(1)
@@ -502,11 +515,11 @@ private fun InputView(node: UiNode.Input, ctx: UiContext, modifier: Modifier) {
         null -> DevxColors.Outline
     }
     val keyboard = when (node.keyboard) {
-        "number", "numeric", "integer", "decimal" -> androidx.compose.ui.text.input.KeyboardType.Number
-        "email" -> androidx.compose.ui.text.input.KeyboardType.Email
-        "phone", "tel" -> androidx.compose.ui.text.input.KeyboardType.Phone
-        "url" -> androidx.compose.ui.text.input.KeyboardType.Uri
-        else -> androidx.compose.ui.text.input.KeyboardType.Text
+        "number", "numeric", "integer", "decimal" -> KeyboardType.Number
+        "email" -> KeyboardType.Email
+        "phone", "tel" -> KeyboardType.Phone
+        "url" -> KeyboardType.Uri
+        else -> KeyboardType.Text
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FieldHead(node.label, node.hint, node.required)
@@ -518,9 +531,9 @@ private fun InputView(node: UiNode.Input, ctx: UiContext, modifier: Modifier) {
             cursorBrush = SolidColor(DevxColors.Accent),
             singleLine = !node.multiline,
             minLines = if (node.multiline) 3 else 1,
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            keyboardOptions = KeyboardOptions(
                 keyboardType = keyboard,
-                capitalization = if (keyboard == androidx.compose.ui.text.input.KeyboardType.Text) androidx.compose.ui.text.input.KeyboardCapitalization.Sentences else androidx.compose.ui.text.input.KeyboardCapitalization.None,
+                capitalization = if (keyboard == KeyboardType.Text) KeyboardCapitalization.Sentences else KeyboardCapitalization.None,
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -543,7 +556,7 @@ private fun InputView(node: UiNode.Input, ctx: UiContext, modifier: Modifier) {
     }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChoiceView(node: UiNode.Choice, ctx: UiContext, modifier: Modifier) {
     val raw = ctx.state.values[node.id]
@@ -592,7 +605,7 @@ private fun ChoiceView(node: UiNode.Choice, ctx: UiContext, modifier: Modifier) 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FieldHead(node.label, node.hint ?: if (node.multiple) stringResource(R.string.card_pick_several) else null, node.required)
         if (node.chips) {
-            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 node.options.forEach { One(it) }
             }
         } else node.options.forEach { One(it) }
@@ -639,7 +652,7 @@ private fun SliderView(node: UiNode.Slider, ctx: UiContext, modifier: Modifier) 
             valueRange = node.min..node.max,
             steps = steps,
             enabled = !locked,
-            colors = androidx.compose.material3.SliderDefaults.colors(
+            colors = SliderDefaults.colors(
                 thumbColor = DevxColors.Accent, activeTrackColor = DevxColors.Accent, inactiveTrackColor = DevxColors.Outline,
             ),
         )
@@ -652,11 +665,11 @@ private fun ToggleView(node: UiNode.Toggle, ctx: UiContext, modifier: Modifier) 
     val on = (ctx.state.values[node.id] ?: node.value.toString()).toBoolean()
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.weight(1f)) { FieldHead(node.label, node.hint, false) }
-        androidx.compose.material3.Switch(
+        Switch(
             checked = on,
             onCheckedChange = { ctx.state.values[node.id] = it.toString() },
             enabled = !locked,
-            colors = androidx.compose.material3.SwitchDefaults.colors(
+            colors = SwitchDefaults.colors(
                 checkedThumbColor = DevxColors.OnAccent, checkedTrackColor = DevxColors.Accent,
                 uncheckedThumbColor = DevxColors.TextSecondary, uncheckedTrackColor = DevxColors.Card, uncheckedBorderColor = DevxColors.Outline,
             ),

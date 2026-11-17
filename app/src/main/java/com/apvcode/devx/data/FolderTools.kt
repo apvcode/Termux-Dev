@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
 class FolderTools(private val context: Context) {
     val names = setOf("folder_list", "folder_read", "folder_write")
 
-    private fun root(): DocumentFile? = Prefs.folderUri?.let { runCatching { DocumentFile.fromTreeUri(context, Uri.parse(it)) }.getOrNull() }?.takeIf { it.canRead() }
+    private fun root(): DocumentFile? = Prefs.folderUri?.let { runCatching { DocumentFile.fromTreeUri(context, Uri.parse(it)) }.logged("foldertools").getOrNull() }?.takeIf { it.canRead() }
 
     fun definitions(): List<WireTool> = if (root() == null) emptyList() else listOf(
         tool("folder_list", "List the files and folders inside the folder that the person gave you (\"the phone folder\"), or inside a subfolder of it. Gives names, sizes and dates.", schema("path" to str("A subfolder, like notes/2026 (empty for the folder itself)."), required = emptyList())),
@@ -41,14 +41,14 @@ class FolderTools(private val context: Context) {
                     "folder_write" -> write(base, args.optString("path"), args.optString("text"), args.optBoolean("overwrite", false))
                     else -> ToolOutcome("Unknown tool: $name")
                 }
-            }.getOrElse { ToolOutcome("That did not work: ${it.message ?: it.javaClass.simpleName}") }
+            }.logged("foldertools").getOrElse { ToolOutcome("That did not work: ${it.message ?: it.javaClass.simpleName}") }
         }
     }
 
     /** The address of a file inside the chosen folder (to show a picture from it in a chat), or null. */
     fun uriOf(path: String): Uri? {
         val base = root() ?: return null
-        return runCatching { find(base, path)?.takeIf { it.isFile }?.uri }.getOrNull()
+        return runCatching { find(base, path)?.takeIf { it.isFile }?.uri }.logged("foldertools").getOrNull()
     }
 
     private fun parts(path: String): List<String> = path.trim().trim('/').split('/').filter { it.isNotEmpty() && it != "." }.also { p -> require(p.none { it == ".." }) { "\"..\" is not allowed" } }

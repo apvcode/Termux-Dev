@@ -64,6 +64,8 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.apvcode.devx.ui.theme.DevxColors
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 
 /**
  * My own message popping out of the composer: it rises, fades in and grows a little from its
@@ -342,7 +344,7 @@ object WelcomeCeremony {
  * clear, and what lies underneath shows through it.
  */
 fun Modifier.irisHole(progress: () -> Float): Modifier = this
-    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithContent {
         drawContent()
         val p = progress()
@@ -359,7 +361,7 @@ fun Modifier.irisHole(progress: () -> Float): Modifier = this
                 ),
                 radius = r,
                 center = center,
-                blendMode = androidx.compose.ui.graphics.BlendMode.DstOut,
+                blendMode = BlendMode.DstOut,
             )
         }
     }

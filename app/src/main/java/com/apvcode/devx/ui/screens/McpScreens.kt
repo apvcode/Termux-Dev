@@ -95,6 +95,9 @@ import com.apvcode.devx.ui.remote.SuccessMark
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.platform.LocalClipboardManager
+import java.net.URI
 
 /** A service that can be added with a tap: the address is known, only the token (if any) is missing. */
 private class McpPreset(val key: String, val name: String, val url: String, val tokenLabel: Int?, val tokenRequired: Boolean, val about: Int, val help: String? = null, val keyHeader: String? = null)
@@ -286,7 +289,7 @@ private fun HomePage(vm: ChatViewModel, onBack: () -> Unit, onAdd: () -> Unit, o
         if (servers.isEmpty()) {
             EmptyHome(onAdd)
         } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(servers.size, key = { servers[it].id }) { i ->
                     Appear(i) { ServerCard(servers[i]) { onOpen(servers[i]) } }
                 }
@@ -397,7 +400,7 @@ private fun FormPage(form: McpForm, taken: (String) -> Boolean, onBack: () -> Un
     val custom = preset == null
     val uri = LocalUriHandler.current
     val secure = form.url.trim().startsWith("https://")
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val clipboard = LocalClipboardManager.current
     val duplicate = form.url.isNotBlank() && taken(form.url)
     val ready = !duplicate && form.name.isNotBlank() && secure && (preset?.tokenRequired != true || form.token.isNotBlank())
     Column(Modifier.fillMaxSize()) {
@@ -522,7 +525,7 @@ private fun ServerSheet(s: McpServer, onReconnect: () -> Unit, onToggle: () -> U
         Badge(iconOf(s.url), s.status, size = 84.dp)
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(s.name, style = DevxType.Title, color = DevxColors.TextPrimary)
-            Text(runCatching { java.net.URI(s.url).host }.getOrNull() ?: s.url, style = DevxType.Caption, color = DevxColors.TextSecondary)
+            Text(runCatching { URI(s.url).host }.getOrNull() ?: s.url, style = DevxType.Caption, color = DevxColors.TextSecondary)
         }
         when (s.status) {
             McpStatus.Failed -> Text(s.error ?: stringResource(R.string.mcp_failed), style = DevxType.Caption, color = DevxColors.Danger, textAlign = TextAlign.Center, maxLines = 4, overflow = TextOverflow.Ellipsis)

@@ -1,5 +1,6 @@
 package com.apvcode.devx.remote
 
+import com.apvcode.devx.data.attempt
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -26,6 +27,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import android.content.BroadcastReceiver
+import androidx.core.content.ContextCompat
 
 /**
  * Keeps the connection to the computer the person is in (its list of chats, or one chat) while the app is in the background,
@@ -64,7 +67,7 @@ class RemoteService : Service() {
             .addAction(0, getString(R.string.remote_disconnect), disconnect)
             .build()
         val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0
-        runCatching { ServiceCompat.startForeground(this, ID, notification, type) }
+        attempt("remoteservice") { ServiceCompat.startForeground(this, ID, notification, type) }
         watch(hostId)
         return START_NOT_STICKY
     }
@@ -101,7 +104,7 @@ class RemoteService : Service() {
     private fun notify(hostId: String, conn: RemoteConnection, session: String, title: String, text: String, urgent: Boolean) {
         // The screen of the app is in front: the cards are right there.
         if (AppState.resumed) return
-        runCatching {
+        attempt("remoteservice") {
             val manager = NotificationManagerCompat.from(this)
             if (!manager.areNotificationsEnabled()) return
             val chat = titles[session]?.takeIf { it.isNotBlank() && it != "New Session" } ?: conn.computer.name
@@ -139,7 +142,7 @@ class RemoteService : Service() {
             if (!Prefs.remoteKeepAlive) return false
             if (!RemoteHubReady.ready || RemoteHub.store.find(hostId) == null) return false
             return runCatching {
-                androidx.core.content.ContextCompat.startForegroundService(context, Intent(context, RemoteService::class.java).putExtra(EXTRA_HOST, hostId))
+                ContextCompat.startForegroundService(context, Intent(context, RemoteService::class.java).putExtra(EXTRA_HOST, hostId))
             }.isSuccess
         }
 
@@ -201,7 +204,7 @@ object RemoteLink {
 }
 
 /** The "Disconnect" button of the notification. */
-class RemoteDisconnectReceiver : android.content.BroadcastReceiver() {
+class RemoteDisconnectReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action == ACTION) RemoteLink.disconnectByPerson(context.applicationContext)
     }

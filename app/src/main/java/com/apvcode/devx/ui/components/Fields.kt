@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.apvcode.devx.ui.theme.DevxColors
 import com.apvcode.devx.ui.theme.DevxType
+import androidx.compose.ui.text.input.KeyboardCapitalization
 
 /** A labelled single-line field in the app's style. */
 @Composable
@@ -46,7 +47,7 @@ fun DevxTextField(
             textStyle = DevxType.Body.copy(color = DevxColors.TextPrimary),
             cursorBrush = SolidColor(DevxColors.Accent),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType),
+            keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType, capitalization = if (!password && keyboardType == KeyboardType.Text) KeyboardCapitalization.Sentences else KeyboardCapitalization.None),
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 54.dp)

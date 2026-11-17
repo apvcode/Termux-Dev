@@ -17,6 +17,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import kotlinx.coroutines.CancellationException
 
 /** What a tool gives back to the model: words, and sometimes pictures. */
 /** What the assistant is about to do with a server (an MCP tool, GitHub): shown to the person to allow or cancel. */
@@ -66,7 +67,7 @@ class Toolbox(
     private val notebook: NotebookTools,
 ) {
     init {
-        runCatching { PDFBoxResourceLoader.init(context.applicationContext) }
+        attempt("tools") { PDFBoxResourceLoader.init(context.applicationContext) }
     }
 
     fun definitions(files: List<Attachment>, webOn: Boolean, workOn: Boolean = false, terminalOn: Boolean = false, memoryOn: Boolean = false, inProject: Boolean = false, skillsOn: Boolean = false, phoneOn: Boolean = false, libraryOn: Boolean = false, studyOn: Boolean = false, notebookOn: Boolean = false, spaceOn: Boolean = false): List<WireTool> {
@@ -146,7 +147,7 @@ class Toolbox(
                 in notebook.names -> notebook.run(call.name, args, report, chatId, project)
                 else -> if (mcp.isMcp(call.name)) mcp.run(call.name, args, report) else withContext(Dispatchers.IO) { runFileTool(call.name, args, files, report) }
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             ToolOutcome("The tool failed: ${e.message ?: e.javaClass.simpleName}")
@@ -193,7 +194,7 @@ class Toolbox(
         return when (a.kind) {
             AttachmentKind.Pdf -> "PDF, ${pdfPageCount(a)?.let { "$it pages" } ?: "pages unknown"}, $size"
             AttachmentKind.Text -> {
-                val text = runCatching { store.readText(a) }.getOrDefault("")
+                val text = runCatching { store.readText(a) }.logged("tools").getOrDefault("")
                 "text, ${text.length} characters, ${text.count { it == '\n' } + 1} lines" + if (detailed) ", $size" else ""
             }
             AttachmentKind.Image -> {
@@ -208,7 +209,7 @@ class Toolbox(
 
     private fun pdfPageCount(a: Attachment): Int? = runCatching {
         ParcelFileDescriptor.open(store.fileOf(a), ParcelFileDescriptor.MODE_READ_ONLY).use { fd -> PdfRenderer(fd).use { it.pageCount } }
-    }.getOrNull()
+    }.logged("tools").getOrNull()
 
     private fun readPdf(a: Attachment, first: Int, last: Int): ToolOutcome {
         if (a.kind != AttachmentKind.Pdf) return ToolOutcome("${a.name} is not a PDF. Use read_text for text files.")

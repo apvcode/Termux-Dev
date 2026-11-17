@@ -1,5 +1,6 @@
 package com.apvcode.devx.remote
 
+import com.apvcode.devx.data.logged
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -11,6 +12,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
+import android.net.Uri
+import androidx.compose.runtime.snapshots.Snapshot
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.sync.Mutex
 
 /** One line of the conversation as the phone shows it. */
 sealed class RItem {
@@ -38,7 +43,7 @@ sealed class RItem {
     class Summary(override val key: Long, val ms: Long, val tools: Int, val cost: Double, val failed: Boolean) : RItem()
 }
 
-class Preview(val uri: android.net.Uri?, val name: String, val image: Boolean)
+class Preview(val uri: Uri?, val name: String, val image: Boolean)
 
 class Effort(val supported: Boolean, val levels: List<String>, val level: String?, val alwaysOn: Boolean)
 
@@ -110,7 +115,7 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
 
     private var keys = 0L
     /** Items that arrived live (not from a snapshot): they play their entrance once, like in the usual chat. */
-    private val fresh = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+    private val fresh = ConcurrentHashMap.newKeySet<Long>()
     fun consumeFresh(key: Long): Boolean = fresh.remove(key)
     private fun <T : RItem> live(item: T): T { fresh += item.key; return item }
     private var lastSeq = -1
@@ -130,7 +135,7 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
         jobs.forEach { it.cancel() }
         jobs.clear()
         if (draft) return
-        scope.launch(Dispatchers.IO) { runCatching { conn.request("session.detach", JSONObject().put("s", id), 5000) } }
+        scope.launch(Dispatchers.IO) { runCatching { conn.request("session.detach", JSONObject().put("s", id), 5000) }.logged("remotesession") }
     }
 
     /** Reads the whole conversation again (first open, after a break, after a lost packet). */
@@ -170,7 +175,7 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
         state = snapshotState
         snapshotState?.id?.let { if (it.isNotEmpty()) id = it }
         // The change is applied in one go: the screen does not flicker through an empty list.
-        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+        Snapshot.withMutableSnapshot {
             items.clear()
             items.addAll(list)
             loading = false
@@ -209,7 +214,7 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
             return
         }
         lastSeq = seq
-        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot { applyNow(e) }
+        Snapshot.withMutableSnapshot { applyNow(e) }
     }
 
     private fun applyNow(e: JSONObject) {
@@ -298,7 +303,7 @@ class RemoteSession(val conn: RemoteConnection, initialId: String, private val s
     fun rememberOutgoing(previews: List<Preview>) { if (previews.isNotEmpty()) synchronized(outgoing) { outgoing.addLast(previews) } }
     fun forgetOutgoing() { synchronized(outgoing) { outgoing.removeLastOrNull() } }
 
-    private val opening = kotlinx.coroutines.sync.Mutex()
+    private val opening = Mutex()
 
     /** Opens the new chat on the computer (once); the computer forgets it if nothing is written in it. */
     private suspend fun ensureOpen() = opening.withLock {
