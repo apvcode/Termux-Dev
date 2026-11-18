@@ -159,7 +159,6 @@ fun DrawerContent(
     var projectsOpen by remember { mutableStateOf(true) }
     var notebooksOpen by remember { mutableStateOf(true) }
     var chatsOpen by remember { mutableStateOf(true) }
-    val collapsed = remember { mutableStateMapOf<String, Boolean>() }
     // The list of chats is built once here (it reads every chat and cuts a preview from each); the sections below only sort it.
     val allChats by remember { derivedStateOf { vm.chats } }
     // Every project, even an empty one, with its chats (pinned first).
@@ -238,14 +237,12 @@ fun DrawerContent(
             item(key = "notebooks-body") {
                 FoldList(notebooksOpen, notebookChats.entries.toList()) { (book, chats), rowMod ->
                     Column(rowMod) {
-                        val open = collapsed[book] == false
                         ProjectHeader(
-                            title = book, count = chats.size, expanded = open, onToggle = { collapsed[book] = !open },
+                            title = book, count = chats.size,
                             info = vm.projectInfo[book], onOpen = { onOpenProject(book) },
                             onNewChat = { vm.newChat(book); onNavigate(Screen.Chat) }, onAsk = { ask = it },
                             onArchive = { vm.setArchived(book, true) }, onDuplicate = { vm.duplicateProject(book) },
                         )
-                        FoldList(open, chats) { chat, m -> chatRow(chat, m) }
                     }
                 }
             }
@@ -264,14 +261,12 @@ fun DrawerContent(
             item(key = "projects-body") {
                 FoldList(projectsOpen, projectChats.entries.toList()) { (project, chats), rowMod ->
                     Column(rowMod) {
-                        val open = collapsed[project] != true
                         ProjectHeader(
-                            title = project, count = chats.size, expanded = open, onToggle = { collapsed[project] = open },
+                            title = project, count = chats.size,
                             info = vm.projectInfo[project], onOpen = { onOpenProject(project) },
                             onNewChat = { vm.newChat(project); onNavigate(Screen.Chat) }, onAsk = { ask = it },
                             onArchive = { vm.setArchived(project, true) }, onDuplicate = { vm.duplicateProject(project) },
                         )
-                        FoldList(open, chats) { chat, m -> chatRow(chat, m) }
                     }
                 }
             }
@@ -307,14 +302,12 @@ fun DrawerContent(
                 item(key = "archive-body") {
                     FoldList(archiveOpen, archivedChats.entries.toList()) { (name, chats), rowMod ->
                         Column(rowMod) {
-                            val open = collapsed["archive:$name"] == false
                             ProjectHeader(
-                                title = name, count = chats.size, expanded = open, onToggle = { collapsed["archive:$name"] = !open },
+                                title = name, count = chats.size,
                                 info = vm.projectInfo[name], onOpen = { onOpenProject(name) },
                                 onNewChat = { vm.newChat(name); onNavigate(Screen.Chat) }, onAsk = { ask = it },
                                 onArchive = { vm.setArchived(name, false) }, onDuplicate = { vm.duplicateProject(name) },
                             )
-                            FoldList(open, chats) { chat, m -> chatRow(chat, m) }
                         }
                     }
                 }
@@ -567,8 +560,6 @@ private fun SectionHeader(
 private fun ProjectHeader(
     title: String,
     count: Int,
-    expanded: Boolean,
-    onToggle: () -> Unit,
     info: ProjectInfo?,
     onOpen: () -> Unit,
     onNewChat: () -> Unit,
@@ -594,7 +585,7 @@ private fun ProjectHeader(
                     onClick = onOpen,
                 )
                 .clip(RoundedCornerShape(14.dp))
-                .padding(start = 10.dp, end = 0.dp, top = 2.dp, bottom = 2.dp),
+                .padding(start = 10.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -604,10 +595,7 @@ private fun ProjectHeader(
                 Icon(DevxIcons.Folder, null, tint = DevxColors.TextSecondary, modifier = Modifier.size(20.dp))
             }
             Text(title, style = DevxType.Section, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text("$count", style = DevxType.Caption, color = DevxColors.TextDisabled)
-            Box(Modifier.size(40.dp).pressable(haptic = false, onClick = onToggle).clip(CircleShape), contentAlignment = Alignment.Center) {
-                Chevron(expanded)
-            }
+            Icon(DevxIcons.ChevronRight, null, tint = DevxColors.TextDisabled, modifier = Modifier.size(20.dp))
         }
         PopupMenu(expanded = menu, onDismiss = { menu = false }, offset = press.menuOffset()) {
             MenuRow(DevxIcons.ChatPlus, stringResource(R.string.project_new_chat)) {

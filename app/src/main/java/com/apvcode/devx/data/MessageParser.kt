@@ -28,12 +28,32 @@ fun parseBlocks(text: String): List<Block> {
         val line = lines[i]
         val trimmed = line.trimStart()
         if (trimmed.startsWith("```")) {
-            val info = trimmed.removePrefix("```").trim().lowercase()
+            val opening = trimmed.removePrefix("```").trim()
+            // Models sometimes put the content on the fence's own line (```devx-reply ["Yes","No"]```): for the blocks
+            // the app knows, what follows the name is the content, and a closing fence at the end of a line closes it.
+            val name = opening.substringBefore(' ').lowercase()
+            val known = name.startsWith("devx-") || name == "svg" || name == "mermaid"
+            val inline = if (known) opening.substringAfter(' ', "").trim() else ""
+            val info = if (known) name else opening.lowercase()
             val body = StringBuilder()
             var j = i + 1
             var closed = false
-            while (j < lines.size) {
-                if (lines[j].trim() == "```") {
+            if (inline.isNotEmpty()) {
+                if (inline.endsWith("```")) {
+                    body.append(inline.removeSuffix("```").trimEnd())
+                    closed = true
+                    j = i
+                } else body.append(inline)
+            }
+            while (!closed && j < lines.size) {
+                val l = lines[j].trim()
+                if (l == "```") {
+                    closed = true
+                    break
+                }
+                if (known && l.endsWith("```") && !l.startsWith("```")) {
+                    if (body.isNotEmpty()) body.append('\n')
+                    body.append(l.removeSuffix("```").trimEnd())
                     closed = true
                     break
                 }

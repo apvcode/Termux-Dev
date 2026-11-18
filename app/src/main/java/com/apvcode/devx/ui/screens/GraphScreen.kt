@@ -486,7 +486,6 @@ fun GraphScreen(vm: ChatViewModel, name: String, onClose: () -> Unit, onAsk: (St
 
     val nodeColors = states.map { it.color(tint) }
     val bg = DevxColors.Bg
-    val dotColor = DevxColors.TextSecondary
     val lineColor = DevxColors.TextSecondary
     val textPrimary = DevxColors.TextPrimary
 
@@ -571,16 +570,7 @@ fun GraphScreen(vm: ChatViewModel, name: String, onClose: () -> Unit, onAsk: (St
                 val entry = view.entry
                 val d = density
 
-                // The ground: a glow in the notebook's colour and a grid of dots that drifts slower than the map, for depth.
-                drawRect(Brush.radialGradient(listOf(tint.copy(alpha = 0.16f * entry), Color.Transparent), center = Offset(view.sx(0f), view.sy(0f)), radius = max(size.width, size.height) * 0.85f))
-                run {
-                    val gap = 30f * d
-                    val ox = ((view.px * 0.45f) % gap + gap) % gap; val oy = ((view.py * 0.45f) % gap + gap) % gap
-                    val pts = ArrayList<Offset>()
-                    var gx = ox
-                    while (gx < size.width) { var gy = oy; while (gy < size.height) { pts += Offset(gx, gy); gy += gap }; gx += gap }
-                    drawPoints(pts, PointMode.Points, dotColor.copy(alpha = 0.16f * entry), strokeWidth = 1.6f * d, cap = StrokeCap.Round)
-                }
+                // The ground is the theme's own background (the Box behind the canvas): no glow and no grid.
 
                 fun bobX(i: Int) = sin(t * 0.8f + i * 1.9f) * 1.8f * d
                 fun bobY(i: Int) = sin(t * 0.7f + i * 2.7f + 1f) * 1.8f * d

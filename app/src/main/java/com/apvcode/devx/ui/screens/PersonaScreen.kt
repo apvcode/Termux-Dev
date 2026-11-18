@@ -180,7 +180,9 @@ private fun Modifier.appear(index: Int): Modifier {
         delay(35L * index)
         shown.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = 260f))
     }
+    // ModulateAlpha: no offscreen layer, which would cut off what sticks out of the bounds (the row of styles reaches the screen's edges).
     return graphicsLayer {
+        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
         alpha = shown.value
         translationY = (1f - shown.value) * 18.dp.toPx()
     }

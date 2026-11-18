@@ -191,7 +191,8 @@ object MarkdownParser {
                 is Emphasis -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { inline(node.firstChild, math, ids) }
                 is StrongEmphasis -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { inline(node.firstChild, math, ids) }
                 is Strikethrough -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { inline(node.firstChild, math, ids) }
-                is Code -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0xFF2A2A2A))) { append(node.literal) }
+                // Tagged, not coloured: the colours follow the theme and are put on when the text is drawn (see CODE_TAG in MarkdownView).
+                is Code -> { pushStringAnnotation(CODE_TAG, "1"); withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(CODE_PAD); append(node.literal); append(CODE_PAD) }; pop() }
                 is Link -> withLink(
                     LinkAnnotation.Url(node.destination, TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))),
                 ) { inline(node.firstChild, math, ids) }
@@ -218,3 +219,9 @@ object MarkdownParser {
         append(literal.substring(last))
     }
 }
+
+/** Marks inline code in a [Rich] text so that the view can colour it for the theme in use. */
+internal const val CODE_TAG = "devx-code"
+
+/** A thin space inside each end of inline code: the room the rounded chip needs around the letters. */
+internal const val CODE_PAD = '\u2009'

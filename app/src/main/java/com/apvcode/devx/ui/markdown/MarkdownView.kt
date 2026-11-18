@@ -42,7 +42,9 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -55,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.apvcode.devx.ui.chat.CodeView
 import com.apvcode.devx.ui.theme.DevxColors
@@ -213,11 +216,47 @@ private fun RichText(rich: Rich, math: List<MathSpan>, style: TextStyle, local: 
     val length = rich.text.length
     val fadePx = with(density) { (if (style.fontSize.isSp) style.fontSize.toPx() else 16.sp.toPx()) * 5f }
     val fade = LocalRevealFade.current
+    val accent = DevxColors.Accent
+    val text = remember(rich, accent) { withCodeStyle(rich.text, accent) }
+    val codeRanges = remember(rich) { rich.text.getStringAnnotations(CODE_TAG, 0, length).map { it.start until it.end } }
+    val chipRadius = with(density) { 5.dp.toPx() }
     Text(
-        rich.text, style = style, color = DevxColors.TextPrimary, inlineContent = inline,
+        text, style = style, color = DevxColors.TextPrimary, inlineContent = inline,
         onTextLayout = { holder.layout = it },
-        modifier = modifier.revealing(length, { fade.floatValue }, local, holder),
+        modifier = (if (codeRanges.isEmpty()) modifier else modifier.codeChips(codeRanges, accent.copy(alpha = 0.14f), chipRadius, local, holder))
+            .revealing(length, { fade.floatValue }, local, holder),
     )
+}
+
+/** Inline code: the accent colour as ink (the chip behind it is drawn by [codeChips]), so it reads on any theme, light or dark. */
+private fun withCodeStyle(source: AnnotatedString, accent: Color): AnnotatedString {
+    val marks = source.getStringAnnotations(CODE_TAG, 0, source.length)
+    if (marks.isEmpty()) return source
+    val look = SpanStyle(color = accent, fontSize = 0.92f.em)
+    return buildAnnotatedString {
+        append(source)
+        marks.forEach { addStyle(look, it.start, it.end) }
+    }
+}
+
+/** Rounded chips behind the inline code: one piece for each line the code runs over; those not yet revealed are not drawn. */
+private fun Modifier.codeChips(ranges: List<IntRange>, color: Color, radius: Float, shown: () -> Float, holder: LayoutHolder): Modifier = drawBehind {
+    val layout = holder.layout ?: return@drawBehind
+    val limit = shown()
+    for (r in ranges) {
+        if (r.last < r.first || r.first >= limit || r.last >= layout.layoutInput.text.length) continue
+        for (line in layout.getLineForOffset(r.first)..layout.getLineForOffset(r.last)) {
+            val from = maxOf(r.first, layout.getLineStart(line))
+            val to = minOf(r.last + 1, layout.getLineEnd(line, visibleEnd = true))
+            if (to <= from) continue
+            val left = layout.getHorizontalPosition(from, true)
+            val right = layout.getHorizontalPosition(to, true)
+            val top = layout.getLineTop(line)
+            val bottom = layout.getLineBottom(line)
+            val inset = (bottom - top) * 0.12f
+            drawRoundRect(color, Offset(minOf(left, right), top + inset), Size(kotlin.math.abs(right - left), bottom - top - 2 * inset), CornerRadius(radius, radius))
+        }
+    }
 }
 
 /** The last layout of a text, kept for the drawing (it is not state: the drawing reads it, nothing is rebuilt for it). */

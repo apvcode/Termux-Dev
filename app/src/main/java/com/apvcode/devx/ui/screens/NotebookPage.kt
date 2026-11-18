@@ -94,6 +94,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -583,11 +584,18 @@ private fun ProgressCard(info: ProjectInfo, tint: Color, onAsk: (String) -> Unit
             else -> stringResource(R.string.study_prompt_review)
         }
         if (next != null) Text(next.title, style = DevxType.Body, color = DevxColors.TextPrimary)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(label, style = DevxType.BodyStrong, color = Color.Black, modifier = Modifier.weight(1f, fill = false).pressable(onClick = { onAsk(prompt) }).clip(CircleShape).background(tint).padding(horizontal = 20.dp, vertical = 12.dp))
+        // Two buttons of one size: the same width and the same height, the words on one line and in the middle.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                Modifier.weight(1f).height(48.dp).pressable(onClick = { onAsk(prompt) }).clip(CircleShape).background(tint).padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(label, style = DevxType.BodyStrong, color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
             if (plan.total > 0) {
                 val quiz = stringResource(R.string.study_prompt_quiz)
-                Text(stringResource(R.string.notebook_quiz), style = DevxType.BodyStrong, color = DevxColors.TextPrimary, modifier = Modifier.weight(1f, fill = false).pressable(onClick = { onAsk(quiz) }).clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).padding(horizontal = 20.dp, vertical = 12.dp))
+                Box(
+                    Modifier.weight(1f).height(48.dp).pressable(onClick = { onAsk(quiz) }).clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(stringResource(R.string.notebook_quiz), style = DevxType.BodyStrong, color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
             }
         }
         if (plan.cards.isNotEmpty()) {
@@ -690,7 +698,7 @@ private fun StudyModes(plan: StudyPlan, tint: Color, onAsk: (String) -> Unit) {
         Triple(Icons.Outlined.Description, R.string.study_mode_notes, R.string.study_prompt_notes),
     )
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             modes.forEach { (icon, label, prompt) ->
                 val text = stringResource(prompt)
                 Row(

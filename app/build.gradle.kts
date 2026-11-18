@@ -26,8 +26,8 @@ android {
         applicationId = "com.apvcode.devx"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "2.4.1"
+        versionCode = 8
+        versionName = "2.4.2"
         // Python (Chaquopy) comes for the two kinds of processor that matter: phones and the emulator.
         ndk { abiFilters += ((project.findProperty("abis") as String?) ?: "arm64-v8a,x86_64").split(",") }
     }

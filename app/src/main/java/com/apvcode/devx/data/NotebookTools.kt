@@ -33,7 +33,7 @@ class NotebookTools(
     /** Offered in an ordinary chat: after the person has decided what to learn or work on, make a place for it. */
     fun createDefinition(): WireTool = tool(
         "space_create",
-        "Make a notebook or a project for what the person has decided to do, after you have talked it through with them and they agreed (never before). The person confirms on a card, then it is made and this chat is moved into it. kind: study (a notebook to learn something: a goal, lessons, quizzes, progress), ideas (a notebook of sources and ideas on a topic) or project (ongoing work with its own instructions and knowledge). Give a short good name, a one or two sentence description, for study the goal, a fitting icon and colour.",
+        "Make a notebook or a project for what the person has decided to do, after they agreed to it, or at once when they ask you outright to make one (the card they confirm is the last check). The person confirms on a card, then it is made and this chat is moved into it. kind: study (a notebook to learn something: a goal, lessons, quizzes, progress), ideas (a notebook of sources and ideas on a topic) or project (ongoing work with its own instructions and knowledge). Give a short good name, a one or two sentence description, for study the goal, a fitting icon and colour.",
         schema(
             "kind" to str("study, ideas or project."),
             "title" to str("The name, short."),
