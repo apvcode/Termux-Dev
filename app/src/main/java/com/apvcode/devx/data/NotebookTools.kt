@@ -19,10 +19,16 @@ class NotebookTools(
     private val askTexts: (kind: String) -> Pair<String, String> = { kind -> "Create it?" to kind },
     /** Sets or clears the reminder to study; gives words for the model. */
     private val remind: (project: String, JSONObject) -> String = { _, _ -> "Not available." },
+    /** Takes sources out of a notebook (by their ids). */
+    private val removeSources: suspend (project: String, ids: List<String>) -> Unit = { _, _ -> },
+    /** Changes one source: its name, or its text (find and replace, or all of it); gives words for the model. */
+    private val editSource: suspend (project: String, id: String, JSONObject) -> String = { _, _, _ -> "Not available." },
+    /** Keeps a text as a new source (a note, a summary, a table the assistant wrote); gives words for the model. */
+    private val addText: suspend (project: String, title: String, text: String) -> String = { _, _, _ -> "Not available." },
 ) {
     val libraryNames = setOf("library_search", "library_use")
     val studyNames = setOf("study_plan", "study_progress", "cards_add", "cards_due", "cards_review", "study_remind", "study_today", "study_exam", "study_graph")
-    val names = libraryNames + studyNames + setOf("project_update", "source_add_sites", "space_create")
+    val names = libraryNames + studyNames + setOf("project_update", "source_add_sites", "source_remove", "source_edit", "source_add_text", "space_create")
 
     /** Offered in an ordinary chat: after the person has decided what to learn or work on, make a place for it. */
     fun createDefinition(): WireTool = tool(
@@ -67,6 +73,55 @@ class NotebookTools(
                     .put("required", JSONArray(listOf("urls"))),
             ),
         )
+        if (inNotebook) {
+        add(
+            tool(
+                "study_graph",
+                "Build or change the concept map of this notebook: the key concepts and how they are related, which the person sees as a picture. Add the concepts of what was just taught (a name and one line about it) and the links between them (from, to, and a short label such as \"is a kind of\", \"needs\", \"causes\", \"is used for\"). A concept that is not on the map yet is added by a link. Keep it small and useful: 5 to 12 concepts per topic, only the ideas the others hang on. You can also remove concepts, or reset the whole map.",
+                JSONObject().put("type", "object")
+                    .put("properties", JSONObject()
+                        .put("concepts", JSONObject().put("type", "array").put("description", "Concepts to add or to give a new line.").put("items", JSONObject().put("type", "object")
+                            .put("properties", JSONObject().put("name", str("The concept, one to four words.")).put("note", str("One line about it (optional).")))
+                            .put("required", JSONArray(listOf("name")))))
+                        .put("links", JSONObject().put("type", "array").put("description", "How concepts are related.").put("items", JSONObject().put("type", "object")
+                            .put("properties", JSONObject().put("from", str("The concept the link starts at.")).put("to", str("The concept it ends at.")).put("label", str("A short label for the relation (optional).")))
+                            .put("required", JSONArray(listOf("from", "to")))))
+                        .put("remove", strList("Names of concepts to take off the map (with their links)."))
+                        .put("reset", JSONObject().put("type", "boolean").put("description", "true to clear the whole map first.")))
+                    .put("required", JSONArray(emptyList<String>())),
+            ),
+        )
+            add(
+                tool(
+                    "source_add_text",
+                    "Keep a text of your own as a source of this notebook: a note, a summary, an outline, a table, what was worked out in the chat. It is saved as a text file that you can read and change later (source_edit), and the person sees it among the sources. Use it when the person asks to save, keep or add something to the sources, not for every answer.",
+                    schema("title" to str("A short name for it (a file name without the ending is fine)."), "text" to str("The whole text, up to about 200 000 characters."), required = listOf("title", "text")),
+                ),
+            )
+            add(
+                tool(
+                    "source_remove",
+                    "Take sources out of this notebook (the person asks to remove, delete or drop a file, photo, page or note from the sources). The person confirms first. A file that nothing else uses is deleted from the phone too.",
+                    JSONObject().put("type", "object")
+                        .put("properties", JSONObject().put("names", JSONObject().put("type", "array").put("items", JSONObject().put("type", "string")).put("description", "The sources to remove: each by its exact name from the list of sources (or its number in that list).")))
+                        .put("required", JSONArray(listOf("names"))),
+                ),
+            )
+            add(
+                tool(
+                    "source_edit",
+                    "Change one source of this notebook. Rename it (new_name), or, for a text source (a note, a text or Markdown file, a saved web page), change its text: either replace one passage (find and replace) or write all of it anew (content). Pictures, PDFs, videos and Word, Excel or PowerPoint files cannot be changed, only renamed. Read the source first when you change its text.",
+                    schema(
+                        "name" to str("The source to change: its exact name from the list of sources (or its number in that list)."),
+                        "new_name" to str("A new name, keeping the file's ending (optional)."),
+                        "find" to str("A passage of the text to replace, exactly as it is written (optional; with replace)."),
+                        "replace" to str("What takes its place (optional; may be empty to delete the passage)."),
+                        "content" to str("The whole new text, replacing the old one (optional; use find and replace for a small change)."),
+                        required = listOf("name"),
+                    ),
+                ),
+            )
+        }
         add(
             tool(
                 "library_search",
@@ -139,23 +194,6 @@ class NotebookTools(
                                 .put("properties", JSONObject().put("front", str("The question.")).put("back", str("The right answer, short.")).put("topic", str("What it is about, one or two words.")))
                                 .put("required", JSONArray(listOf("front", "back"))))))
                         .put("required", JSONArray(listOf("correct", "total"))),
-                ),
-            )
-            add(
-                tool(
-                    "study_graph",
-                    "Build or change the concept map of this study notebook: the key concepts and how they are related, which the person sees as a picture. Add the concepts of what was just taught (a name and one line about it) and the links between them (from, to, and a short label such as \"is a kind of\", \"needs\", \"causes\", \"is used for\"). A concept that is not on the map yet is added by a link. Keep it small and useful: 5 to 12 concepts per topic, only the ideas the others hang on. You can also remove concepts, or reset the whole map.",
-                    JSONObject().put("type", "object")
-                        .put("properties", JSONObject()
-                            .put("concepts", JSONObject().put("type", "array").put("description", "Concepts to add or to give a new line.").put("items", JSONObject().put("type", "object")
-                                .put("properties", JSONObject().put("name", str("The concept, one to four words.")).put("note", str("One line about it (optional).")))
-                                .put("required", JSONArray(listOf("name")))))
-                            .put("links", JSONObject().put("type", "array").put("description", "How concepts are related.").put("items", JSONObject().put("type", "object")
-                                .put("properties", JSONObject().put("from", str("The concept the link starts at.")).put("to", str("The concept it ends at.")).put("label", str("A short label for the relation (optional).")))
-                                .put("required", JSONArray(listOf("from", "to")))))
-                            .put("remove", strList("Names of concepts to take off the map (with their links)."))
-                            .put("reset", JSONObject().put("type", "boolean").put("description", "true to clear the whole map first.")))
-                        .put("required", JSONArray(emptyList<String>())),
                 ),
             )
             add(
@@ -256,7 +294,7 @@ class NotebookTools(
                 )
             }
             "study_graph" -> {
-                if (info == null || !info.isStudy) return ToolOutcome("This is not a study notebook.")
+                if (info == null || !info.isNotebook) return ToolOutcome("This chat is not in a notebook.")
                 report.activity(ToolActivity(ToolKind.Memory, "concept map"))
                 val plan = info.plan
                 if (args.optBoolean("reset")) plan.clearGraph()
@@ -304,11 +342,77 @@ class NotebookTools(
                 val added = info.sources.size - before
                 ToolOutcome("Added $added source(s)" + (if (failed > 0) "; $failed page(s) could not be read (paid, behind a login, or down)" else "") + ". Each is being described; they are on the notebook's page.")
             }
+            "source_remove" -> {
+                if (info == null || !info.isNotebook || project == null) return ToolOutcome("This chat is not in a notebook.")
+                val list = args.optJSONArray("names") ?: JSONArray()
+                val refs = (0 until list.length()).map { list.optString(it).trim() }.filter { it.isNotEmpty() }
+                if (refs.isEmpty()) return ToolOutcome("Give the names of the sources to remove.")
+                val found = LinkedHashMap<String, Attachment>()
+                val problems = ArrayList<String>()
+                for (ref in refs) when (val r = findSource(info.sources, ref)) {
+                    is SourceMatch.One -> found[r.source.id] = r.source
+                    is SourceMatch.None -> problems += "\"$ref\": there is no such source"
+                    is SourceMatch.Many -> problems += "\"$ref\": several fit (" + r.names.joinToString("; ") + "), give the exact name"
+                }
+                if (found.isEmpty()) return ToolOutcome(problems.joinToString(". ") + ".")
+                report.activity(ToolActivity(ToolKind.File, found.values.first().name))
+                val (header, _) = askTexts("source")
+                val decision = report.approve(ToolApproval("devx-space", header, found.values.joinToString(", ") { "«${it.name}»" }, "", changesData = true, plain = true))
+                if (decision == ApprovalDecision.Deny) return ToolOutcome("The person declined. Nothing was removed; do not ask again unless they bring it up.")
+                removeSources(project, found.keys.toList())
+                changed()
+                ToolOutcome("Removed ${found.size}: " + found.values.joinToString(", ") { it.name } + "." + (if (problems.isNotEmpty()) " Not removed: " + problems.joinToString("; ") + "." else "") + " The notebook's page shows it now.")
+            }
+            "source_add_text" -> {
+                if (info == null || !info.isNotebook || project == null) return ToolOutcome("This chat is not in a notebook.")
+                val title = args.optString("title").trim()
+                val text = args.optString("text")
+                if (title.isEmpty()) return ToolOutcome("Give a name for the source.")
+                if (text.isBlank()) return ToolOutcome("Give the text.")
+                report.activity(ToolActivity(ToolKind.File, title))
+                val made = addText(project, title, text)
+                changed()
+                ToolOutcome(made)
+            }
+            "source_edit" -> {
+                if (info == null || !info.isNotebook || project == null) return ToolOutcome("This chat is not in a notebook.")
+                val ref = args.optString("name").trim()
+                val source = when (val r = findSource(info.sources, ref)) {
+                    is SourceMatch.One -> r.source
+                    is SourceMatch.None -> return ToolOutcome("There is no source \"$ref\" in this notebook.")
+                    is SourceMatch.Many -> return ToolOutcome("Several sources fit \"$ref\": " + r.names.joinToString("; ") + ". Give the exact name.")
+                }
+                if (args.optString("new_name").isBlank() && !args.has("content") && args.optString("find").isEmpty()) return ToolOutcome("Give what to change: new_name, find and replace, or content.")
+                report.activity(ToolActivity(ToolKind.File, source.name))
+                ToolOutcome(editSource(project, source.id, args))
+            }
             else -> ToolOutcome("Unknown tool: $name")
         }
     }
 
     companion object {
+        /** What a name given by the model points at among the sources. */
+        sealed interface SourceMatch {
+            class One(val source: Attachment) : SourceMatch
+            object None : SourceMatch
+            class Many(val names: List<String>) : SourceMatch
+        }
+
+        /** A source by its number in the list (from 1), its exact name, its address, or, failing that, words of its name that fit only one. */
+        fun findSource(sources: List<Attachment>, ref: String): SourceMatch {
+            val key = ref.trim().trim('"', '«', '»').trim()
+            if (key.isEmpty()) return SourceMatch.None
+            sources.firstOrNull { it.name == key }?.let { return SourceMatch.One(it) }
+            sources.filter { it.name.equals(key, true) || (it.url.isNotEmpty() && it.url.equals(key, true)) }.let { if (it.size == 1) return SourceMatch.One(it[0]) else if (it.size > 1) return SourceMatch.Many(it.map { s -> s.name }) }
+            key.removeSuffix(".").toIntOrNull()?.let { n -> sources.getOrNull(n - 1)?.let { return SourceMatch.One(it) } }
+            val part = sources.filter { it.name.contains(key, true) }
+            return when {
+                part.size == 1 -> SourceMatch.One(part[0])
+                part.isEmpty() -> SourceMatch.None
+                else -> SourceMatch.Many(part.take(6).map { it.name })
+            }
+        }
+
         /** The colours of a project, by name, in the order of [ProjectLook.colors]. */
         val PALETTE = listOf("grey", "red", "orange", "yellow", "green", "teal", "blue", "violet", "pink")
     }

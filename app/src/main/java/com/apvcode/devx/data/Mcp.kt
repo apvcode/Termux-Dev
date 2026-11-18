@@ -76,7 +76,7 @@ class McpSession(private val http: OkHttpClient, private val url: String, privat
         val init = rpc("initialize", JSONObject()
             .put("protocolVersion", PROTOCOL)
             .put("capabilities", JSONObject())
-            .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.4.0")), retry = false)
+            .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.4.1")), retry = false)
         init.optString("protocolVersion").takeIf { it.isNotEmpty() }?.let { protocol = it }
         serverName = init.optJSONObject("serverInfo")?.optString("title")?.takeIf { it.isNotBlank() }
             ?: init.optJSONObject("serverInfo")?.optString("name")?.takeIf { it.isNotBlank() }
@@ -135,7 +135,7 @@ class McpSession(private val http: OkHttpClient, private val url: String, privat
             if (!retry || method == "initialize") throw McpException("The server closed the session.")
             sessionId = null
             val init = rpc("initialize", JSONObject().put("protocolVersion", PROTOCOL).put("capabilities", JSONObject())
-                .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.4.0")), retry = false)
+                .put("clientInfo", JSONObject().put("name", "devx-android").put("version", "2.4.1")), retry = false)
             init.optString("protocolVersion").takeIf { it.isNotEmpty() }?.let { protocol = it }
             post(JSONObject().put("jsonrpc", "2.0").put("method", "notifications/initialized"), expectId = null)
             rpc(method, params, retry = false)

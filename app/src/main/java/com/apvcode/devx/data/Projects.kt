@@ -251,6 +251,46 @@ class StudyPlan {
 
     fun clearGraph() { concepts.clear(); links.clear(); updatedAt = System.currentTimeMillis() }
 
+    // ---- by hand: what the person changes on the map itself ----
+
+    /** Renames a concept. False when the name is empty or another concept already has it. */
+    fun renameConcept(id: String, name: String): Boolean {
+        val c = concepts.firstOrNull { it.id == id } ?: return false
+        val n = name.trim().take(50)
+        if (n.isEmpty() || concepts.any { it.id != id && it.name.trim().equals(n, ignoreCase = true) }) return false
+        if (c.name != n) { c.name = n; updatedAt = System.currentTimeMillis() }
+        return true
+    }
+
+    fun setConceptNote(id: String, note: String) {
+        val c = concepts.firstOrNull { it.id == id } ?: return
+        val n = note.trim().take(300)
+        if (c.note != n) { c.note = n; updatedAt = System.currentTimeMillis() }
+    }
+
+    /** Adds a concept by hand; null when the name is empty, taken or the map is full. */
+    fun addConcept(name: String, note: String = ""): Concept? {
+        val n = name.trim().take(50)
+        if (n.isEmpty() || conceptNamed(n) != null) return null
+        return upsertConcept(n, note)
+    }
+
+    fun removeConceptById(id: String) {
+        if (concepts.removeAll { it.id == id }) { links.removeAll { it.from == id || it.to == id }; updatedAt = System.currentTimeMillis() }
+    }
+
+    /** Connects two concepts by their ids; false for itself, the same link again or a full map. */
+    fun linkIds(fromId: String, toId: String, label: String = ""): Boolean {
+        if (fromId == toId || concepts.none { it.id == fromId } || concepts.none { it.id == toId } || links.size >= MAX_LINKS) return false
+        val l = label.trim().take(30)
+        if (links.any { ((it.from == fromId && it.to == toId) || (it.from == toId && it.to == fromId)) && it.label.equals(l, true) }) return false
+        links += ConceptLink(fromId, toId, l)
+        updatedAt = System.currentTimeMillis()
+        return true
+    }
+
+    fun removeLink(link: ConceptLink) { if (links.remove(link)) updatedAt = System.currentTimeMillis() }
+
     fun due(now: Long = System.currentTimeMillis()): List<Flashcard> = cards.filter { it.isDue(now) }.sortedBy { it.due }
 
     /** Adds cards (a question and an answer each); one that is already there (same question) is skipped. Gives how many were new. */

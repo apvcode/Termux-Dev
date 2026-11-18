@@ -68,4 +68,33 @@ class GraphTest {
         assertNotNull(GraphLayout.layout(1, emptyList()).single())
         assertEquals(2, GraphLayout.layout(2, listOf(0 to 1, 5 to 9)).size)
     }
+
+    @Test fun byHandRenameNeverDuplicatesAndNoteIsKept() {
+        val p = StudyPlan()
+        val a = p.addConcept("Cell", "the unit")!!
+        val b = p.addConcept("Nucleus")!!
+        assertEquals(null, p.addConcept("cell")) // taken
+        assertFalse(p.renameConcept(b.id, " CELL ")) // taken by the other one
+        assertTrue(p.renameConcept(b.id, "Core"))
+        assertEquals("Core", b.name)
+        p.setConceptNote(a.id, "  smallest living unit ")
+        assertEquals("smallest living unit", a.note)
+    }
+
+    @Test fun byHandLinksByIdAndDeletingAConceptTakesItsLinks() {
+        val p = StudyPlan()
+        val a = p.addConcept("A")!!; val b = p.addConcept("B")!!; val c = p.addConcept("C")!!
+        assertTrue(p.linkIds(a.id, b.id, "needs"))
+        assertFalse(p.linkIds(b.id, a.id, "NEEDS")) // the same link the other way round
+        assertTrue(p.linkIds(a.id, b.id, "causes")) // another relation between the same two
+        assertFalse(p.linkIds(a.id, a.id))
+        assertFalse(p.linkIds(a.id, "nope"))
+        assertTrue(p.linkIds(b.id, c.id))
+        assertEquals(3, p.links.size)
+        p.removeLink(p.links.first())
+        assertEquals(2, p.links.size)
+        p.removeConceptById(b.id)
+        assertEquals(2, p.concepts.size)
+        assertEquals(0, p.links.size) // both remaining links touched B
+    }
 }

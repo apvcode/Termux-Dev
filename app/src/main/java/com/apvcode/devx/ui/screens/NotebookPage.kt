@@ -282,6 +282,13 @@ fun NotebookPage(
                         }
                     }
                 }
+                if (info.isNotebook && !info.isStudy) item {
+                    Appear(2) {
+                        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ConceptMapRow(info, tint, onGraph)
+                        }
+                    }
+                }
                 item {
                     Appear(3) {
                         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -603,16 +610,7 @@ private fun ProgressCard(info: ProjectInfo, tint: Color, onAsk: (String) -> Unit
         }
         StudyModes(plan, tint, onAsk)
         // The map of concepts: a picture of the ideas and how they connect (the assistant builds it as it teaches).
-        Row(
-            Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false) { onGraph() }.clip(RoundedCornerShape(18.dp)).background(tint.copy(alpha = 0.08f)).padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(Icons.Outlined.Hub, null, tint = tint, modifier = Modifier.size(22.dp))
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.graph_title), style = DevxType.BodyStrong, color = DevxColors.TextPrimary)
-                Text(if (plan.concepts.isEmpty()) stringResource(R.string.graph_row_empty) else stringResource(R.string.graph_row_count, plan.concepts.size, plan.links.size), style = DevxType.Caption, color = DevxColors.TextSecondary)
-            }
-        }
+        ConceptMapRow(info, tint, onGraph)
         if (plan.total > 0) {
             Text(
                 stringResource(R.string.nb_remind), style = DevxType.Caption, color = tint,
@@ -776,6 +774,25 @@ private fun PathStep(number: Int, lesson: Lesson, tint: Color, last: Boolean, on
         Column(Modifier.weight(1f).padding(top = 3.dp, bottom = 10.dp)) {
             Text(lesson.title, style = DevxType.Body, color = if (done) DevxColors.TextSecondary else DevxColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (lesson.note.isNotBlank()) Text(lesson.note, style = DevxType.Caption, color = DevxColors.TextDisabled, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** The way into the concept map: what it holds, or that it is not made yet. */
+@Composable
+private fun ConceptMapRow(info: ProjectInfo, tint: Color, onGraph: () -> Unit) {
+    val plan = info.plan
+    Row(
+        Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false) { onGraph() }.clip(RoundedCornerShape(18.dp)).background(tint.copy(alpha = 0.08f)).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(Icons.Outlined.Hub, null, tint = tint, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.graph_title), style = DevxType.BodyStrong, color = DevxColors.TextPrimary)
+            Text(
+                if (plan.concepts.isEmpty()) stringResource(if (info.isStudy) R.string.graph_row_empty else R.string.graph_row_empty_ideas) else stringResource(R.string.graph_row_count, plan.concepts.size, plan.links.size),
+                style = DevxType.Caption, color = DevxColors.TextSecondary,
+            )
         }
     }
 }

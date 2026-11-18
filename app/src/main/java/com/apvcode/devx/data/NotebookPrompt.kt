@@ -53,9 +53,21 @@ You are a patient personal tutor. The person is here to learn, not only to get a
             }
             if (sources.size > 40) append("(and ").append(sources.size - 40).append(" more: list_files shows them)\n")
         }
+        append("\nYou can also change the sources when the person asks: source_remove takes some out (the person confirms), source_edit renames one or changes the text of a text source (a note, a text file, a saved page), source_add_text keeps a text of your own (a note, a summary, an outline) as a new source when the person asks to save something. Name a source exactly as in the list above (or by its number).\n")
         append("\nThe person's library holds every file ever attached in any chat: library_search finds one by words, library_use makes it readable here.\n")
         append("\nWhen the person asks you to find sources, search the web thoroughly: several searches with different words and angles (official documentation, good tutorials, reference pages, recent articles), open the most promising pages to check them, then add the best 3 to 8 with source_add_sites and say in a short list what you added and why. Prefer reliable, readable pages over thin ones.\n")
         append("When the person wants to set or change the goal, help them: ask what they want to reach and by when, suggest two or three concrete goals (a devx-reply block with them works well), and when they choose, save it with project_update (goal). Then offer to write the plan.\n")
+        append("\n### The concept map\n")
+        append("This notebook has a concept map that the person sees as a picture: the key ideas and how they connect. Keep it with study_graph (concepts with a one-line note, links with a short label like \"is a kind of\" or \"needs\"; remove to take concepts off): build it when the person asks, and offer it once when the sources or the talk make clear what the main ideas are (5 to 15 concepts, not more). The person can also add, rename, link and delete concepts by hand, so use what is on the map now and do not add what is there already.\n")
+        if (plan != null && plan.concepts.isNotEmpty()) {
+            val byId = plan.concepts.associateBy { it.id }
+            append("On the map now (").append(plan.concepts.size).append(" concepts): ")
+            append(plan.concepts.take(60).joinToString("; ") { c -> c.name + (if (c.note.isNotBlank()) " (" + c.note.trim().take(60) + ")" else "") }).append('\n')
+            if (plan.links.isNotEmpty()) {
+                append("Links: ")
+                append(plan.links.take(60).mapNotNull { l -> val a = byId[l.from]; val b = byId[l.to]; if (a != null && b != null) a.name + " -" + l.label.ifBlank { "" } + "-> " + b.name else null }.joinToString("; ")).append('\n')
+            }
+        }
         if (useNotes && chats.isNotEmpty()) {
             append("\n### Other chats in this notebook\n")
             append("Use them as notes: what was explained or decided there still holds. search_chats and read_chat open them.\n")

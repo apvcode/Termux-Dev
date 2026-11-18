@@ -172,8 +172,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         PhoneTools(context),
         NotebookTools({ projectInfo[it] }, { library }, { chatId, file -> useLibraryFile(chatId, file) }, { saveProjects() }, { name, args -> updateSpace(name, args) }, { name, urls -> withContext(Dispatchers.Main) { addSites(name, urls) } },
         { chatId, a -> withContext(Dispatchers.Main) { createSpace(chatId, a) } },
-        { kind -> when (kind) { "study" -> context.getString(R.string.space_ask_study) to context.getString(R.string.space_ask_study_label); "ideas" -> context.getString(R.string.space_ask_ideas) to context.getString(R.string.space_ask_ideas_label); else -> context.getString(R.string.space_ask_project) to context.getString(R.string.space_ask_project_label) } },
+        { kind -> when (kind) { "source" -> context.getString(R.string.source_ask_remove) to ""; "study" -> context.getString(R.string.space_ask_study) to context.getString(R.string.space_ask_study_label); "ideas" -> context.getString(R.string.space_ask_ideas) to context.getString(R.string.space_ask_ideas_label); else -> context.getString(R.string.space_ask_project) to context.getString(R.string.space_ask_project_label) } },
         { name, a -> remindStudy(name, a) },
+        { name, ids -> withContext(Dispatchers.Main) { ids.forEach { removeSource(name, it) } } },
+        { name, id, a -> withContext(Dispatchers.Main) { editSource(name, id, a) } },
+        { name, title, text -> withContext(Dispatchers.Main) { addTextSource(name, title, text) } },
     ))
 
     /** A file the assistant handed over, by its id (null if it is gone). */
@@ -995,7 +998,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 NotebookPrompt.ChatLine(c.title, said)
             }
         val sources = info.sources.map { a -> NotebookPrompt.SourceLine(a.name, com.apvcode.devx.data.libKindOf(a.name, a.mime, a.kind, a.url), libraryMeta.summaries[a.id].orEmpty(), a.url) }
-        return NotebookPrompt.build(name, info.isStudy, info.goal, sources, others, info.useNotes, if (info.isStudy) info.plan else null, info.deadline)
+        return NotebookPrompt.build(name, info.isStudy, info.goal, sources, others, info.useNotes, info.plan, info.deadline)
     }
 
     /** The assistant takes a file of the library into a chat: the file tools can read it from now on. False if it was there already. */
@@ -1282,6 +1285,69 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             libraryMeta.forget(a.id)
         }
     }
+
+    /** A text kept as a source (by the assistant, with source_add_text). Gives words for the model. */
+    private suspend fun addTextSource(name: String, title: String, text: String): String = runCatching {
+        val info = projectInfo[name] ?: return@runCatching "There is no such notebook."
+        val base = title.trim().take(80).replace(Regex("[\\\\/:*?\"<>|\\n]"), " ").trim().ifEmpty { "Note" }
+        val fileName = if (base.contains('.') && base.substringAfterLast('.').length in 1..5) base else "$base.txt"
+        val saved = withContext(Dispatchers.IO) { attachmentStore.saveText(uniqueSourceName(info, fileName), text.take(200_000)) }
+        info.sources += saved
+        libraryMeta.seen(saved.id, System.currentTimeMillis())
+        saveProjects()
+        summarizeFile(saved)
+        "Saved as the source \"${saved.name}\" (${saved.size} bytes). The person sees it on the notebook's page."
+    }.logged("chatviewmodel").getOrDefault("Could not save the source.")
+
+    /** The person changes the concept map by hand; [change] gives true when it did something, and then the notebook is saved. */
+    fun editGraph(name: String, change: (com.apvcode.devx.data.StudyPlan) -> Boolean): Boolean {
+        val info = projectInfo[name] ?: return false
+        val done = change(info.plan)
+        if (done) saveProjects()
+        return done
+    }
+
+    /**
+     * What the assistant changes in a source with source_edit: its name, or the text of a text source (one passage, or all of it).
+     * Gives what was done, in words for the model.
+     */
+    private suspend fun editSource(name: String, id: String, a: org.json.JSONObject): String = runCatching {
+        val info = projectInfo[name] ?: return@runCatching "There is no such notebook."
+        val at = info.sources.indexOfFirst { it.id == id }
+        if (at < 0) return@runCatching "The source is gone."
+        var source = info.sources[at]
+        val done = ArrayList<String>()
+        val newName = a.optString("new_name").trim().take(120)
+        if (newName.isNotEmpty() && newName != source.name) {
+            if (info.sources.any { it.id != id && it.name.equals(newName, true) }) return@runCatching "The name \"$newName\" is taken by another source."
+            source = source.copy(name = newName)
+            done += "renamed to \"$newName\""
+        }
+        val whole = if (a.has("content")) a.optString("content") else null
+        val find = a.optString("find")
+        if (whole != null || find.isNotEmpty()) {
+            if (source.kind != AttachmentKind.Text || source.original.isNotEmpty() || source.isQuote) {
+                return@runCatching "\"${source.name}\" is not a plain text source, so its text cannot be changed" + (if (done.isEmpty()) " (it can only be renamed)." else ".")
+            }
+            val file = attachmentStore.fileOf(source)
+            val old = withContext(Dispatchers.IO) { runCatching { file.readText() }.getOrDefault("") }
+            val text = if (whole != null) whole else {
+                val first = old.indexOf(find)
+                if (first < 0) return@runCatching "That passage is not in \"${source.name}\": read the source again and copy it exactly."
+                if (old.indexOf(find, first + find.length) >= 0 && !a.optBoolean("all")) return@runCatching "That passage occurs more than once: give a longer one so that it is unique."
+                old.replace(find, a.optString("replace"))
+            }
+            if (text.isBlank()) return@runCatching "The text cannot be empty: to take the source away, remove it."
+            val bytes = withContext(Dispatchers.IO) { file.writeText(text); file.length() }
+            source = source.copy(size = bytes)
+            done += if (whole != null) "text rewritten" else "passage replaced"
+        }
+        if (done.isEmpty()) return@runCatching "Nothing was changed."
+        info.sources[at] = source
+        saveProjects()
+        if (source.kind == AttachmentKind.Text && done.any { it.startsWith("text") || it.startsWith("passage") }) summarizeFile(source, force = true)
+        "Done: " + done.joinToString(", ") + ". The notebook's page shows it now."
+    }.logged("chatviewmodel").getOrDefault("Could not change the source.")
 
     /**
      * Reads a file once and writes down, in a sentence or two, what it is about: that is what the notebook and the library show next to it,
