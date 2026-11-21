@@ -158,3 +158,22 @@ describe('the limit from the config', () => {
     }
   });
 });
+
+describe('base URL with a trailing slash', () => {
+  it('does not produce a double slash before /chat/completions', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url);
+      return new Response(sse('ok') + 'data: [DONE]\n\n', { status: 200 });
+    }));
+    for (const baseUrl of ['https://generativelanguage.googleapis.com/v1beta/openai/', 'https://example.com/v1//', ' https://example.com/v1 ']) {
+      const provider = createProvider({ baseUrl, apiKey: 'k', model: 'm' });
+      await drain(provider.chatStream({ messages }));
+    }
+    expect(urls).toEqual([
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      'https://example.com/v1/chat/completions',
+      'https://example.com/v1/chat/completions',
+    ]);
+  });
+});

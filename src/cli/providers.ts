@@ -144,7 +144,7 @@ export const ALL_PROVIDERS: ProviderInfo[] = [
   {
     "value": "cloudferro-sherlock",
     "label": "CloudFerro Sherlock",
-    "baseUrl": "https://api-sherlock.cloudferro.com/openai/v1/"
+    "baseUrl": "https://api-sherlock.cloudferro.com/openai/v1"
   },
   {
     "value": "cloudflare-workers-ai",
@@ -244,7 +244,7 @@ export const ALL_PROVIDERS: ProviderInfo[] = [
   {
     "value": "fireworks-ai",
     "label": "Fireworks AI",
-    "baseUrl": "https://api.fireworks.ai/inference/v1/"
+    "baseUrl": "https://api.fireworks.ai/inference/v1"
   },
   {
     "value": "freemodel",
@@ -274,7 +274,7 @@ export const ALL_PROVIDERS: ProviderInfo[] = [
   {
     "value": "google",
     "label": "Google",
-    "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/"
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai"
   },
   {
     "value": "greenpt",
@@ -319,7 +319,7 @@ export const ALL_PROVIDERS: ProviderInfo[] = [
   {
     "value": "inception",
     "label": "Inception",
-    "baseUrl": "https://api.inceptionlabs.ai/v1/"
+    "baseUrl": "https://api.inceptionlabs.ai/v1"
   },
   {
     "value": "inceptron",
@@ -389,7 +389,7 @@ export const ALL_PROVIDERS: ProviderInfo[] = [
   {
     "value": "llama",
     "label": "Llama",
-    "baseUrl": "https://api.llama.com/compat/v1/"
+    "baseUrl": "https://api.llama.com/compat/v1"
   },
   {
     "value": "llmgateway-providers",

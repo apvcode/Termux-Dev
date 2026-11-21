@@ -1,4 +1,5 @@
 import { LLMProvider, LLMRequest, LLMResponse, TokenUsage } from '../core/types.js';
+import { cleanBaseUrl } from '../core/formats.js';
 import { UsageTracker } from '../core/usage.js';
 import { ToolGuard } from './toolguard.js';
 import { DEFAULT_REQUEST_TIMEOUT_MS, NOT_ABOUT_REASONING, RequestWatchdog, PARAMETER_REJECTED, ProviderOptions, errorMessageOf, imageNotSentText, imagesToSend, openAiUsage, parseToolArguments, toolTargetHint } from './shared.js';
@@ -46,7 +47,7 @@ export class OpenAIProvider implements LLMProvider {
    * an unknown setting must never make the whole session unusable.
    */
   private async send(request: LLMRequest, stream: boolean): Promise<Response> {
-    const url = `${this.baseUrl}/chat/completions`;
+    const url = `${cleanBaseUrl(this.baseUrl)}/chat/completions`;
     const send = (body: Record<string, any>) => {
       const bodyStr = JSON.stringify(body);
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };

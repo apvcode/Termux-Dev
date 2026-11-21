@@ -1,6 +1,6 @@
 import { LLMProvider } from '../core/types.js';
 import { effectiveReasoning } from '../core/reasoning.js';
-import { resolveFormat } from '../core/formats.js';
+import { cleanBaseUrl, resolveFormat } from '../core/formats.js';
 import { modelAcceptsImages } from '../core/vision.js';
 import { OpenAIProvider } from './openai.js';
 import { AnthropicProvider } from './anthropic.js';
@@ -17,7 +17,7 @@ export interface ProviderOptions {
 const LEVEL_ORDER = ['off', 'low', 'normal', 'high', 'xhigh', 'max'] as const;
 
 export function createProvider(config: any, opts: ProviderOptions = {}): LLMProvider {
-  const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
+  const baseUrl = cleanBaseUrl(config.baseUrl || '') || 'https://api.openai.com/v1';
   const apiKey = config.apiKey || process.env.OPENAI_API_KEY || '';
   const model = config.model || 'gpt-5.5';
 

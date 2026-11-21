@@ -27,6 +27,17 @@ export function isApiFormat(value: unknown): value is ApiFormat {
   return value === 'openai' || value === 'anthropic';
 }
 
+/**
+ * The address as the API root: trimmed, without trailing slashes. Providers append their own
+ * path (`/chat/completions`, `/models`), so `.../openai/` would otherwise become `.../openai//chat/completions`,
+ * which some servers (Google's among them) answer with 404.
+ */
+export function cleanBaseUrl(baseUrl: string): string;
+export function cleanBaseUrl(baseUrl: string | undefined): string | undefined;
+export function cleanBaseUrl(baseUrl: string | undefined): string | undefined {
+  return typeof baseUrl === 'string' ? baseUrl.trim().replace(/\/+$/, '') : baseUrl;
+}
+
 /** The format a base URL names by itself, if it does. */
 export function formatFromBaseUrl(baseUrl: string | undefined): ApiFormat | null {
   if (!baseUrl) return null;

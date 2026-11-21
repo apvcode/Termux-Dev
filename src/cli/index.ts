@@ -101,7 +101,7 @@ import { TurnComposer } from './typeahead.js';
 import { KNOWN_COMMANDS, LIVE_COMMANDS, pathExists, startsWithPath } from './slash.js';
 import { extendedKeysOff, normalizeKey, splitKeys } from './keys.js';
 import { LANGUAGES, getLanguage, setLanguage, t } from '../core/i18n.js';
-import { anthropicOnlyModels, formatFromBaseUrl, refreshFormats } from '../core/formats.js';
+import { anthropicOnlyModels, cleanBaseUrl, formatFromBaseUrl, refreshFormats } from '../core/formats.js';
 import { providerFormat } from '../providers/index.js';
 
 const CONFIG_PATH = path.join(os.homedir(), '.devxrc.json');
@@ -146,6 +146,7 @@ function syncKeyMaps(config: any) {
   if (config.provider && config.apiKey) {
     config.apiKeys[config.provider] = config.apiKey;
   }
+  if (config.baseUrl) config.baseUrl = cleanBaseUrl(config.baseUrl);
   if (config.provider && config.baseUrl) {
     config.baseUrls[config.provider] = config.baseUrl;
   }
@@ -370,7 +371,7 @@ async function selectProvider(currentConfig: any, allowCancel = true): Promise<a
 
       providerId = choice;
       const known = ALL_PROVIDERS.find(pr => pr.value === providerId);
-      baseUrl = baseUrls[providerId] || known?.baseUrl || '';
+      baseUrl = cleanBaseUrl(baseUrls[providerId] || known?.baseUrl || '');
       stage = !baseUrl ? 'url' : 'key';
     } else if (stage === 'url') {
       const url = await runTextInput({
@@ -381,7 +382,7 @@ async function selectProvider(currentConfig: any, allowCancel = true): Promise<a
         placeholder: t('onboard.baseUrl.placeholder'),
       });
       if (url === undefined) { stage = 'provider'; continue; }
-      baseUrl = url;
+      baseUrl = cleanBaseUrl(url);
       baseUrls[providerId] = baseUrl;
       stage = 'key';
     } else if (stage === 'key') {

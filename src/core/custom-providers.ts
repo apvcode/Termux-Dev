@@ -1,4 +1,5 @@
 import { isLocalBaseUrl } from './cost.js';
+import { cleanBaseUrl } from './formats.js';
 
 /**
  * Providers the user added by hand: any OpenAI- or Anthropic-compatible address with a name of
@@ -145,8 +146,9 @@ export function addCustomProvider(
 ): string {
   ensureMaps(config);
   const id = newProviderId(config, input.name, listedIds);
-  config.customProviders[id] = { name: input.name.trim(), baseUrl: input.baseUrl };
-  config.baseUrls[id] = input.baseUrl;
+  const baseUrl = cleanBaseUrl(input.baseUrl);
+  config.customProviders[id] = { name: input.name.trim(), baseUrl };
+  config.baseUrls[id] = baseUrl;
   config.apiKeys[id] = input.apiKey;
   return id;
 }
@@ -161,9 +163,10 @@ export function updateCustomProvider(config: Config, id: string, patch: Partial<
   ensureMaps(config);
   if (patch.name !== undefined) config.customProviders[id] = { ...config.customProviders[id], name: patch.name.trim() };
   if (patch.baseUrl !== undefined) {
-    config.customProviders[id] = { ...config.customProviders[id], baseUrl: patch.baseUrl };
-    config.baseUrls[id] = patch.baseUrl;
-    if (config.provider === id) config.baseUrl = patch.baseUrl;
+    const baseUrl = cleanBaseUrl(patch.baseUrl);
+    config.customProviders[id] = { ...config.customProviders[id], baseUrl };
+    config.baseUrls[id] = baseUrl;
+    if (config.provider === id) config.baseUrl = baseUrl;
   }
   if (patch.apiKey !== undefined) {
     config.apiKeys[id] = patch.apiKey;
