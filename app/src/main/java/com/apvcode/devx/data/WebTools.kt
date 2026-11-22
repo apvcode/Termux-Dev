@@ -378,15 +378,20 @@ class WebTools(context: Context) {
 
     // ---------- the browser ----------
 
+    /** The hidden browser for the shopping tools: the same one the web tools use, with the page's own user agent (a phone's or a computer's). */
+    internal suspend fun browse(url: String, script: String, settleMs: Long, timeoutMs: Long, userAgent: String, ready: (String) -> Boolean): String? =
+        runScript(url, script, settleMs, timeoutMs, userAgent, ready)
+
     /**
      * Loads [url] in the hidden browser and runs [script] on it again and again until [ready] likes what it gives
      * (so a page that is half loaded but already shows what is wanted is not waited for). If the page has finished
      * loading and [settleMs] have passed, or [timeoutMs] are over, the last thing the script gave is returned.
      */
-    private suspend fun runScript(url: String, script: String, settleMs: Long, timeoutMs: Long = 22_000, ready: (String) -> Boolean = { true }): String? =
+    private suspend fun runScript(url: String, script: String, settleMs: Long, timeoutMs: Long = 22_000, userAgent: String = USER_AGENT, ready: (String) -> Boolean = { true }): String? =
         lock.withLock {
             withContext(Dispatchers.Main) {
                 val web = ensureBrowser()
+                web.settings.userAgentString = userAgent
                 var loadedAt = 0L
                 web.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, finished: String?) {

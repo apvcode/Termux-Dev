@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit
 import java.net.InetAddress
 import java.net.UnknownHostException
 import java.util.UUID
+import com.apvcode.devx.R
 
 /*
  * MCP (Model Context Protocol) servers the assistant may use: GitHub, documentation, anything that speaks MCP over HTTP.
@@ -54,6 +55,11 @@ class McpServer(val id: String, val slug: String, name: String, url: String, ena
 }
 
 const val GithubRest_TOOL = "github_api"
+
+/** RK Note (the school diary app on this phone) serves MCP on this address while its "MCP server" switch is on. */
+const val RK_NOTE_URL = "http://127.0.0.1:47822/mcp"
+/** An empty provider of RK Note: asking it starts the RK Note process (and so its MCP server) if Android had stopped it. */
+const val RK_NOTE_WAKE = "content://ru.eljur.region.rkmcp/wake"
 
 /** What a tool answered. */
 class McpResult(val text: String, val isError: Boolean)
@@ -344,6 +350,7 @@ class McpStore(private val context: Context, private val secrets: Secrets, priva
             return
         }
         scope.launch(Dispatchers.IO) {
+            if (isLocalApp(server)) wakeLocal()
             val session = McpSession(http, server.url, headersOf(server.id))
             try {
                 val tools = session.connect()
@@ -353,21 +360,72 @@ class McpStore(private val context: Context, private val secrets: Secrets, priva
                 server.status = McpStatus.Connected
             } catch (e: Exception) {
                 server.status = McpStatus.Failed
-                server.error = e.message ?: e.javaClass.simpleName
+                server.error = explain(server, e)
                 server.tools = emptyList()
             }
         }
     }
 
+    /** A server on this phone that does not answer is one that is switched off: say where the switch is. */
+    private fun explain(server: McpServer, e: Exception): String =
+        if (isLocalApp(server) && (e is java.net.ConnectException || e is java.net.SocketTimeoutException)) context.getString(R.string.mcp_rknote_off)
+        else e.message ?: e.javaClass.simpleName
+
+    private fun isLocalApp(server: McpServer) = same(server.url, RK_NOTE_URL)
+
+    /**
+     * RK Note keeps its server in its own process, without a notification, and Android may have stopped that process.
+     * Asking its empty provider starts the process again, and the server with it (if its switch is on). Blocks briefly: call off the main thread.
+     */
+    private fun wakeLocal() {
+        try {
+            context.contentResolver.query(android.net.Uri.parse(RK_NOTE_WAKE), null, null, null, null)?.close()
+            Thread.sleep(150)
+        } catch (_: Exception) { /* not installed, or no access: the connection error says the rest */ }
+    }
+
+    /** A server on this phone (RK Note) that did not answer is asked again: its switch may have been turned on since. Does not wait. */
+    fun retryLocal() {
+        servers.filter { it.enabled && isLocalApp(it) && it.status == McpStatus.Failed }.forEach { connect(it) }
+    }
+
+    /** The same, before a turn (also in a scheduled task that has just started): waits a moment for the answer, so that the tools are there for this very message. */
+    suspend fun refreshLocal() {
+        val local = servers.filter { it.enabled && isLocalApp(it) }
+        if (local.isEmpty()) return
+        local.filter { it.status == McpStatus.Failed }.forEach { connect(it) }
+        kotlinx.coroutines.withTimeoutOrNull(2500) { while (local.any { it.status == McpStatus.Connecting }) kotlinx.coroutines.delay(50) }
+    }
+
     suspend fun call(server: McpServer, tool: String, args: JSONObject): McpResult {
-        val session = sessions[server.id] ?: run {
-            // The session was lost (the app was away for long): start it again.
-            val fresh = McpSession(http, server.url, headersOf(server.id))
-            fresh.connect()
-            sessions[server.id] = fresh
-            fresh
+        try {
+            val session = sessions[server.id] ?: run {
+                // The session was lost (the app was away for long): start it again.
+                val fresh = McpSession(http, server.url, headersOf(server.id))
+                fresh.connect()
+                sessions[server.id] = fresh
+                fresh
+            }
+            return session.call(tool, args)
+        } catch (e: IOException) {
+            if (!isLocalApp(server)) throw e
+            // RK Note was closed or its switch was turned off: wake it once; if the server comes back, the call goes through.
+            sessions.remove(server.id)
+            if (e is java.net.ConnectException) {
+                wakeLocal()
+                try {
+                    val fresh = McpSession(http, server.url, headersOf(server.id))
+                    fresh.connect()
+                    sessions[server.id] = fresh
+                    return fresh.call(tool, args)
+                } catch (_: IOException) { /* still not there */ }
+            }
+            val why = explain(server, e)
+            server.status = McpStatus.Failed
+            server.error = why
+            server.tools = emptyList()
+            return McpResult(why, true)
         }
-        return session.call(tool, args)
     }
 
     companion object {
@@ -410,7 +468,11 @@ class McpTools(private val store: McpStore) {
         if (servers.isEmpty()) return github
         val total = servers.sumOf { it.tools.size }
         if (total <= directLimit) {
-            return github + servers.flatMap { s -> s.tools.filter { !s.readOnly || it.readOnly }.map { t -> WireTool(directName(s, t.name), "[${s.name}] " + t.description.take(700), fixSchema(t.schema)) } }
+            return github + servers.flatMap { s ->
+                // RK Note is the school diary on this very phone: say so, so that the model reaches for it when the person asks about lessons.
+                val about = if (s.url.trimEnd('/').equals(RK_NOTE_URL, ignoreCase = true)) "The person's school diary on this phone. " else ""
+                s.tools.filter { !s.readOnly || it.readOnly }.map { t -> WireTool(directName(s, t.name), "[${s.name}] " + about + t.description.take(700), fixSchema(t.schema)) }
+            }
         }
         val names = servers.joinToString("; ") { "${it.slug} (${it.name}, ${it.tools.size} tools)" }
         return github + listOf(

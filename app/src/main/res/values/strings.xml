@@ -405,6 +405,8 @@
     <string name="phone_timer_label">Timer %1$s</string>
     <string name="settings_phone">Phone control</string>
     <string name="settings_phone_hint">Lets the assistant set alarms, timers and reminders, open apps, find contacts, prepare a call, a message or a calendar event, turn on the flashlight, control music and volume. Calls, texts and events are never sent without your last tap. On by default.</string>
+    <string name="settings_shop">Shopping</string>
+    <string name="settings_shop_hint">Lets the assistant look at online shops: Wildberries, Ozon, Yandex Market, Avito, AliExpress, Amazon, eBay and Facebook Marketplace. It searches for a product, reads the description and the reviews, and compares prices. No account is needed. If a shop shows a human check, the assistant tries another way and says which shop would not answer. On by default.</string>
     <string name="tool_history">Searching chats</string>
     <string name="project_new">New project</string>
     <string name="project_edit">Edit project</string>
@@ -602,6 +604,11 @@
     <string name="mcp_about_cf">Cloudflare documentation.</string>
     <string name="mcp_about_svelte">Svelte documentation and code help.</string>
     <string name="mcp_about_astro">Astro documentation.</string>
+    <string name="mcp_token_rknote">RK Note token</string>
+    <string name="mcp_about_rknote">Your school diary on this phone: schedule and bells, your homework notes, the diary. In RK Note turn on “MCP server” in its settings and copy the token shown there.</string>
+    <string name="mcp_rknote_off">RK Note does not answer. Open RK Note, turn on “MCP server” in its settings and try again.</string>
+    <string name="mcp_rknote_pair">Get the token from RK Note</string>
+    <string name="mcp_rknote_missing">RK Note with the MCP server is not installed, or its version is too old.</string>
     <string name="mcp_ask_title">Allow %1$s?</string>
     <string name="mcp_ask_allow">Allow</string>
     <string name="mcp_ask_deny">Cancel</string>
@@ -1122,6 +1129,7 @@
     <string name="dialog_delete_chats_text">%1$d chats will go to the trash. They can be restored there for 30 days.</string>
     <string name="apps_failed">The store did not answer. Try again in a moment.</string>
     <string name="apps_open">Open</string>
+    <string name="shop_store">Shop</string>
     <string name="remote_plan_go_compact">Go and compact the context</string>
     <string name="notebook_what_working">What are you working on?</string>
     <string name="notebook_what_learning">What are you learning?</string>
@@ -1185,6 +1193,12 @@
     <string name="library_attached">The file is attached to a new chat</string>
     <string name="library_delete">Delete everywhere</string>
     <string name="library_delete_text">The file will be removed from the library, from the chats and from the notebooks. This cannot be undone.</string>
+    <string name="library_select">Select</string>
+    <string name="library_select_all">Select all</string>
+    <string name="library_select_none">Deselect all</string>
+    <string name="library_selected">%1$d selected</string>
+    <string name="library_delete_selected">Delete selected</string>
+    <string name="library_delete_many_text">The %1$d selected files will be removed from the library, from the chats and from the notebooks. This cannot be undone.</string>
     <string name="library_open_chat">Open the chat where it was used</string>
     <string name="library_where">Where it was used</string>
     <string name="viewer_no_preview">This file cannot be shown here.</string>

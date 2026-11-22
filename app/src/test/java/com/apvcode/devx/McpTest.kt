@@ -2,6 +2,8 @@ package com.apvcode.devx
 
 import com.apvcode.devx.data.McpException
 import com.apvcode.devx.data.McpSession
+import com.apvcode.devx.data.McpStore
+import com.apvcode.devx.data.RK_NOTE_URL
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.json.JSONObject
@@ -100,5 +102,20 @@ class McpTest {
         val e = runCatching { runBlocking { session("wrong").connect() } }.exceptionOrNull()
         assertTrue(e is McpException)
         assertTrue(e!!.message!!.contains("401"))
+    }
+
+    @Test
+    fun rkNoteIsReachedOnThisPhoneOnly() {
+        assertEquals("rk_note", McpStore.slugOf("RK Note"))
+        assertTrue(RK_NOTE_URL.startsWith("http://127.0.0.1:"))
+        assertTrue(RK_NOTE_URL.endsWith("/mcp"))
+    }
+
+    /** A server on this phone that is switched off refuses the connection: that is what the "turn it on in RK Note" message is shown for. */
+    @Test
+    fun aSwitchedOffLocalServerRefusesTheConnection() {
+        val closed = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        val e = runCatching { runBlocking { McpSession(OkHttpClient(), "http://127.0.0.1:$closed/mcp", emptyMap()).connect() } }.exceptionOrNull()
+        assertTrue(e is java.net.ConnectException)
     }
 }

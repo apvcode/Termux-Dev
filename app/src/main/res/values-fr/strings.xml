@@ -382,6 +382,8 @@
     <string name="phone_timer_label">Minuteur %1$s</string>
     <string name="settings_phone">Contrôle du téléphone</string>
     <string name="settings_phone_hint">Permet à l\'assistant de régler des réveils, minuteurs et rappels, d\'ouvrir des apps, de trouver des contacts, de préparer un appel, un message ou un événement de calendrier, d\'allumer la lampe torche et de contrôler la musique et le volume. Les appels, SMS et événements ne sont jamais envoyés sans votre dernier appui. Activé par défaut.</string>
+    <string name="settings_shop">Achats</string>
+    <string name="settings_shop_hint">Permet à l’assistant de consulter des boutiques en ligne : Wildberries, Ozon, Yandex Market, Avito, AliExpress, Amazon, eBay et Facebook Marketplace. Il cherche un produit, lit la description et les avis et compare les prix. Aucun compte n’est nécessaire. Si une boutique affiche une vérification humaine, l’assistant essaie un autre chemin et dit laquelle n’a pas répondu. Activé par défaut.</string>
     <string name="tool_history">Recherche dans les chats</string>
     <string name="project_new">Nouveau projet</string>
     <string name="project_edit">Modifier le projet</string>
@@ -577,6 +579,11 @@
     <string name="mcp_about_cf">Documentation Cloudflare.</string>
     <string name="mcp_about_svelte">Documentation Svelte et aide pour le code.</string>
     <string name="mcp_about_astro">Documentation Astro.</string>
+    <string name="mcp_token_rknote">Jeton RK Note</string>
+    <string name="mcp_about_rknote">Ton carnet scolaire sur ce téléphone : emploi du temps et sonneries, tes notes de devoirs, le carnet. Dans RK Note, active « Serveur MCP » dans les réglages et copie le jeton affiché.</string>
+    <string name="mcp_rknote_off">RK Note ne répond pas. Ouvre RK Note, active « Serveur MCP » dans ses réglages et réessaie.</string>
+    <string name="mcp_rknote_pair">Obtenir le jeton de RK Note</string>
+    <string name="mcp_rknote_missing">RK Note avec serveur MCP n’est pas installé, ou sa version est trop ancienne.</string>
     <string name="mcp_ask_title">Autoriser %1$s ?</string>
     <string name="mcp_ask_allow">Autoriser</string>
     <string name="mcp_ask_deny">Annuler</string>
@@ -1077,6 +1084,7 @@
     <string name="dialog_delete_chats_text">%1$d chats iront à la corbeille. On peut les y restaurer pendant 30 jours.</string>
     <string name="apps_failed">Le store n\'a pas répondu. Réessayez dans un instant.</string>
     <string name="apps_open">Ouvrir</string>
+    <string name="shop_store">Boutique</string>
     <string name="remote_plan_go_compact">Go et compacter le contexte</string>
     <string-array name="greetings">
         <item>Bonjour, %1$s</item>
@@ -1153,6 +1161,12 @@
     <string name="library_attached">Fichier joint à une nouvelle discussion</string>
     <string name="library_delete">Supprimer partout</string>
     <string name="library_delete_text">Le fichier sera supprimé de la bibliothèque, des discussions et des carnets. Action irréversible.</string>
+    <string name="library_select">Sélectionner</string>
+    <string name="library_select_all">Tout sélectionner</string>
+    <string name="library_select_none">Tout désélectionner</string>
+    <string name="library_selected">%1$d sélectionnés</string>
+    <string name="library_delete_selected">Supprimer la sélection</string>
+    <string name="library_delete_many_text">Les %1$d fichiers sélectionnés seront supprimés de la bibliothèque, des discussions et des carnets. Action irréversible.</string>
     <string name="library_open_chat">Ouvrir la discussion où il a servi</string>
     <string name="library_where">Où il a servi</string>
     <string name="viewer_no_preview">Ce fichier ne peut pas être affiché ici.</string>

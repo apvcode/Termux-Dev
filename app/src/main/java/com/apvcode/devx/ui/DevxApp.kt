@@ -346,6 +346,8 @@ private fun MainApp(vm: ChatViewModel, requestedChat: String?, onChatHandled: ()
     }
     // Back in the app: the computers are tried at once, without waiting for the next round.
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        // RK Note may have been switched on while the app was away.
+        vm.mcp.retryLocal()
         RemoteLink.host?.let { h -> RemoteHub.connection(h)?.let { it.start(); it.nudge() } }
     }
     // The connection to a computer (and its notification) exists only while its list of chats or one of its chats is open.

@@ -84,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import com.apvcode.devx.R
 import com.apvcode.devx.data.McpServer
 import com.apvcode.devx.data.McpStatus
+import com.apvcode.devx.data.RK_NOTE_URL
 import com.apvcode.devx.ui.chat.ChatViewModel
 import com.apvcode.devx.ui.components.CircleIconButton
 import com.apvcode.devx.ui.components.DevxIcons
@@ -111,6 +112,8 @@ private val PRESETS = listOf(
     McpPreset("svelte", "Svelte", "https://mcp.svelte.dev/mcp", null, false, R.string.mcp_about_svelte),
     McpPreset("gmaps", "Google Maps", "https://mapstools.googleapis.com/mcp", R.string.mcp_token_gmaps, true, R.string.mcp_about_gmaps, "https://console.cloud.google.com/apis/credentials", keyHeader = "X-Goog-Api-Key"),
     McpPreset("astro", "Astro Docs", "https://mcp.docs.astro.build/mcp", null, false, R.string.mcp_about_astro),
+    // The school diary app on this very phone: it answers on 127.0.0.1 only while its "MCP server" switch is on.
+    McpPreset("rknote", "RK Note", RK_NOTE_URL, R.string.mcp_token_rknote, true, R.string.mcp_about_rknote),
 )
 
 /** The picture of a service, from its key or (for servers already added) its address. */
@@ -126,6 +129,7 @@ private fun iconOf(keyOrUrl: String): ImageVector {
         s == "svelte" || s.contains("svelte") -> DevxIcons.Cpu
         s == "astro" || s.contains("astro") -> DevxIcons.Sitemap
         s == "gmaps" || s.contains("mapstools") -> DevxIcons.Sitemap
+        s == "rknote" || s == RK_NOTE_URL.lowercase() -> DevxIcons.Book
         else -> DevxIcons.Mcp
     }
 }
@@ -399,10 +403,16 @@ private fun FormPage(form: McpForm, taken: (String) -> Boolean, onBack: () -> Un
     val preset = form.preset
     val custom = preset == null
     val uri = LocalUriHandler.current
-    val secure = form.url.trim().startsWith("https://")
+    val secure = form.url.trim().startsWith("https://") || preset?.key == "rknote"
     val clipboard = LocalClipboardManager.current
     val duplicate = form.url.isNotBlank() && taken(form.url)
     val ready = !duplicate && form.name.isNotBlank() && secure && (preset?.tokenRequired != true || form.token.isNotBlank())
+    // RK Note hands over its token itself, after the person allows it there: no copying.
+    var rkMissing by remember { mutableStateOf(false) }
+    val pairRk = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        val token = r.data?.getStringExtra("token")
+        if (r.resultCode == android.app.Activity.RESULT_OK && !token.isNullOrBlank()) { form.token = token.trim(); onConnect() }
+    }
     Column(Modifier.fillMaxSize()) {
         Header(preset?.name ?: stringResource(R.string.mcp_other), null, onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -436,6 +446,15 @@ private fun FormPage(form: McpForm, taken: (String) -> Boolean, onBack: () -> Un
                         modifier = Modifier.clip(CircleShape).border(1.dp, DevxColors.Outline, CircleShape).pressable(scaleTo = 0.96f, haptic = false) { clipboard.getText()?.text?.trim()?.let { form.token = it } }.padding(horizontal = 18.dp, vertical = 10.dp),
                     )
                 }
+            }
+            if (preset?.key == "rknote") {
+                Appear(3) {
+                    PillButton(stringResource(R.string.mcp_rknote_pair), onClick = {
+                        rkMissing = false
+                        try { pairRk.launch(android.content.Intent().setClassName("ru.eljur.region", "rk.mcp.McpPairActivity")) } catch (e: android.content.ActivityNotFoundException) { rkMissing = true }
+                    }, modifier = Modifier.fillMaxWidth())
+                }
+                if (rkMissing) Text(stringResource(R.string.mcp_rknote_missing), style = DevxType.Caption, color = DevxColors.Danger, textAlign = TextAlign.Center)
             }
             if (custom && form.url.isNotBlank() && !secure) Text(stringResource(R.string.mcp_https_only), style = DevxType.Caption, color = DevxColors.Danger)
             else if (duplicate) Text(stringResource(R.string.mcp_already_added), style = DevxType.Caption, color = DevxColors.Danger)

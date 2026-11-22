@@ -33,6 +33,8 @@
 
     <!-- To find out whether the phone has speech recognition at all (Android 11 hides other apps by default). -->
     <queries>
+        <!-- RK Note (the school diary app) hands over its MCP token when the person allows it there. -->
+        <package android:name="ru.eljur.region" />
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>

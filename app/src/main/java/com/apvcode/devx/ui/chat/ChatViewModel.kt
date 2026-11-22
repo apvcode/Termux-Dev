@@ -20,6 +20,7 @@ import com.apvcode.devx.data.WireTool
 import com.apvcode.devx.data.Source
 import com.apvcode.devx.data.ToolActivity
 import com.apvcode.devx.data.ToolReport
+import com.apvcode.devx.data.ShopTools
 import com.apvcode.devx.data.WebTools
 import com.apvcode.devx.data.Toolbox
 import com.apvcode.devx.data.ChatDigest
@@ -160,6 +161,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** The MCP servers the person added (GitHub and the like), reached by web address. */
     val mcp = McpStore(context, secrets, viewModelScope)
     private val webTools = WebTools(context)
+    private val shopTools = ShopTools(context, webTools)
 
     /** What the assistant said about each file (what it took from it); the library reads it. */
     val libraryMeta = LibraryMeta(context)
@@ -177,7 +179,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         { name, ids -> withContext(Dispatchers.Main) { ids.forEach { removeSource(name, it) } } },
         { name, id, a -> withContext(Dispatchers.Main) { editSource(name, id, a) } },
         { name, title, text -> withContext(Dispatchers.Main) { addTextSource(name, title, text) } },
-    ))
+    ), shopTools)
 
     /** A file the assistant handed over, by its id (null if it is gone). */
     fun artifact(id: String): Artifact? = artifacts.get(id)
@@ -1583,7 +1585,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // the person; without files, the workshop, the terminal and the guides.
                 val byVoice = voiceMode
                 val skillsOn = !byVoice && skills.enabled().isNotEmpty()
-                var tools = toolbox.definitions(if (byVoice) emptyList() else files, Prefs.webSearch, !byVoice && Prefs.workTools, !byVoice && Prefs.terminal, memoryOn, project != null && !byVoice, skillsOn, Prefs.phoneTools, !byVoice && library.isNotEmpty(), !byVoice && project?.isStudy == true, !byVoice && project?.isNotebook == true, !byVoice && project == null && !chat.temporary)
+                mcp.refreshLocal()
+                var tools = toolbox.definitions(if (byVoice) emptyList() else files, Prefs.webSearch, !byVoice && Prefs.workTools, !byVoice && Prefs.terminal, memoryOn, project != null && !byVoice, skillsOn, Prefs.phoneTools, !byVoice && library.isNotEmpty(), !byVoice && project?.isStudy == true, !byVoice && project?.isNotebook == true, !byVoice && project == null && !chat.temporary, !byVoice && Prefs.shopTools)
                 fun systemNow() = if (byVoice) SystemPrompt.forVoice(
                     Prefs.nickname,
                     if (memoryOn) memory.forPrompt(hint = user.text) else null,
@@ -1926,7 +1929,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val projectName = chat.project?.takeIf { !chat.temporary && it in projectInfo }
         val project = projectName?.let { projectInfo[it] }
         val skillsOn = skills.enabled().isNotEmpty()
-        val tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn, Prefs.phoneTools, library.isNotEmpty(), project?.isStudy == true, project?.isNotebook == true, project == null && !chat.temporary)
+        val tools = toolbox.definitions(files, Prefs.webSearch, Prefs.workTools, Prefs.terminal, memoryOn, project != null, skillsOn, Prefs.phoneTools, library.isNotEmpty(), project?.isStudy == true, project?.isNotebook == true, project == null && !chat.temporary, Prefs.shopTools)
         val system = SystemPrompt.forUser(
             Prefs.nickname,
             if (memoryOn) memory.forPrompt(hint = upTo.text) else null,
@@ -2434,7 +2437,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         /** Tools that only look: several of them in one turn can run side by side. */
         val PARALLEL_SAFE = setOf(
-            "web_search", "open_url", "search_apps", "search_chats", "read_chat", "memory_list",
+            "web_search", "open_url", "search_apps", "shop_search", "shop_product", "search_chats", "read_chat", "memory_list",
             "list_files", "file_info", "read_pdf_pages", "render_pdf_page", "read_text", "search_in_file", "view_image", "list_pdf_images",
             "phone_info", "list_apps", "find_contact", "calendar_events", "list_reminders", "task_list", "get_brightness", "get_location", "find_places", "get_route", "get_weather", "list_photos", "read_notifications", "folder_list", "folder_read",
         )

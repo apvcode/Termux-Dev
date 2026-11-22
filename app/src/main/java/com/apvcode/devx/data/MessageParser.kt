@@ -9,7 +9,7 @@ import com.apvcode.devx.model.Block
  */
 private val RICH_TAGS = mapOf(
     "devx-weather" to "weather", "devx-timer" to "timer", "devx-checklist" to "checklist", "devx-table" to "table",
-    "devx-contact" to "contact", "devx-apps" to "apps", "devx-link" to "link", "mermaid" to "mermaid", "devx-mermaid" to "mermaid",
+    "devx-contact" to "contact", "devx-apps" to "apps", "devx-shop" to "shop", "devx-link" to "link", "mermaid" to "mermaid", "devx-mermaid" to "mermaid",
 )
 
 fun parseBlocks(text: String): List<Block> {

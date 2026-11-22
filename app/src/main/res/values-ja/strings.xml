@@ -382,6 +382,8 @@
     <string name="phone_timer_label">タイマー %1$s</string>
     <string name="settings_phone">スマートフォンの操作</string>
     <string name="settings_phone_hint">アシスタントがアラーム、タイマー、リマインダーの設定、アプリの起動、連絡先の検索、電話・メッセージ・予定の準備、ライトの点灯、音楽と音量の操作を行えるようにします。通話、メッセージ、予定は、あなたの最後のタップなしには送信されません。デフォルトでオンです。</string>
+    <string name="settings_shop">ショッピング</string>
+    <string name="settings_shop_hint">アシスタントがオンラインショップ（Wildberries、Ozon、Yandex Market、Avito、AliExpress、Amazon、eBay、Facebook Marketplace）を見られるようにします。商品を検索し、説明とレビューを読み、価格を比較します。アカウントは不要です。ショップが人間確認を表示した場合は別の方法を試し、応答しなかったショップを伝えます。初期設定ではオンです。</string>
     <string name="tool_history">チャットを検索中</string>
     <string name="project_new">新規プロジェクト</string>
     <string name="project_edit">プロジェクトを編集</string>
@@ -577,6 +579,11 @@
     <string name="mcp_about_cf">Cloudflareのドキュメント。</string>
     <string name="mcp_about_svelte">Svelteのドキュメントとコードの手助け。</string>
     <string name="mcp_about_astro">Astroのドキュメント。</string>
+    <string name="mcp_token_rknote">RK Note のトークン</string>
+    <string name="mcp_about_rknote">この端末の学校の日記：時間割とチャイム、宿題のメモ、日記。RK Note の設定で「MCPサーバー」をオンにして、表示されるトークンをコピーしてください。</string>
+    <string name="mcp_rknote_off">RK Note が応答しません。RK Note を開き、設定で「MCPサーバー」をオンにしてからもう一度お試しください。</string>
+    <string name="mcp_rknote_pair">RK Note からトークンを取得</string>
+    <string name="mcp_rknote_missing">MCPサーバー付きの RK Note がインストールされていないか、バージョンが古すぎます。</string>
     <string name="mcp_ask_title">%1$s を許可しますか?</string>
     <string name="mcp_ask_allow">許可</string>
     <string name="mcp_ask_deny">キャンセル</string>
@@ -1077,6 +1084,7 @@
     <string name="dialog_delete_chats_text">%1$d 件のチャットがゴミ箱に移ります。30日間は元に戻せます。</string>
     <string name="apps_failed">ストアが応答しませんでした。少ししてからもう一度お試しください。</string>
     <string name="apps_open">開く</string>
+    <string name="shop_store">ショップ</string>
     <string name="remote_plan_go_compact">実行してコンテキストを圧縮</string>
     <string-array name="greetings">
         <item>こんにちは、%1$sさん</item>
@@ -1153,6 +1161,12 @@
     <string name="library_attached">ファイルを新しいチャットに添付しました</string>
     <string name="library_delete">すべてから削除</string>
     <string name="library_delete_text">ファイルはライブラリ、チャット、ノートから削除されます。元に戻せません。</string>
+    <string name="library_select">選択</string>
+    <string name="library_select_all">すべて選択</string>
+    <string name="library_select_none">選択を解除</string>
+    <string name="library_selected">%1$d 件を選択中</string>
+    <string name="library_delete_selected">選択したものを削除</string>
+    <string name="library_delete_many_text">選択した %1$d 件のファイルはライブラリ、チャット、ノートから削除されます。元に戻せません。</string>
     <string name="library_open_chat">使用したチャットを開く</string>
     <string name="library_where">使用された場所</string>
     <string name="viewer_no_preview">このファイルはここでは表示できません。</string>

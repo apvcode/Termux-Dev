@@ -313,6 +313,13 @@ fun AssistantScreen(vm: ChatViewModel, onBack: () -> Unit) {
                 )
                 SettingsDivider()
                 SettingsSwitchRow(
+                    title = stringResource(R.string.settings_shop),
+                    subtitle = stringResource(R.string.settings_shop_hint),
+                    checked = Prefs.shopTools,
+                    onCheckedChange = { Prefs.saveShopTools(it) },
+                )
+                SettingsDivider()
+                SettingsSwitchRow(
                     title = stringResource(R.string.settings_glow),
                     subtitle = stringResource(R.string.settings_glow_hint),
                     checked = Prefs.thinkingGlow,

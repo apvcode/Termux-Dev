@@ -26,8 +26,8 @@ android {
         applicationId = "com.apvcode.devx"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.4.2"
+        versionCode = 9
+        versionName = "2.5.0"
         // Python (Chaquopy) comes for the two kinds of processor that matter: phones and the emulator.
         ndk { abiFilters += ((project.findProperty("abis") as String?) ?: "arm64-v8a,x86_64").split(",") }
     }
@@ -44,6 +44,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // `-PdevSuffix` builds a debug app that lives beside the real one (own data), for trying things on a phone that has the real app.
+            if (project.hasProperty("devSuffix")) applicationIdSuffix = ".dev"
+        }
         release {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = true

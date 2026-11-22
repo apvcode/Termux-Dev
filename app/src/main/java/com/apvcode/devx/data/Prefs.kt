@@ -63,6 +63,10 @@ object Prefs {
     var blur by mutableStateOf(true)
 
     var phoneTools by mutableStateOf(true)
+
+    /** Lets the assistant look at online shops (search, a product's description and reviews). On until switched off. */
+    var shopTools by mutableStateOf(true)
+        private set
     var twoGis by mutableStateOf(true)
 
     /** How fast the assistant speaks (1.0 is the voice's own speed) and the voice chosen by name (empty: the best one the phone has). */
@@ -134,6 +138,7 @@ object Prefs {
         workTools = p.getBoolean("workTools", true)
         terminal = p.getBoolean("terminal", true)
         phoneTools = p.getBoolean("phoneTools", true)
+        shopTools = p.getBoolean("shopTools", true)
         blur = p.getBoolean("blur", true)
         twoGis = p.getBoolean("twoGis", true)
         voiceRate = p.getFloat("voiceRate", 1.05f)
@@ -236,6 +241,11 @@ object Prefs {
     fun savePhoneTools(value: Boolean) {
         phoneTools = value
         store?.edit()?.putBoolean("phoneTools", value)?.apply()
+    }
+
+    fun saveShopTools(value: Boolean) {
+        shopTools = value
+        store?.edit()?.putBoolean("shopTools", value)?.apply()
     }
 
     fun saveGalleryTools(value: Boolean) {

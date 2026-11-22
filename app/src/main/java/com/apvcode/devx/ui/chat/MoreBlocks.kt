@@ -113,6 +113,7 @@ fun RichBlock(block: Block.Rich, modifier: Modifier = Modifier) {
         "link" -> LinkBlock(block.json, modifier)
         "mermaid" -> MermaidBlock(block.json, modifier)
         "apps" -> AppsBlock(block.json, modifier)
+        "shop" -> ShopBlock(block.json, modifier)
     }
 }
 

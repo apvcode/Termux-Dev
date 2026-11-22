@@ -382,6 +382,8 @@
     <string name="phone_timer_label">Таймер %1$s</string>
     <string name="settings_phone">Керування телефоном</string>
     <string name="settings_phone_hint">Дозволяє асистенту ставити будильники, таймери й нагадування, відкривати застосунки, шукати контакти, готувати дзвінок, повідомлення чи подію в календарі, вмикати ліхтарик, керувати музикою та гучністю. Дзвінки, повідомлення й події ніколи не надсилаються без вашого останнього дотику. Увімкнено за замовчуванням.</string>
+    <string name="settings_shop">Покупки</string>
+    <string name="settings_shop_hint">Дозволяє асистенту дивитися інтернет-магазини: Wildberries, Ozon, Яндекс Маркет, Avito, AliExpress, Amazon, eBay і Facebook Marketplace. Він шукає товар, читає опис і відгуки та порівнює ціни. Вхід в акаунти не потрібен. Якщо магазин показує перевірку на людину, асистент пробує інший шлях і каже, який магазин не відповів. За замовчуванням увімкнено.</string>
     <string name="tool_history">Шукаю в чатах</string>
     <string name="project_new">Новий проєкт</string>
     <string name="project_edit">Редагувати проєкт</string>
@@ -577,6 +579,11 @@
     <string name="mcp_about_cf">Документація Cloudflare.</string>
     <string name="mcp_about_svelte">Документація Svelte і допомога з кодом.</string>
     <string name="mcp_about_astro">Документація Astro.</string>
+    <string name="mcp_token_rknote">Токен RK Note</string>
+    <string name="mcp_about_rknote">Твій шкільний щоденник на цьому телефоні: розклад і дзвінки, особисті нотатки до ДЗ, щоденник. У RK Note увімкни «MCP-сервер» у налаштуваннях і скопіюй показаний там токен.</string>
+    <string name="mcp_rknote_off">RK Note не відповідає. Відкрий RK Note, увімкни «MCP-сервер» у його налаштуваннях і спробуй знову.</string>
+    <string name="mcp_rknote_pair">Отримати токен з RK Note</string>
+    <string name="mcp_rknote_missing">RK Note з MCP-сервером не встановлено, або версія надто стара.</string>
     <string name="mcp_ask_title">Дозволити %1$s?</string>
     <string name="mcp_ask_allow">Дозволити</string>
     <string name="mcp_ask_deny">Скасувати</string>
@@ -1077,6 +1084,7 @@
     <string name="dialog_delete_chats_text">Чатів піде в кошик: %1$d. Їх можна повернути звідти протягом 30 днів.</string>
     <string name="apps_failed">Магазин не відповів. Спробуйте ще раз за мить.</string>
     <string name="apps_open">Відкрити</string>
+    <string name="shop_store">Магазин</string>
     <string name="remote_plan_go_compact">Вперед і стиснути контекст</string>
     <string-array name="greetings">
         <item>Привіт, %1$s</item>
@@ -1153,6 +1161,12 @@
     <string name="library_attached">Файл прикріплено до нового чату</string>
     <string name="library_delete">Видалити всюди</string>
     <string name="library_delete_text">Файл буде видалено з бібліотеки, з чатів і з блокнотів. Це неможливо скасувати.</string>
+    <string name="library_select">Вибрати</string>
+    <string name="library_select_all">Вибрати все</string>
+    <string name="library_select_none">Зняти вибір</string>
+    <string name="library_selected">Вибрано: %1$d</string>
+    <string name="library_delete_selected">Видалити вибране</string>
+    <string name="library_delete_many_text">Вибрані файли (%1$d) буде видалено з бібліотеки, з чатів і з блокнотів. Це неможливо скасувати.</string>
     <string name="library_open_chat">Відкрити чат, де використовувався</string>
     <string name="library_where">Де використовувався</string>
     <string name="viewer_no_preview">Цей файл не можна показати тут.</string>

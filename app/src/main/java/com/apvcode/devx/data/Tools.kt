@@ -65,12 +65,13 @@ class Toolbox(
     private val images: ImageTools,
     private val phone: PhoneTools,
     private val notebook: NotebookTools,
+    private val shop: ShopTools,
 ) {
     init {
         attempt("tools") { PDFBoxResourceLoader.init(context.applicationContext) }
     }
 
-    fun definitions(files: List<Attachment>, webOn: Boolean, workOn: Boolean = false, terminalOn: Boolean = false, memoryOn: Boolean = false, inProject: Boolean = false, skillsOn: Boolean = false, phoneOn: Boolean = false, libraryOn: Boolean = false, studyOn: Boolean = false, notebookOn: Boolean = false, spaceOn: Boolean = false): List<WireTool> {
+    fun definitions(files: List<Attachment>, webOn: Boolean, workOn: Boolean = false, terminalOn: Boolean = false, memoryOn: Boolean = false, inProject: Boolean = false, skillsOn: Boolean = false, phoneOn: Boolean = false, libraryOn: Boolean = false, studyOn: Boolean = false, notebookOn: Boolean = false, spaceOn: Boolean = false, shopOn: Boolean = false): List<WireTool> {
         val out = ArrayList<WireTool>()
         if (files.isNotEmpty()) {
             out += tool("list_files", "List the files attached to this conversation, with their type and size (and the number of pages of a PDF).", schema())
@@ -117,6 +118,7 @@ class Toolbox(
             out += images.definitions(files)
         }
         if (webOn) out += web.definitions()
+        if (shopOn) out += shop.definitions()
         if (workOn || terminalOn) out += work.definitions(workOn, terminalOn)
         if (memoryOn) out += memory.definitions(inProject)
         if (skillsOn) out += skillTools.definitions(copyToo = workOn || terminalOn)
@@ -129,7 +131,7 @@ class Toolbox(
         if (out.isNotEmpty()) out += tool(
             "guide",
             "The exact format of the rich elements you can put in your answer. Call it before you use one for the first time in a conversation, and follow it.",
-            schema("topic" to str("cards (forms and quizzes), pictures (svg and mermaid), or blocks (map, image, chart, weather, timer, checklist, table, contact, link, apps)."), required = listOf("topic")),
+            schema("topic" to str("cards (forms and quizzes), pictures (svg and mermaid), or blocks (map, image, chart, weather, timer, checklist, table, contact, link, apps, shop)."), required = listOf("topic")),
         )
         return out
     }
@@ -140,6 +142,7 @@ class Toolbox(
             when (call.name) {
                 "guide" -> ToolOutcome(com.apvcode.devx.data.SystemPrompt.guide(args.optString("topic")))
                 "web_search", "open_url", "search_apps" -> web.run(call.name, args, report)
+                in shop.names -> shop.run(call.name, args, report)
                 in work.names -> work.run(call.name, args, chatId, report)
                 in memory.names -> memory.run(call.name, args, report, chatId, project)
                 in skillTools.names -> skillTools.run(call.name, args, chatId, report)

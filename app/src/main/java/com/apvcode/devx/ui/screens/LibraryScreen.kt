@@ -3,6 +3,7 @@ package com.apvcode.devx.ui.screens
 import android.graphics.Bitmap
 import android.text.format.DateFormat
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.spring
@@ -15,6 +16,15 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as rowItems
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -117,12 +127,24 @@ fun LibraryScreen(
     var deleting by remember { mutableStateOf<LibraryEntry?>(null) }
     var uses by remember { mutableStateOf<LibraryEntry?>(null) }
     var about by remember { mutableStateOf<LibraryEntry?>(null) }
+    // Choosing several files: tap to mark, then delete what is marked in one go.
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    var deletingMany by remember { mutableStateOf(false) }
     val all by remember { derivedStateOf { vm.library } }
     val shown = remember(all, query, filter) { Library.search(all.filter { filter.accepts(it) }, query) }
+    // Only what is on the screen counts: a file hidden by the search or the filter is never deleted by accident.
+    val chosen = remember(shown, selected) { shown.filter { it.id in selected } }
+    fun stopSelecting() { selecting = false; selected = emptySet() }
+    BackHandler(enabled = selecting) { stopSelecting() }
 
     Column(Modifier.fillMaxSize().background(DevxColors.Bg).statusBarsPadding()) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
             CircleIconButton(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.cd_back), onBack, Modifier.align(Alignment.CenterStart))
+            if (all.isNotEmpty()) Text(
+                stringResource(if (selecting) R.string.settings_cancel else R.string.library_select), style = DevxType.Caption.copy(fontWeight = FontWeight.Medium), color = DevxColors.TextPrimary,
+                modifier = Modifier.align(Alignment.CenterEnd).pressable(scaleTo = 0.95f, haptic = false) { if (selecting) stopSelecting() else selecting = true }.clip(CircleShape).background(DevxColors.Card).padding(horizontal = 18.dp, vertical = 11.dp),
+            )
         }
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(stringResource(R.string.library_title), style = DevxType.Large.copy(fontSize = 32.sp, lineHeight = 38.sp), color = DevxColors.TextPrimary)
@@ -138,13 +160,23 @@ fun LibraryScreen(
                     decorationBox = { inner -> Box { if (query.isEmpty()) Text(stringResource(R.string.library_search), style = DevxType.Body, color = DevxColors.TextSecondary); inner() } },
                 )
             }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Filter.entries.forEach { f ->
-                    val on = f == filter
+        }
+        Spacer(Modifier.height(14.dp))
+        // The chips run edge to edge and dissolve at the screen's sides instead of being cut off.
+        LazyRow(
+            Modifier.fillMaxWidth().fadeEdges(horizontal = true, length = 20.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            rowItems(Filter.entries) { f ->
+                val on = f == filter
+                Box(
+                    Modifier.height(38.dp).pressable(scaleTo = 0.95f, haptic = false) { filter = f }.clip(CircleShape)
+                        .background(if (on) DevxColors.Accent else DevxColors.Card).padding(horizontal = 18.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
-                        stringResource(f.label), style = DevxType.Caption.copy(fontWeight = FontWeight.Medium),
+                        stringResource(f.label), style = DevxType.Caption.copy(fontWeight = FontWeight.Medium), maxLines = 1,
                         color = if (on) DevxColors.OnAccent else DevxColors.TextSecondary,
-                        modifier = Modifier.pressable(scaleTo = 0.95f, haptic = false) { filter = f }.clip(CircleShape).background(if (on) DevxColors.Accent else DevxColors.Card).padding(horizontal = 16.dp, vertical = 9.dp),
                     )
                 }
             }
@@ -156,7 +188,7 @@ fun LibraryScreen(
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2), modifier = Modifier.weight(1f),
+                columns = GridCells.Fixed(2), modifier = Modifier.weight(1f).fadeEdges(horizontal = false, length = 16.dp),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 40.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -164,6 +196,9 @@ fun LibraryScreen(
                 items(shown, key = { it.id }) { e ->
                     LibraryCard(
                         e, vm, Modifier.animateItem(),
+                        selecting = selecting, selected = e.id in selected,
+                        onToggle = { selected = if (e.id in selected) selected - e.id else selected + e.id },
+                        onSelect = { selecting = true; selected = selected + e.id },
                         onOpen = { onOpen(e) },
                         onDownload = { fileOf(vm, e)?.let { f -> saveToDownloads(context, f, Artifact(e.id, e.name, e.realMime(), f.length())) } },
                         onWhere = { if (e.uses.size == 1) onOpenUse(e.uses.first()) else uses = e },
@@ -174,8 +209,36 @@ fun LibraryScreen(
                 }
             }
         }
+        if (selecting) Row(
+            Modifier.fillMaxWidth().background(DevxColors.Card).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.library_selected, chosen.size), style = DevxType.BodyStrong, color = DevxColors.TextPrimary, modifier = Modifier.weight(1f))
+            val everything = shown.isNotEmpty() && chosen.size == shown.size
+            Text(
+                stringResource(if (everything) R.string.library_select_none else R.string.library_select_all), style = DevxType.Caption.copy(fontWeight = FontWeight.Medium), color = DevxColors.TextPrimary,
+                modifier = Modifier.pressable(scaleTo = 0.95f, haptic = false) { selected = if (everything) selected - shown.map { it.id }.toSet() else selected + shown.map { it.id } }.clip(CircleShape).background(DevxColors.CardInner).padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+            Text(
+                stringResource(R.string.library_delete_selected), style = DevxType.Caption.copy(fontWeight = FontWeight.Medium), color = if (chosen.isEmpty()) DevxColors.TextDisabled else Color.White,
+                modifier = Modifier.pressable(scaleTo = 0.95f, haptic = false) { if (chosen.isNotEmpty()) deletingMany = true }.clip(CircleShape).background(if (chosen.isEmpty()) DevxColors.CardInner else DevxColors.Danger).padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
     }
 
+    if (deletingMany && chosen.isNotEmpty()) {
+        DevxDialog(stringResource(R.string.library_selected, chosen.size), onDismiss = { deletingMany = false }) {
+            Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(stringResource(R.string.library_delete_many_text, chosen.size), style = DevxType.Body, color = DevxColors.TextSecondary)
+                PillButton(stringResource(R.string.library_delete), container = DevxColors.Danger, content = Color.White, onClick = {
+                    chosen.forEach { vm.deleteLibraryEntry(it) }
+                    deletingMany = false
+                    stopSelecting()
+                })
+                PillButton(stringResource(R.string.settings_cancel), filled = false, onClick = { deletingMany = false })
+            }
+        }
+    }
     deleting?.let { e ->
         DevxDialog(e.name, onDismiss = { deleting = null }) {
             Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -209,11 +272,29 @@ fun LibraryScreen(
     }
 }
 
+/** Makes both ends of a scrolling strip dissolve into the background, so what scrolls past the edge is not cut by a hard line. */
+private fun Modifier.fadeEdges(horizontal: Boolean, length: androidx.compose.ui.unit.Dp): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val l = length.toPx()
+        val total = if (horizontal) size.width else size.height
+        if (total <= 2 * l) return@drawWithContent
+        val f = l / total
+        val mask = Brush.linearGradient(
+            0f to Color.Transparent, f to Color.Black, 1f - f to Color.Black, 1f to Color.Transparent,
+            start = androidx.compose.ui.geometry.Offset.Zero,
+            end = if (horizontal) androidx.compose.ui.geometry.Offset(size.width, 0f) else androidx.compose.ui.geometry.Offset(0f, size.height),
+        )
+        drawRect(mask, blendMode = BlendMode.DstIn)
+    }
+
 private fun fileOf(vm: ChatViewModel, e: LibraryEntry): File? = e.attachment?.let { vm.attachmentFile(it) } ?: e.artifact?.let { vm.artifactFile(it) }
 
 @Composable
 private fun LibraryCard(
     e: LibraryEntry, vm: ChatViewModel, modifier: Modifier,
+    selecting: Boolean, selected: Boolean, onToggle: () -> Unit, onSelect: () -> Unit,
     onOpen: () -> Unit, onDownload: () -> Unit, onWhere: () -> Unit, onAttach: () -> Unit, onAbout: () -> Unit, onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -223,7 +304,8 @@ private fun LibraryCard(
     AnimatedVisibility(visibleState = shown, enter = fadeIn(tween(240)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 420f), initialScale = 0.92f), modifier = modifier) {
         Box(Modifier.pressAnchor(press)) {
             Column(
-                Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false, onLongClick = { menu = true }, onClick = onOpen).clip(shape).background(DevxColors.Card),
+                Modifier.fillMaxWidth().pressable(scaleTo = 0.97f, haptic = false, onLongClick = { if (selecting) onToggle() else menu = true }, onClick = { if (selecting) onToggle() else onOpen() }).clip(shape).background(DevxColors.Card)
+                    .then(if (selected) Modifier.border(2.dp, DevxColors.Accent, shape) else Modifier),
             ) {
                 Box(Modifier.fillMaxWidth().aspectRatio(1.25f).background(DevxColors.CardInner), contentAlignment = Alignment.Center) {
                     LibraryThumb(e, vm)
@@ -231,7 +313,13 @@ private fun LibraryCard(
                         "${e.uses.size}", style = DevxType.Caption.copy(fontSize = 11.sp), color = DevxColors.TextPrimary,
                         modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 8.dp, vertical = 3.dp),
                     )
-                    if (e.origin == LibOrigin.Made) Icon(DevxIcons.Brain, null, tint = DevxColors.TextPrimary, modifier = Modifier.align(Alignment.TopStart).padding(8.dp).size(18.dp))
+                    if (selecting) Box(
+                        Modifier.align(Alignment.TopStart).padding(8.dp).size(24.dp).clip(CircleShape)
+                            .background(if (selected) DevxColors.Accent else Color.Black.copy(alpha = 0.45f))
+                            .border(1.5.dp, if (selected) DevxColors.Accent else Color.White.copy(alpha = 0.8f), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) { if (selected) Icon(DevxIcons.Check, null, tint = DevxColors.OnAccent, modifier = Modifier.size(15.dp)) }
+                    else if (e.origin == LibOrigin.Made) Icon(DevxIcons.Brain, null, tint = DevxColors.TextPrimary, modifier = Modifier.align(Alignment.TopStart).padding(8.dp).size(18.dp))
                 }
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(e.name, style = DevxType.BodyStrong.copy(fontSize = 14.sp, lineHeight = 19.sp), color = DevxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -245,6 +333,7 @@ private fun LibraryCard(
             }
             PopupMenu(expanded = menu, onDismiss = { menu = false }, offset = press.menuOffset()) {
                 MenuRow(DevxIcons.Eye, stringResource(R.string.source_open)) { menu = false; onOpen() }
+                MenuRow(DevxIcons.ListCheck, stringResource(R.string.library_select)) { menu = false; onSelect() }
                 MenuRow(Icons.Outlined.FileDownload, stringResource(R.string.art_download)) { menu = false; onDownload() }
                 if (e.uses.isNotEmpty()) MenuRow(DevxIcons.ChatSearch, stringResource(R.string.library_open_chat)) { menu = false; onWhere() }
                 if (e.attachment != null) MenuRow(DevxIcons.Paperclip, stringResource(R.string.library_attach)) { menu = false; onAttach() }

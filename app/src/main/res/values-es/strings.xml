@@ -382,6 +382,8 @@
     <string name="phone_timer_label">Temporizador %1$s</string>
     <string name="settings_phone">Control del teléfono</string>
     <string name="settings_phone_hint">Permite que el asistente ponga alarmas, temporizadores y recordatorios, abra apps, busque contactos, prepare una llamada, un mensaje o un evento de calendario, encienda la linterna y controle la música y el volumen. Las llamadas, los mensajes y los eventos nunca se envían sin tu último toque. Activado por defecto.</string>
+    <string name="settings_shop">Compras</string>
+    <string name="settings_shop_hint">Permite al asistente mirar tiendas en línea: Wildberries, Ozon, Yandex Market, Avito, AliExpress, Amazon, eBay y Facebook Marketplace. Busca un producto, lee la descripción y las reseñas y compara precios. No hace falta cuenta. Si una tienda muestra una verificación humana, el asistente prueba otro camino y dice qué tienda no respondió. Activado por defecto.</string>
     <string name="tool_history">Buscando en los chats</string>
     <string name="project_new">Proyecto nuevo</string>
     <string name="project_edit">Editar proyecto</string>
@@ -577,6 +579,11 @@
     <string name="mcp_about_cf">Documentación de Cloudflare.</string>
     <string name="mcp_about_svelte">Documentación de Svelte y ayuda con el código.</string>
     <string name="mcp_about_astro">Documentación de Astro.</string>
+    <string name="mcp_token_rknote">Token de RK Note</string>
+    <string name="mcp_about_rknote">Tu diario escolar en este teléfono: horario y timbres, tus notas de deberes, el diario. En RK Note activa «Servidor MCP» en los ajustes y copia el token que aparece allí.</string>
+    <string name="mcp_rknote_off">RK Note no responde. Abre RK Note, activa «Servidor MCP» en sus ajustes e inténtalo de nuevo.</string>
+    <string name="mcp_rknote_pair">Obtener el token de RK Note</string>
+    <string name="mcp_rknote_missing">RK Note con servidor MCP no está instalado o su versión es demasiado antigua.</string>
     <string name="mcp_ask_title">¿Permitir %1$s?</string>
     <string name="mcp_ask_allow">Permitir</string>
     <string name="mcp_ask_deny">Cancelar</string>
@@ -1077,6 +1084,7 @@
     <string name="dialog_delete_chats_text">%1$d chats irán a la papelera. Se pueden recuperar allí durante 30 días.</string>
     <string name="apps_failed">La tienda no respondió. Inténtalo de nuevo en un momento.</string>
     <string name="apps_open">Abrir</string>
+    <string name="shop_store">Tienda</string>
     <string name="remote_plan_go_compact">Adelante y compactar el contexto</string>
     <string-array name="greetings">
         <item>Hola, %1$s</item>
@@ -1153,6 +1161,12 @@
     <string name="library_attached">Archivo adjuntado a un chat nuevo</string>
     <string name="library_delete">Eliminar en todas partes</string>
     <string name="library_delete_text">El archivo se eliminará de la biblioteca, los chats y los cuadernos. No se puede deshacer.</string>
+    <string name="library_select">Seleccionar</string>
+    <string name="library_select_all">Seleccionar todo</string>
+    <string name="library_select_none">Quitar selección</string>
+    <string name="library_selected">%1$d seleccionados</string>
+    <string name="library_delete_selected">Eliminar selección</string>
+    <string name="library_delete_many_text">Los %1$d archivos seleccionados se eliminarán de la biblioteca, los chats y los cuadernos. No se puede deshacer.</string>
     <string name="library_open_chat">Abrir el chat donde se usó</string>
     <string name="library_where">Dónde se usó</string>
     <string name="viewer_no_preview">Este archivo no se puede mostrar aquí.</string>
