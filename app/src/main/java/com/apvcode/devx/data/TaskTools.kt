@@ -79,12 +79,13 @@ class TaskTools(private val context: Context) {
         return "#${t.id} \"${t.title}\" at %02d:%02d ${Tasks.daysText(t.days)}, model ${t.model?.model ?: "default"}, ${if (t.enabled) "on" else "off"}${next ?: ""}".format()
     }
 
-    /** A model's name (as the person says it) to the provider and model it belongs to. */
+    /** A model's name (as the person says it: the id, or the name typed in for a custom model) to the provider and model it belongs to. */
     private fun modelNamed(name: String): ModelRef? {
         val wanted = name.trim()
         if (wanted.isEmpty() || wanted.equals("default", true) || wanted.equals("current", true)) return null
         val providers = Store(context).loadProviders()
         providers.forEach { p -> p.models.firstOrNull { it.equals(wanted, true) }?.let { return ModelRef(p.id, it) } }
+        providers.forEach { p -> p.models.firstOrNull { p.displayName(it).equals(wanted, true) }?.let { return ModelRef(p.id, it) } }
         providers.forEach { p -> p.models.firstOrNull { it.contains(wanted, true) }?.let { return ModelRef(p.id, it) } }
         return null
     }

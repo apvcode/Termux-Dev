@@ -73,6 +73,7 @@ import com.apvcode.devx.data.resolveReasoning
 import com.apvcode.devx.data.ModelRef
 import com.apvcode.devx.data.Msg
 import com.apvcode.devx.data.Provider
+import com.apvcode.devx.data.CustomModel
 import com.apvcode.devx.data.Secrets
 import com.apvcode.devx.data.Store
 import com.apvcode.devx.data.Prefs
@@ -1498,8 +1499,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val lists = api.discoverModels(provider, secrets.get(id).orEmpty())
             val index = providers.indexOfFirst { it.id == id }
             if (index >= 0) {
-                providers[index] = providers[index].copy(
-                    models = lists.models,
+                val before = providers[index]
+                providers[index] = before.copy(
+                    models = (lists.models + before.customModels.map { it.id }).distinct(),
+                    listedModels = lists.models,
                     anthropicModels = lists.anthropicOnly,
                     reasoningInfo = lists.info,
                     modelsUpdatedAt = now(),
@@ -1515,6 +1518,29 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         } finally {
             refreshing.remove(id)
         }
+    }
+
+    // ---------- custom models ----------
+
+    /** Puts a model typed in by hand on a provider (it replaces one with the same id) and saves. */
+    fun saveCustomModel(providerId: String, model: CustomModel) {
+        val index = providers.indexOfFirst { it.id == providerId }
+        if (index < 0) return
+        val current = providers[index]
+        val custom = current.customModels.filter { it.id != model.id } + model
+        providers[index] = current.copy(customModels = custom, models = (current.listedModels + custom.map { it.id }).distinct())
+        saveProviders()
+    }
+
+    /** Forgets a model typed in by hand; the model stays in the list when the server offers it too. */
+    fun removeCustomModel(providerId: String, modelId: String) {
+        val index = providers.indexOfFirst { it.id == providerId }
+        if (index < 0) return
+        val current = providers[index]
+        val custom = current.customModels.filter { it.id != modelId }
+        providers[index] = current.copy(customModels = custom, models = (current.listedModels + custom.map { it.id }).distinct())
+        // The chats that used it keep their choice: the model may be typed in again one day.
+        saveProviders()
     }
 
     // ---------- generation ----------

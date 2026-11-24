@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.apvcode.devx.R
 import com.apvcode.devx.data.Level
 import com.apvcode.devx.data.ModelRef
+import com.apvcode.devx.data.displayName
 import com.apvcode.devx.ui.components.DevxIcons
 import com.apvcode.devx.ui.components.PillButton
 import com.apvcode.devx.ui.theme.DevxColors
@@ -119,7 +120,8 @@ fun ModelPicker(
                         }
                     }
                     vm.providers.forEach { provider ->
-                        val models = provider.models.filter { query.isBlank() || it.contains(query.trim(), ignoreCase = true) }
+                        val queryText = query.trim()
+                        val models = provider.models.filter { query.isBlank() || it.contains(queryText, ignoreCase = true) || provider.displayName(it).contains(queryText, ignoreCase = true) }
                         if (models.isNotEmpty()) {
                             item(key = "h-${provider.id}") {
                                 Text(
@@ -132,6 +134,7 @@ fun ModelPicker(
                             items(models, key = { "${provider.id}/$it" }) { model ->
                                 val ref = ModelRef(provider.id, model)
                                 val isSelected = if (onPick != null) selected == ref else vm.model == ref
+                                val shown = provider.displayName(model)
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
@@ -143,14 +146,18 @@ fun ModelPicker(
                                         .padding(horizontal = 8.dp, vertical = 14.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text(
-                                        model,
-                                        style = DevxType.Body,
-                                        color = DevxColors.TextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            shown,
+                                            style = DevxType.Body,
+                                            color = DevxColors.TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        if (shown != model) {
+                                            Text(model, style = DevxType.Caption, color = DevxColors.TextDisabled, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                    }
                                     if (model in provider.anthropicModels) {
                                         Text(
                                             stringResource(R.string.model_format_anthropic),

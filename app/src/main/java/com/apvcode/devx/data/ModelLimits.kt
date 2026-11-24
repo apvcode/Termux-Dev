@@ -5,8 +5,8 @@ import org.json.JSONObject
 import java.io.InputStream
 import java.util.Locale
 
-/** Where a context size comes from: the models.dev catalogue, devx's own table, a rule by the model's name, or a plain guess. */
-enum class LimitSource { Catalogue, Table, Rule, Default }
+/** Where a context size comes from: the models.dev catalogue, a number typed in by hand, devx's own table, a rule by the model's name, or a plain guess. */
+enum class LimitSource { Catalogue, Custom, Table, Rule, Default }
 
 class ContextLimit(val tokens: Int, val source: LimitSource) {
     /** True when the number is a guess and not what the maker says. */
@@ -15,7 +15,8 @@ class ContextLimit(val tokens: Int, val source: LimitSource) {
 
 /**
  * The context window of a model, found the way devx finds it: the models.dev catalogue first (the maker's own number),
- * then devx's table, then rules by the name, and only then 128k.
+ * then devx's table, then rules by the name, and only then 128k. A number typed in by hand for a custom model
+ * (see [CustomModel]) is checked before all of that.
  */
 object ModelLimits {
     @Volatile private var catalogue: Map<String, Int> = emptyMap()
@@ -36,6 +37,10 @@ object ModelLimits {
         table = t.keys().asSequence().associateWith { t.optInt(it) }.filterValues { it > 0 }
         loaded = true
     }
+
+    /** The context window of a model on a provider: a number typed in for it wins over every rule. */
+    fun of(provider: Provider, model: String): ContextLimit =
+        provider.customOf(model)?.context?.takeIf { it > 0 }?.let { ContextLimit(it, LimitSource.Custom) } ?: of(model)
 
     fun of(model: String): ContextLimit {
         catalogue[normalizeModelKey(model)]?.takeIf { it > 0 }?.let { return ContextLimit(it, LimitSource.Catalogue) }

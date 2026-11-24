@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -30,11 +31,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.apvcode.devx.R
+import com.apvcode.devx.data.CustomModel
 import com.apvcode.devx.data.ErrorKind
 import com.apvcode.devx.data.Provider
 import com.apvcode.devx.data.ProviderKind
 import com.apvcode.devx.data.formatFromBaseUrl
+import com.apvcode.devx.data.formatTokens
 import com.apvcode.devx.ui.chat.ChatViewModel
+import com.apvcode.devx.ui.components.ChoiceDialog
+import com.apvcode.devx.ui.components.DevxDialog
 import com.apvcode.devx.ui.components.DevxTextField
 import com.apvcode.devx.ui.components.PillButton
 import com.apvcode.devx.ui.components.ScreenScaffold
@@ -106,6 +111,8 @@ fun ProviderEditScreen(vm: ChatViewModel, providerId: String?, onBack: () -> Uni
     var key by remember { mutableStateOf("") }
     val refreshing = existing?.id?.let { vm.refreshing[it] } == true
     val failure = existing?.id?.let { vm.modelsError[it] }
+    /** The model typed in by hand that is being added or changed now. */
+    var editing by remember { mutableStateOf<CustomModel?>(null) }
 
     ScreenScaffold(
         title = stringResource(if (existing == null) R.string.provider_new else R.string.provider_edit),
@@ -171,6 +178,8 @@ fun ProviderEditScreen(vm: ChatViewModel, providerId: String?, onBack: () -> Uni
                             models = existing?.models.orEmpty(),
                             anthropicModels = existing?.anthropicModels.orEmpty(),
                             modelsUpdatedAt = existing?.modelsUpdatedAt ?: 0L,
+                            listedModels = existing?.listedModels.orEmpty(),
+                            customModels = existing?.customModels.orEmpty(),
                         ),
                         key.takeIf { it.isNotBlank() },
                     )
@@ -181,6 +190,7 @@ fun ProviderEditScreen(vm: ChatViewModel, providerId: String?, onBack: () -> Uni
         }
 
         if (existing != null) {
+            val custom = existing.customModels
             item { SectionLabel(stringResource(R.string.provider_models)) }
             item {
                 SettingsGroup {
@@ -198,12 +208,39 @@ fun ProviderEditScreen(vm: ChatViewModel, providerId: String?, onBack: () -> Uni
                         title = stringResource(R.string.provider_models),
                         value = existing.models.size.toString(),
                     )
+                    SettingsDivider()
+                    SettingsRow(
+                        title = stringResource(R.string.provider_model_add),
+                        icon = Icons.Outlined.Add,
+                        onClick = { editing = CustomModel(name = "", id = "") },
+                    )
                 }
             }
-            if (existing.models.isEmpty()) {
+            if (custom.isNotEmpty()) {
+                item { SectionLabel(stringResource(R.string.provider_models_custom)) }
+                item {
+                    SettingsGroup {
+                        custom.forEachIndexed { i, m ->
+                            if (i > 0) SettingsDivider()
+                            SettingsRow(
+                                title = m.name.ifBlank { m.id },
+                                subtitle = buildString {
+                                    append(m.id)
+                                    m.context?.let { append(" · ").append(stringResource(R.string.provider_model_context_value, formatTokens(it))) }
+                                    if (m.kind != null) append(" · ").append(stringResource(if (m.kind == ProviderKind.Anthropic) R.string.model_format_anthropic else R.string.model_format_openai))
+                                },
+                                showChevron = true,
+                                onClick = { editing = m },
+                            )
+                        }
+                    }
+                }
+            }
+            val listed = existing.listedModels
+            if (listed.isEmpty() && custom.isEmpty()) {
                 item { EmptyNote(stringResource(R.string.provider_models_empty)) }
-            } else {
-                items(existing.models, key = { it }) { model ->
+            } else if (listed.isNotEmpty()) {
+                items(listed, key = { it }) { model ->
                     Text(
                         model,
                         style = DevxType.Body,
@@ -228,6 +265,17 @@ fun ProviderEditScreen(vm: ChatViewModel, providerId: String?, onBack: () -> Uni
             }
         }
     }
+    val model = editing
+    if (existing != null && model != null) {
+        CustomModelDialog(
+            model = model,
+            onSave = { vm.saveCustomModel(existing.id, it); editing = null },
+            onDelete = if (model.id.isNotEmpty() && existing.customModels.any { it.id == model.id }) {
+                { vm.removeCustomModel(existing.id, model.id); editing = null }
+            } else null,
+            onDismiss = { editing = null },
+        )
+    }
 }
 
 @Composable
@@ -243,6 +291,65 @@ private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
         color = if (selected) DevxColors.OnAccent else DevxColors.TextPrimary,
         modifier = modifier,
     )
+}
+
+/**
+ * A model typed in by hand: the name shown, the id sent to the provider, and (optional) the context window and the format.
+ * [onDelete] is given when the model is already saved.
+ */
+@Composable
+private fun CustomModelDialog(model: CustomModel, onSave: (CustomModel) -> Unit, onDelete: (() -> Unit)?, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(model.name) }
+    var id by remember { mutableStateOf(model.id) }
+    var context by remember { mutableStateOf(model.context?.toString().orEmpty()) }
+    var kind by remember { mutableStateOf(model.kind) }
+    var pickKind by remember { mutableStateOf(false) }
+    // The id may not be empty; the context, when given, is a whole number of tokens.
+    val contextTokens = context.trim().toIntOrNull()
+    val ready = id.isNotBlank() && (context.isBlank() || (contextTokens != null && contextTokens > 0))
+    if (pickKind) {
+        ChoiceDialog(
+            title = stringResource(R.string.provider_model_format),
+            options = listOf(
+                null to stringResource(R.string.provider_model_format_auto),
+                ProviderKind.OpenAI to stringResource(R.string.model_format_openai),
+                ProviderKind.Anthropic to stringResource(R.string.model_format_anthropic),
+            ),
+            selected = kind,
+            onPick = { kind = it; pickKind = false },
+            onDismiss = { pickKind = false },
+        )
+    }
+    DevxDialog(stringResource(if (onDelete != null) R.string.provider_model_edit else R.string.provider_model_add), onDismiss) {
+        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            DevxTextField(stringResource(R.string.provider_model_name), name, { name = it }, placeholder = stringResource(R.string.provider_model_name_hint))
+            DevxTextField(stringResource(R.string.provider_model_id), id, { id = it.trim() }, placeholder = stringResource(R.string.provider_model_id_hint))
+            Text(stringResource(R.string.provider_model_id_note), style = DevxType.Caption, color = DevxColors.TextSecondary, modifier = Modifier.padding(start = 6.dp))
+            DevxTextField(
+                stringResource(R.string.provider_model_context), context, { context = it.filter { c -> c.isDigit() } },
+                placeholder = stringResource(R.string.provider_model_context_hint), keyboardType = KeyboardType.Number,
+            )
+            SettingsGroup {
+                SettingsRow(
+                    title = stringResource(R.string.provider_model_format),
+                    value = stringResource(
+                        when (kind) {
+                            null -> R.string.provider_model_format_auto
+                            ProviderKind.OpenAI -> R.string.model_format_openai
+                            ProviderKind.Anthropic -> R.string.model_format_anthropic
+                        },
+                    ),
+                    onClick = { pickKind = true },
+                )
+            }
+            PillButton(stringResource(R.string.provider_save), enabled = ready, modifier = Modifier.fillMaxWidth(), onClick = {
+                onSave(CustomModel(name = name.trim(), id = id.trim(), context = contextTokens, kind = kind))
+            })
+            if (onDelete != null) {
+                PillButton(stringResource(R.string.provider_model_delete), filled = false, modifier = Modifier.fillMaxWidth(), onClick = onDelete)
+            }
+        }
+    }
 }
 
 private fun hostOf(url: String): String = runCatching { URI(url.trim()).host }.getOrNull() ?: url

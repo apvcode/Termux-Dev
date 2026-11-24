@@ -13,6 +13,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 
+/** A model typed in by hand: the provider's list does not have it, or it has it under another name. */
+data class CustomModel(
+    /** The name shown in the lists. */
+    val name: String,
+    /** What is sent to the provider as the model id (for example "deepseek-flash"). */
+    val id: String,
+    /** The context window in tokens; null: found by the rules (the catalogue, the table, the name). */
+    val context: Int? = null,
+    /** null: the format is found by the rules. */
+    val kind: ProviderKind? = null,
+)
+
 enum class ProviderKind { OpenAI, Anthropic }
 
 /** The API key is not here: it lives encrypted in [Secrets]. */
@@ -28,7 +40,20 @@ data class Provider(
     /** What the provider's own model list says about reasoning, by model id. */
     val reasoningInfo: Map<String, ReasoningData> = emptyMap(),
     val modelsUpdatedAt: Long = 0L,
+    /** What the provider's own list said the last time it was asked; [models] is this and the custom models together. */
+    val listedModels: List<String> = emptyList(),
+    /** Models typed in by hand; their ids are added to [models] so that every list has them. */
+    val customModels: List<CustomModel> = emptyList(),
 )
+
+/** The models to show and to choose from: the provider's own list and the models typed in by hand, each once. */
+fun Provider.allModels(): List<String> = (listedModels + customModels.map { it.id }).distinct()
+
+/** The name shown for a model in the lists: the one typed in for a custom model, the id itself for the others. */
+fun Provider.displayName(model: String): String = customModels.firstOrNull { it.id == model }?.name?.takeIf { it.isNotBlank() } ?: model
+
+/** The custom model with this id, if one was typed in. */
+fun Provider.customOf(model: String): CustomModel? = customModels.firstOrNull { it.id == model }
 
 data class ModelRef(val providerId: String, val model: String)
 
@@ -220,17 +245,43 @@ fun Provider.toJson(): JSONObject = JSONObject()
     .put("id", id).put("name", name).put("kind", kind.name).put("baseUrl", baseUrl)
     .put("models", JSONArray(models)).put("anthropicModels", JSONArray(anthropicModels)).put("modelsUpdatedAt", modelsUpdatedAt)
     .put("reasoningInfo", JSONObject().also { o -> reasoningInfo.forEach { (k, v) -> o.put(k, v.toJson()) } })
+    .put("listedModels", JSONArray(listedModels))
+    .put("customModels", JSONArray().also { a -> customModels.forEach { a.put(it.toJson()) } })
 
-fun providerFromJson(o: JSONObject): Provider = Provider(
-    id = o.getString("id"),
-    name = o.getString("name"),
-    kind = runCatching { ProviderKind.valueOf(o.getString("kind")) }.getOrDefault(ProviderKind.OpenAI),
-    baseUrl = o.getString("baseUrl"),
-    models = o.optJSONArray("models")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
-    anthropicModels = o.optJSONArray("anthropicModels")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
-    reasoningInfo = o.optJSONObject("reasoningInfo")?.let { r -> r.keys().asSequence().associateWith { reasoningDataFromJson(r.getJSONObject(it)) } } ?: emptyMap(),
-    modelsUpdatedAt = o.optLong("modelsUpdatedAt"),
-)
+private fun CustomModel.toJson(): JSONObject = JSONObject()
+    .put("name", name).put("id", id)
+    .put("context", context ?: JSONObject.NULL)
+    .put("kind", kind?.name ?: JSONObject.NULL)
+
+private fun customModelFromJson(o: JSONObject): CustomModel? {
+    val id = o.optString("id").trim()
+    if (id.isEmpty()) return null
+    return CustomModel(
+        name = o.optString("name").trim(),
+        id = id,
+        context = if (o.isNull("context")) null else o.optInt("context").takeIf { it > 0 },
+        kind = o.optString("kind").takeIf { it.isNotBlank() }?.let { k -> runCatching { ProviderKind.valueOf(k) }.getOrNull() },
+    )
+}
+
+fun providerFromJson(o: JSONObject): Provider {
+    val models = o.optJSONArray("models")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
+    val customModels = o.optJSONArray("customModels")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let(::customModelFromJson) } } ?: emptyList()
+    return Provider(
+        id = o.getString("id"),
+        name = o.getString("name"),
+        kind = runCatching { ProviderKind.valueOf(o.getString("kind")) }.getOrDefault(ProviderKind.OpenAI),
+        baseUrl = o.getString("baseUrl"),
+        models = models,
+        anthropicModels = o.optJSONArray("anthropicModels")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+        reasoningInfo = o.optJSONObject("reasoningInfo")?.let { r -> r.keys().asSequence().associateWith { reasoningDataFromJson(r.getJSONObject(it)) } } ?: emptyMap(),
+        modelsUpdatedAt = o.optLong("modelsUpdatedAt"),
+        listedModels = o.optJSONArray("listedModels")?.let { a -> (0 until a.length()).map { a.getString(it) } }
+            // Older files have no separate list: everything that was not typed in came from the server.
+            ?: models.filterNot { m -> customModels.any { it.id == m } },
+        customModels = customModels,
+    )
+}
 
 fun Chat.toJson(): JSONObject = JSONObject()
     .put("id", id).put("title", title).put("project", project).put("projectId", projectId).put("createdAt", createdAt)

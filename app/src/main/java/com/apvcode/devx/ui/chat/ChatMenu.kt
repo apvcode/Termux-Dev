@@ -172,7 +172,11 @@ fun ChatMenuButton(chat: Chat, vm: ChatViewModel, actions: ChatMenuActions) {
                         val cutAt = chat.summaryUpTo?.let { id -> shown.indexOfFirst { it.id == id } } ?: -1
                         // A count from before a shortening no longer says how big the chat is.
                         val counted = shown.withIndex().lastOrNull { it.value.contextTokens > 0 && it.index > cutAt }?.value
-                        val limit = remember(chat.model) { chat.model?.model?.let { ModelLimits.of(it) } }
+                        val limit = remember(chat.model) {
+                            chat.model?.model?.let { m ->
+                                vm.providers.firstOrNull { it.id == chat.model?.providerId }?.let { ModelLimits.of(it, m) } ?: ModelLimits.of(m)
+                            }
+                        }
                         val used = counted?.contextTokens ?: estimate
                         if (limit != null && chat.messages.isNotEmpty()) {
                             // The place of the bar is kept from the first frame (the estimate comes a moment later), so the menu does not jump.

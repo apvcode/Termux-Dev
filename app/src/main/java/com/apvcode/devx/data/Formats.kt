@@ -46,6 +46,8 @@ fun shouldProbeFormats(provider: Provider): Boolean =
 fun formatOf(provider: Provider, model: String): ProviderKind {
     if (provider.kind == ProviderKind.Anthropic) return ProviderKind.Anthropic
     if (formatFromBaseUrl(provider.baseUrl) == ProviderKind.Anthropic) return ProviderKind.Anthropic
+    // A model typed in by hand may name its format: only the provider itself can overrule it.
+    provider.customOf(model)?.kind?.let { return it }
     if (provider.anthropicModels.isEmpty()) return ProviderKind.OpenAI
     val m = model.lowercase().trim()
     if (provider.anthropicModels.any { it.lowercase() == m }) return ProviderKind.Anthropic
