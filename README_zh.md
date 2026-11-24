@@ -307,7 +307,7 @@ devx remote service   # 随电脑启动（systemd / launchd / 启动文件夹）
 
 1. **你自己的配置**，位于 `~/.devxrc.json`（`reasoningProfiles`，见下文）。
 2. **端点本身。** OpenRouter 为每个模型列出推理元数据（接受哪些强度、能否关闭）；Ollama 会报告“thinking”能力；LiteLLM 和许多网关会在模型列表中加入标志。**自定义或第三方提供商只会被询问一次**：用你配置的密钥向*它自己的* base URL 发出几个小请求（`GET /models`，本机上还有 `POST /api/show`，LiteLLM 则是 `GET /model/info`）。答案在 `~/.devx/capabilities.json` 中缓存一天。大厂商（OpenAI、Anthropic、Google 等）不会被询问，它们的列表不包含推理信息。可在 `~/.devxrc.json` 中用 `"probeEndpoints": false` 关闭。
-3. **[models.dev](https://models.dev) 目录**：约 6900 个模型、297 家提供商的推理选项（强度、开关、token 预算）。devx 自带一份快照，因此默认不下载任何东西。`/effort refresh` 会把最新版本下载到 `~/.devx/` 并再次询问端点；这是 devx 唯一一次联系 models.dev，而且只是因为你运行了该命令。同一次下载也会刷新费用显示所用的价格（参见费用）。
+3. **[models.dev](https://models.dev) 目录**：约 1300 个模型、297 家提供商的推理选项（强度、开关、token 预算）。devx 自带一份快照，因此默认不下载任何东西。`/effort refresh` 会把最新版本下载到 `~/.devx/` 并再次询问端点；这是 devx 唯一一次联系 models.dev，而且只是因为你运行了该命令。同一次下载也会刷新费用显示所用的价格（参见费用）。
 4. **按模型名称的规则**，对来源未描述的一切的后备方案（见下表）。
 
 级别如何写入请求仍取决于你的 base URL 所用的 API，因此这一部分内置在 devx 中。
@@ -382,7 +382,7 @@ devx remote service   # 随电脑启动（systemd / launchd / 启动文件夹）
 | `$0.0123+` | 至少这么多：部分请求没有已知价格，未计入 |
 | `n/a` | 该模型没有已知价格 |
 
-价格按以下顺序查找，第一个了解该模型的来源胜出：服务商写入响应的费用（OpenRouter 的 `usage.cost`、LiteLLM）→ 你在 `~/.devxrc.json` 中自己的 `prices` → 端点自身的价格表（OpenRouter、LiteLLM）→ models.dev 目录（约 9700 个模型；devx 附带一份快照，`/effort refresh` 下载最新版）。缓存的输入令牌、缓存写入和长上下文档位，与各厂商一样分别计价。已发出但没有收到回答的请求（用 Ctrl+C 取消、连接丢失、慢速模型的网关超时），服务商通常仍会计费，而重试会再次发送整个对话：这样的请求也会被计入，作为估算值（`~`）。小的辅助任务（聊天标题、`/commit` 消息、`/compact` 摘要）使用模型提供的最轻推理级别运行，其费用也计入总额。找不到的模型绝不会显示为免费：只有 `:free` 模型和本地服务器才不收费。`/usage` 还会列出缓存的输入，以及有多少请求无法计价。
+价格按以下顺序查找，第一个了解该模型的来源胜出：服务商写入响应的费用（OpenRouter 的 `usage.cost`、LiteLLM）→ 你在 `~/.devxrc.json` 中自己的 `prices` → 端点自身的价格表（OpenRouter、LiteLLM）→ models.dev 目录（约 2100 个模型；devx 附带一份快照，`/effort refresh` 下载最新版）。缓存的输入令牌、缓存写入和长上下文档位，与各厂商一样分别计价。已发出但没有收到回答的请求（用 Ctrl+C 取消、连接丢失、慢速模型的网关超时），服务商通常仍会计费，而重试会再次发送整个对话：这样的请求也会被计入，作为估算值（`~`）。小的辅助任务（聊天标题、`/commit` 消息、`/compact` 摘要）使用模型提供的最轻推理级别运行，其费用也计入总额。找不到的模型绝不会显示为免费：只有 `:free` 模型和本地服务器才不收费。`/usage` 还会列出缓存的输入，以及有多少请求无法计价。
 
 ```json
 {
